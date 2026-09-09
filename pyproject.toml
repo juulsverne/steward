@@ -1,0 +1,50 @@
+[project]
+name = "agents-for-humans"
+version = "0.1.0"
+description = "An AI agent built with the Strands Agents SDK for the AWS Agents for Humans Hackathon"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+
+dependencies = [
+    "strands-agents>=1.0.0",
+    "strands-agents-tools>=0.2.0",
+    "boto3>=1.35.0",
+    "python-dotenv>=1.0.0",
+    "rich>=13.7.0",
+]
+
+[project.optional-dependencies]
+# Deploy path: Amazon Bedrock AgentCore (optional, but boosts the judging score)
+agentcore = [
+    "bedrock-agentcore",
+    "bedrock-agentcore-starter-toolkit",
+]
+# Optional web UI / live demo (a live demo link scores higher)
+web = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "ruff>=0.7.0",
+]
+
+[project.scripts]
+agent = "agent.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agent"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
