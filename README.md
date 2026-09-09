@@ -36,7 +36,7 @@ cp .env.example .env        # then edit .env
 aws configure --profile agents-for-humans
 
 # 3. Verify AWS + Bedrock access before you build anything
-powershell -ExecutionPolicy Bypass -File scriptspreflight.ps1
+powershell -ExecutionPolicy Bypass -File scripts\preflight.ps1
 ```
 
 ## Run
