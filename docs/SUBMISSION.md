@@ -33,9 +33,46 @@ Source: <https://agentsforhumans.devpost.com/rules>
 
 - [ ] **Live demo link** — explicitly scores higher on Technical Implementation
 - [ ] **Deploy with Amazon Bedrock AgentCore** — explicitly strengthens Technical Implementation
-- [ ] **builder.aws.com blog post** — up to **+0.6 points** for submissions advancing
-      to Stage Two. Use "Agents for Humans" in the title. Must be published publicly
-      before the deadline. More than one post allowed.
+- [ ] **builder.aws.com blog post(s)** — see the dedicated section below. Worth up
+      to **+0.6**, scored **0.2 per post**, so **three posts** maxes it out.
+
+## builder.aws blog post bonus (worth up to +0.6)
+
+Source: Official Rules, sections 5 and 6.
+
+**The scoring maths — this is the part that matters:**
+
+- **0.2 points per piece of content**, capped at **+0.6 total**.
+- So **three separate posts** is the maximum, not one long one. Plan three.
+- Base scores run 1–5, so the bonus lifts the ceiling to **5.6**. In a field where
+  the top entries cluster, 0.6 is a large margin.
+
+**Requirements:**
+
+- [ ] Published **publicly** on <https://builder.aws.com> (nowhere else counts)
+- [ ] Covers **your journey building and implementing AWS** for this hackathon
+- [ ] Uses **"Agents for Humans" in the title**
+- [ ] Published **before the submission deadline** (Sep 14, 5:00pm PDT)
+
+**Two caveats worth knowing:**
+
+1. **Only submissions that advance to Stage Two earn the bonus.** The post cannot
+   rescue a weak project — it is a multiplier on work that already scored well.
+   Build first, write second.
+2. **Hashtag vs. plain phrase.** The rules header states they were
+   *"Updated 8/12/26 to remove requirement of #AgentsforHumans in Blog Post Bonus
+   Submission items"*, but section 6 still reads *"Use hashtag Agents for Humans in
+   the title."* The safe move that satisfies both readings: put the plain phrase
+   **Agents for Humans** in the title.
+
+**Three-post plan (0.2 each):**
+
+- [ ] **Post 1 — the problem.** Who you built for and why it's worth automating.
+      Write this early; it doubles as your Devpost description and video script.
+- [ ] **Post 2 — the build.** Strands Agents architecture: your tools, the system
+      prompt, where a human stays in the loop. Feed this from `docs/ARCHITECTURE.md`.
+- [ ] **Post 3 — the deploy.** Bedrock model access, AgentCore, what broke and how
+      you fixed it. Write-ups of real failures read as credible.
 
 ## Rules worth not tripping over
 
@@ -43,6 +80,13 @@ Source: <https://agentsforhumans.devpost.com/rules>
   frameworks, libraries, starter templates, and AI coding assistants, but you must
   **disclose any pre-existing code**.
 - The project must actually install and run as depicted in the video.
+- **Judges must be able to access and test it.** The rules require "a link to a
+  website, functioning demo, or a test build", free of charge and unrestricted,
+  until judging ends. If anything is behind a login, you must supply credentials in
+  the testing instructions. A public repo with working setup instructions satisfies
+  the "test build" reading, but a hosted demo is the safer and better-scoring option.
+- Judges are **not obliged to run your code** — they may score on the description,
+  images, and video alone. Which is why the video carries so much weight.
 - One project can win only one prize.
 
 ## Judging criteria (weight your effort accordingly)
