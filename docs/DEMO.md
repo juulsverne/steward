@@ -2,15 +2,17 @@
 
 Status: specification; no steps verified yet. An acceptance run must retain an event trace, resulting state, and actual model/tool outputs. Deterministic unit tests or prerecorded events alone do not prove a live Strands run.
 
+Foundation checkpoint, September 12: `uv run python -m agent.foundation --db .steward/foundation.sqlite3` is now runnable. It verifies seeded 65/85 scoring with a database reopen and actual persisted events; it directly supplies fixture links/image/geocode metadata. It is **not** the acceptance demo and does not close any criterion below. Full image assets, live decisions, and financial/crew/operator behavior remain open.
+
 ## Sixteen acceptance criteria
 
 | # | Input/action | Required observable outcome |
 |---|---|---|
 | 1 | Feed signal with image and precise seeded/live geocode | Signal persisted and linked to candidate couch issue |
-| 2 | Steward investigates first signal | MONITORING; 65/70; explicit decision to wait; no dispatch |
-| 3 | Independent resident report arrives | Same issue corroborated; 85 points before service lookup |
-| 4 | Steward looks up public service record | Matching COMPLETED record shown with source mode and timestamps |
-| 5 | Newer physical evidence contradicts closure | Official status disputed event; issue remains unresolved |
+| 2 | Steward investigates first signal | 65/70; 311 lookup returns a COMPLETED record with source mode and timestamps; conflict recorded, 0 credited; MONITORING with an explicit wait and unlock conditions; no dispatch |
+| 3 | Independent resident report arrives | Same issue corroborated; 85 points |
+| 4 | Dispute confirmed | Two observations newer than the official completion; official-status-disputed event; service record credited; 100 |
+| 5 | Official closure and newer evidence shown together | Issue Detail shows completion time, observation times, and provenance side by side; issue remains unresolved |
 | 6 | Steward determines authority and builds plan | Demo district/category/budget policy permits supplemental cleanup; $72 contract quote |
 | 7 | Steward selects eligible approved provider | Job and budget reservation persisted once; simulated dispatch labeled |
 | 8 | Vendor accepts and checks in | ASSIGNED then CHECKED_IN with recorded location and before evidence |
@@ -33,6 +35,7 @@ A blocked payment attempt is deliberate evidence of policy enforcement. The deni
 - Insufficient budget, ineligible provider, and over-limit quote deny dispatch.
 - Retried events/payments do not duplicate effects; stale operator decisions fail without mutation; new completion uploads wait for a pending operator decision; official Completed alone never closes an issue.
 - Rework keeps the same quote/reservation; cancellation of an unpaid job releases its reservation once; payment followed by interrupted closure does not cause another payment on retry.
+- An OPEN 311 record on a lone signal makes it actionable at 80; a COMPLETED record alone never adds points; the persistence bonus is credited at most once per issue.
 
 ## Recording script — maximum 5 minutes
 

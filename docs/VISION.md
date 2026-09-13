@@ -2,6 +2,8 @@
 
 This preserves company direction. It is not a weekend backlog.
 
+The split: **public Steward OSS proves one complete resolution; a future private Steward platform serves real organizations.** The public demo includes everything needed to run its submitted behavior. The seven potential commercial layers below are future investment areas, not missing dependencies to hide behind the reference implementation.
+
 The eventual product is an autonomous operating layer for physical communities. A district supplies a geographic area, policy, budget, approved providers, and authority. Steward maintains that area through existing systems and surfaces decisions outside its authority or confidence.
 
 Signals may eventually come from residents, opt-in community channels, government systems, operators, crews, and authorized cameras/IoT/fleet sensors. They resolve into canonical physical issues, then evidence, jurisdiction, plans, providers, verification, and auditable spending. A resident can dispute an administratively completed issue. **Job closed does not equal problem resolved.**
@@ -13,6 +15,20 @@ The workforce path is staged: existing approved local businesses first; a workfo
 Future sensor thesis: **Flock detects. Steward resolves.** This concerns physical conditions rather than surveillance identities and depends on legitimate access and privacy governance. No integration this weekend.
 
 Potential commercial layers are signal fusion, jurisdiction graph, policy engine, resolution network, trust/verification, funding/procurement, and a resolution graph linking problem, place, evidence, authority, provider, cost, time, rework, and durable outcome. Value would come from operating data, relationships, contracts, provider capacity, and distribution, not merely the open-source agent loop.
+
+## Commercial layers and the public proof
+
+| Future layer | Customer problem to validate | Hackathon boundary |
+|---|---|---|
+| Signal fusion | Which observations refer to the same physical condition? | Two labeled independent couch reports and duplicate checks |
+| Jurisdiction graph | Who owns an asset and may authorize work? | Explicit demo district/category policy |
+| Policy engine | Which contracts, qualifications, budgets, and approvals apply? | Small deterministic configuration and mutation gates |
+| Resolution network | Who can reliably execute the work? | Three seeded approved providers |
+| Trust and verification | Which proof establishes a durable resolution? | Structured vision, consistency checks, human rework |
+| Funding and procurement | Which authorized funds can pay for which work? | Seeded budget, fixed quote, simulated settlement |
+| Resolution graph | Which interventions work over time? | Auditable history for one workflow; no learning or analytics engine |
+
+These are hypotheses to validate. Provider relationships, operating data, and distribution require real deployment; they are not established assets of this demo.
 
 ## Gates after Monday
 

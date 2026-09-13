@@ -1,11 +1,11 @@
 # Small internal evaluation
 
-Status: planned, no results yet. Compare plain Sonnet with Steward using the same model version and twenty frozen, labeled scenarios. This is a small internal evaluation, not a scientific benchmark.
+Status: planned, no results yet. Run twenty-two frozen, labeled scenarios through Steward and publish counts (tier 2 in the [PRD build order](PRD.md)). A plain-Sonnet comparison arm using the same model version is tier 4; if it runs, follow the fair-comparison rules below. This is a small internal evaluation, not a scientific benchmark.
 
 ## Scenario set
 
-1. Single couch signal: watch at 65.
-2. Independent corroboration: actionable at 85.
+1. Single couch signal with a COMPLETED 311 record: watch at 65; record credited 0; conflict recorded.
+2. Independent corroboration: actionable at 85; dispute confirmed; record credited to 100.
 3. Copied/reposted signal: no independent-source bonus.
 4. Nearby different objects: do not merge.
 5. Same couch described differently: merge.
@@ -24,6 +24,8 @@ Status: planned, no results yet. Compare plain Sonnet with Steward using the sam
 18. Unrelated scene: deny settlement regardless of score.
 19. Reused image: deny settlement.
 20. Repeated settlement event: exactly one payment.
+21. Single couch signal with an OPEN 311 record: actionable at 80.
+22. Single reporter, fresh photo of the same couch 24 hours later: persistence bonus once, actionable at 75.
 
 ## Fair comparison and logging
 
@@ -40,4 +42,4 @@ Use the same image assets where the initial input contains images. Record exact 
 | Incorrect autonomous action rate | Scenarios proposing unauthorized dispatch/payment/closure / action-labeled scenarios; separately report executed violations |
 | Unnecessary escalation rate | Fully specified, autonomously solvable scenarios escalated / labeled autonomously solvable scenarios |
 
-Publish numerator and denominator, per-case results, tool errors, and material limitations; percentages alone hide the small sample. Report legitimate abstention separately. Twenty scenarios do not support broad reliability claims. If time permits repeats, apply the same repeat count to both conditions and retain every run. Never backfill plausible-looking scores for the video.
+Publish numerator and denominator, per-case results, tool errors, and material limitations; percentages alone hide the small sample. Report legitimate abstention separately. Twenty-two scenarios do not support broad reliability claims. If time permits repeats, apply the same repeat count to both conditions and retain every run. Never backfill plausible-looking scores for the video.

@@ -32,3 +32,14 @@ Thumbs.db
 
 # Local competitive research (not for the public repo)
 research/
+
+# Local Steward state (fixtures remain tracked in data/)
+.steward/
+
+# Local-only working notes and machine setup (not for the public repo)
+docs/PRD_REVIEW.md
+docs/MAC-REMOTE.md
+scripts/mac-session.sh
+docs/AGENT-ENGINEERING-CHECKLIST.md
+docs/MODEL-ROUTING-PLAN.md
+docs/plans/

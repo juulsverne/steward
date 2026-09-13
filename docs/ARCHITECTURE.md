@@ -1,28 +1,38 @@
 # Steward architecture and implementation contract
 
-Status: **target design, not an implementation claim**. The repository currently contains a Strands/Bedrock terminal and FastAPI starter. Preserve `src/agent/` and extend it; a cosmetic directory migration has no value this weekend.
+Status: **target design with a partial foundation implemented September 12**. The repository contains a Strands/Bedrock terminal and FastAPI starter plus validated signals, pure evidence scoring, and SQLite issue/source/event persistence. The diagram and downstream tools remain the target, not a claim of a working full agent. Preserve `src/agent/` and extend it; a cosmetic directory migration has no value this weekend.
+
+Implemented foundation: `models.py`, `scoring.py`, `store.py`, and the explicitly offline `foundation.py` command. SQLite schema version 1 persists state and audit events in the same writer transaction. Source linking and supplied geocode/service-match facts update scores, not agent decisions or physical resolution. CANDIDATE remains until agent decision tools land. Identical signal retries have no additional effects and return current issue state; changed payloads or a second issue link conflict.
+
+The initial `data/policy.yaml` is a JSON-compatible YAML scoring manifest checked against the locked code rules, not the full dispatch configuration. Its provisional demo precision threshold is 30m; the harness seeds a 10m accuracy fact. Coordinate resolution, geographic authority, full job/ledger tables, actor event handlers, and model/tool traces belong to subsequent slices. Raw adapter facts in the store are not exposed as model-authoritative HTTP inputs. See [data provenance](../data/README.md).
 
 One Strands agent using Bedrock Sonnet chooses tools based on evidence and persisted context. API events start bounded invocations. Python code supplies facts and enforces permissions. SQLite is the V1 persistence default; no new cloud database is required for the couch proof.
 
 ```mermaid
 flowchart TD
-    UI[Board / Issue Detail / Inbox / Crew Form] --> API[FastAPI: validated events]
-    API --> DB[(SQLite: state, evidence, events)]
-    API --> A[One Strands Steward invocation]
-    A <--> B[Amazon Bedrock Sonnet]
-    A --> P[Perception and investigation tools]
-    P --> S[Signals / Chicago 311 or labeled fixture / geocoding]
-    P --> V[Bedrock structured image inspection]
-    P --> DB
-    A --> T[Action tools]
-    T --> G[Deterministic policy and verification gate]
-    G --> DB
-    DB --> UI
-    UI --> H[Operator decision event]
-    H --> API
+    subgraph AR[AWS App Runner container]
+        UI[React/Vite static: Board / Issue Detail / Inbox / Crew Form / Resident intake] --> API[FastAPI: validated events, policy at every mutation]
+        API --> DB[(SQLite: state, evidence, events, ledger)]
+        DB --> UI
+    end
+    API -->|InvokeAgentRuntime per reasoning-bearing event| A[Strands Steward agent on AgentCore Runtime]
+    A <--> B[Amazon Bedrock Sonnet + structured image inspection]
+    A -->|HTTP tools with service token: facts, policy results, gated mutations| API
+    A -.-> O[AgentCore Observability: CloudWatch traces]
+    A -.->|tier 3, after Runtime works| GW[AgentCore Gateway: MCP tools from the API's OpenAPI]
+    GW --> API
 ```
 
 Export the final, implementation-accurate diagram to `architecture.png` before submission. The Mermaid source is the editable diagram today.
+
+## Deployment topology
+
+- **App Runner container**: the FastAPI service owns SQLite, enforces policy at every mutation, serves the built `frontend/` (React/Vite) as static files, and exposes the tool endpoints the agent calls. SQLite resets on redeploy; the documented reset/seed command restores the demo dataset.
+- **AgentCore Runtime**: hosts the Strands agent. The API invokes it per reasoning-bearing event with the issue/job context; the agent's tools are HTTP clients of the API, authenticated with a service token. Locally the same agent runs against `localhost` (in-process or via `agentcore dev`), so there is one tool implementation.
+- **AgentCore Observability**: traces and metrics to CloudWatch; the live trace for the sixteen-step run is retained as evidence.
+- **AgentCore Gateway** (last in tier 3): an OpenAPI target against the App Runner service exposes the same operations as MCP tools. Tool names and schemas come from the FastAPI routes, so Gateway changes transport, not authority.
+
+Build order and gates are in [PRD.md](PRD.md) section 4.5 and [BUILD_PLAN.md](BUILD_PLAN.md).
 
 ## Boundaries
 
@@ -36,7 +46,7 @@ Tool calls return source facts, structured findings, or policy results. They do 
 |---|---|
 | `find_related_signals` | Candidate observations with identity/provenance and timestamps |
 | `geocode_location` | Coordinates, precision/distance facts, live/seeded label |
-| `search_311` | Matching records, official status, record times, source mode |
+| `search_311` | Matching records with status (OPEN, IN_PROGRESS, COMPLETED), record and completion times, source mode; one lookup per new signal, cached per issue |
 | `find_similar_issues` | Candidate canonical issues and supporting evidence |
 | `classify_issue` | Structured category proposal and observable supporting facts |
 | `determine_jurisdiction` | Responsibility proposal grounded in configured area/rules |
@@ -83,9 +93,14 @@ A rework submission returns to `PROOF_SUBMITTED`. V1 accepts new completion proo
 | Image evidence | 30 |
 | Independent sources | 20 each, capped at 40 |
 | Precise geocode within configured threshold | 15 |
-| Matching service record | 15 |
+| Matching service record | 15, per the service-record rule |
+| Condition persists | 10, once per issue |
 
-Maximum 100; under 70 WATCH, at least 70 ACTIONABLE. These are evidence points, never model probability percentages. Seed distinct source identities and record precision criteria in policy. A repeated photo/message cannot manufacture independent corroboration. Actionable does not mean authorized to dispatch.
+**Service-record rule.** `score_evidence` receives the matching record (status, completion time), not a boolean. OPEN or IN_PROGRESS credits 15 immediately. COMPLETED credits 0 and the store records a pending official conflict; once two independent observations newer than the completion time exist, the dispute is confirmed and 15 is credited. No match credits 0.
+
+**Persistence rule.** A signal from an author who already has an observation on the issue, carrying a new image observed at least 24 hours after that author's previous observation, credits 10 once per issue. It never counts as a second independent source.
+
+Under 70 WATCH, at least 70 ACTIONABLE. These are evidence points, never model probability percentages. Seed distinct source identities and record precision criteria in policy. A repeated photo/message cannot manufacture independent corroboration. Actionable does not mean authorized to dispatch.
 
 ## Policy contract
 

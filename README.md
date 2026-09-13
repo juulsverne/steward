@@ -8,25 +8,24 @@ Built for the **Good Neighbor Agents** track of the AWS Agents for Humans Hackat
 
 ## Status
 
-The canonical V1 plan is locked. This repository currently contains a generic Python Strands/Bedrock agent, terminal entrypoint, FastAPI/SSE endpoint, and starter tests. The Steward couch workflow, persistence, policy tools, vision verification, and operations UI are **not implemented yet**. Installed dependencies alone do not establish working AWS access.
+The hackathon scope is locked in [PRD.md](docs/PRD.md). This public **Steward OSS** reference implementation proves one couch resolution; the future private commercial platform is described separately in [VISION.md](docs/VISION.md).
+
+Implemented: the existing generic Strands/Bedrock terminal/API starter, plus a SQLite foundation for validated signals, explicit issue links, explainable evidence scores, and append-only audit events. The offline fixture command verifies persistence across connections and scores 65 then 85. The full Steward agent workflow, dispatch/payment policy tools, vision verification, and operations UI are **not implemented yet**. Installed dependencies alone do not establish working AWS access.
 
 The competition proof is one couch: wait at evidence score 65; corroborate at 85; dispute a completed service record when newer physical evidence disagrees; dispatch an authorized $72 cleanup; block payment at verification score 90; resume after operator-requested rework; verify at 100; simulate payment and resolve.
 
-## Locked build documents
+## Build documents
 
-- [Canonical V1 and exclusions](docs/STEWARD.md)
-- [Product requirements](docs/PRD.md)
-- [User models and permissions](docs/USER_MODELS.md)
-- [Agent behavior contract](docs/AGENT_CONTRACT.md)
-- [Architecture, data, tools, and policy contract](docs/ARCHITECTURE.md)
-- [Deadline build plan and gates](docs/BUILD_PLAN.md)
+- [Hackathon build spec: scope, actors, journey, agent behavior, requirements](docs/PRD.md)
+- [Architecture, data, tools, policy, and deployment contract](docs/ARCHITECTURE.md)
+- [Build plan, tiers, and gates](docs/BUILD_PLAN.md)
 - [Sixteen acceptance criteria and demo script](docs/DEMO.md)
 - [Internal evaluation protocol](docs/EVALUATION.md)
 - [Submission checklist](docs/SUBMISSION.md)
 - [Post-competition company vision](docs/VISION.md)
 - [Coding-agent instructions](AGENTS.md)
 
-Deadline: Monday, September 14, 2026 at **5 PM Pacific / 7 PM Chicago**. Internal submission target is two hours earlier. One Strands agent, Bedrock Sonnet, deterministic policy; AgentCore is optional after the core is stable.
+Deadline: Monday, September 14, 2026 at **5 PM Pacific / 7 PM Chicago**. Internal submission target is two hours earlier. One Strands agent, Bedrock Sonnet, deterministic policy. Build order: core proof through the API, then the React surfaces and evaluation, then AgentCore Runtime with App Runner hosting, then optional flags.
 
 ## Run the existing starter
 
@@ -54,18 +53,33 @@ uv run pytest
 uv run ruff check .
 ```
 
-These commands run the starter, not the planned Steward demo. Clean-install verification and demo reset/seed commands will be added as implementation lands.
+The agent/API commands still run the generic starter, not the planned Steward agent. Clean-install verification and full demo reset/seed commands remain open.
+
+## Run the offline foundation
+
+From the repository root, after installing the dependencies:
+
+```bash
+uv run python -m agent.foundation --db .steward/foundation.sqlite3
+```
+
+No AWS credentials are needed for this command. It prints **OFFLINE FOUNDATION CHECK**, stores the first report at 65 points, reopens SQLite, and adds an independent report to reach 85. The issue stays CANDIDATE: a score is not a fabricated agent decision. An existing destination is refused; use a fresh database filename to repeat.
+
+The image digest and geocode accuracy are **seeded metadata**, not actual photo analysis or live geocoding. See [fixture provenance and limitations](data/README.md). This harness does not satisfy the sixteen-step live-agent acceptance run.
+
+Verified September 12: `uv run --no-sync pytest -q` — **32 passed**; `uv run --no-sync ruff check .` — **All checks passed**. Tests include duplicate-source handling, early service-record scoring, restart/retry behavior, concurrent duplicate delivery, transaction rollback, immutable events, and protection against overwriting an existing database.
 
 ## Project layout
 
 ```text
-src/agent/       Existing Strands agent, configuration, CLI, API, tools
- tests/         Starter tests; extend with meaningful policy/workflow checks
- docs/          Locked specifications, acceptance, evaluation, submission
- scripts/       Existing environment/preflight helpers
+src/agent/      Strands starter plus models, scoring, SQLite store, offline harness
+tests/          Starter and foundation behavior checks
+data/           Labeled foundation fixtures and scoring-policy manifest
+docs/           Locked specifications, acceptance, evaluation, submission
+scripts/        Existing environment/preflight helpers
 ```
 
-Planned additions include models/policy/persistence under the existing Python package, `data/` fixtures, `evals/`, a small `web/` UI, and an exported architecture diagram. Do not rename the package merely to match a conceptual tree.
+Next additions include policy-gated jobs/reservations/settlement, real agent tools and vision, complete fixtures, `evals/`, a small UI, and an exported architecture diagram. Preserve the existing Python package layout.
 
 ## Demo boundaries and license
 
