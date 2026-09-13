@@ -43,3 +43,6 @@ scripts/mac-session.sh
 docs/AGENT-ENGINEERING-CHECKLIST.md
 docs/MODEL-ROUTING-PLAN.md
 docs/plans/
+
+# Subagent-driven-development scratch (ledger, briefs, review packages)
+.superpowers/

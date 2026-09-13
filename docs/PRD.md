@@ -86,7 +86,7 @@ Rate limits are not a concern at one lookup per signal. Open311 defaults to roug
 | No new hazard | 10 |
 | Area clear | 10 |
 
-Prerequisites before any score counts: target present in the before image, same scene, no image reuse, no unresolved unknown findings. Partial cleanup scores 90; complete cleanup scores 100.
+Prerequisites before any score counts: target present in the before image, same scene, no reuse of a prior completion photo (a perceptual match against previously submitted completion photos, never against the before image), no unresolved unknown findings. Partial cleanup scores 90; complete cleanup scores 100.
 
 ### 4.3 Surfaces
 

@@ -131,7 +131,7 @@ Bedrock returns nullable booleans `target_present_before`, `same_scene`, `target
 
 Maximum 100; automatic payment requires at least 95. Partial cleanup gives 90; complete cleanup gives 100.
 
-**Prerequisite gate:** target presence in before evidence and same scene must be true, required evidence present, no detected reuse, and no unresolved ambiguous findings. Scene mismatch/reused proof cannot pass merely by scoring 100. pHash detects reuse, not scene identity. V1 GPS/timestamp inputs are consistency checks, not production attestation. Missing, contradictory, or uncertain proof routes to manual review without settlement or resolution.
+**Prerequisite gate:** target presence in before evidence and same scene must be true, required evidence present, no detected reuse, and no unresolved ambiguous findings. Scene mismatch/reused proof cannot pass merely by scoring 100. Reuse means a perceptual-hash match between the new completion photo and previously submitted completion photos (this job and other jobs); the before photo is never in that comparison set, because a legitimate after photo of the same scene is expected to resemble it. Before-versus-after scene identity is the vision model's `same_scene` question, not a hash question. V1 GPS/timestamp inputs are consistency checks, not production attestation. Missing, contradictory, or uncertain proof routes to manual review without settlement or resolution.
 
 ## Resume and failure behavior
 
