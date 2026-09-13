@@ -14,6 +14,7 @@ dependencies = [
     "rich>=13.7.0",
     "pillow>=10.0.0",
     "pydantic>=2.0.0",
+    "httpx>=0.28.0",
 ]
 
 [project.optional-dependencies]
@@ -25,11 +26,13 @@ agentcore = [
 # Optional web UI / live demo (a live demo link scores higher)
 web = [
     "fastapi>=0.115.0",
+    "starlette>=0.45.0",
+    "python-multipart>=0.0.20",
     "itsdangerous>=2.2.0",
     "uvicorn[standard]>=0.32.0",
 ]
 dev = [
-    "httpx>=0.28.0",
+    "jsonschema>=4.0.0",
     "pytest>=8.0.0",
     "pytest-asyncio>=0.24.0",
     "ruff>=0.7.0",
@@ -52,3 +55,5 @@ target-version = "py311"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+pythonpath = ["tests"]
+addopts = ["-p", "offline_guard"]

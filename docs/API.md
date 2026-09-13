@@ -130,6 +130,64 @@ or OpenAPI examples. Tokens and human cookies cannot be mixed. Bearer requests w
 Origin header are rejected. Service cannot select a human persona or impersonate crew
 check-in/proof or operator decisions. Operators cannot dispatch, inspect, settle or close.
 
+## Agent HTTP tool transport (B10 Stage B)
+
+`agent.tools.build_steward_tool_session(TrustedTransport(...))` creates one async-closeable
+`InvocationToolSession` for one trusted runner invocation. `TrustedTransport` is supplied by
+the runner, not a model tool call: it holds the one validated API origin, service token and
+required saved invocation ID. The session owns exactly one HTTPX client and captures those
+values privately in domain `AgentTool` adapters. Its tool inputs contain only domain IDs,
+bounded proposals and observed revisions; they never accept an origin, token, actor,
+invocation ID, idempotency key, retry count, lease, fence or deadline.
+
+The package retains starter `agent.tools.TOOLS` for compatibility; the new session exposes
+25 domain tools, including the thirteen architecture tools. B11 will replace the starter
+consumer with `session.tools`. The registry covers investigation, planning, dispatch,
+completion inspection, settlement, closure, escalation, rework and narrow saved-state helpers.
+It intentionally has no generic URL/HTTP, browser, shell, filesystem, crew proof, human
+check-in or operator-choice tool. A tool parses raw JSON strictly before any lifecycle or HTTP
+action, rejects extra fields and nonfinite values, and preserves every API outcome with its
+reason, gates and event/evidence IDs. Saving an operational decision is still an intent, not
+an action.
+
+The client disables redirects and ambient proxies, verifies HTTPS and enforces finite
+connect/read/write/pool plus whole-attempt and absolute invocation deadlines. The defaults are
+20 seconds per attempt and 120 seconds per invocation; a trusted `deadline_at` can shorten the
+remaining invocation budget. It requests identity encoding and stops streaming at 256 KiB,
+rejecting compressed responses instead of decompressing an unbounded payload. Raw tool inputs
+are capped at 128 KiB, twelve nesting levels, 64 items per collection and 2,000 characters per
+string, with stricter identifier and shared DTO constraints. No error exposes a raw remote body.
+
+Tool name, OpenAPI operation ID, receipt operation and response DTO are explicit mappings.
+The API re-exports the exact `agent.http_protocol.OPERATION_IDS` registry. For example,
+`release_payment` maps to receipt operation `settle`; both escalation endpoints map to
+`escalate_to_operator`. Operational-intent headers derive the same issue/job revision from the
+typed basis. Intake inspection, rework, close and cancel send no body. All successful results
+use their operation's full shared DTO; typed denials and inspection errors remain observable.
+
+Each immutable logical command receives a compatible private key. Repeated calls/recovery
+preserve that key, original invocation, command and three-attempt allowance. A saved terminal
+result returns without HTTP. Only actual transient transport uncertainty or an inspection's
+live `503 ERROR / INSPECTION_IN_PROGRESS` can retry; terminal errors, malformed output and
+DENIED/NEEDS_REVIEW cannot. Separate legitimate calls with identical arguments retain separate
+identities. The private `session.recover(logical_request_id)` uses this same transport/parser.
+
+The async lifecycle has `prepare(call_ref, command) -> PreparedRequest`,
+`load(logical_request_id) -> PreparedRequest`, `begin_attempt(logical_request_id) -> AttemptPermit`
+and `finish_attempt(attempt_id, observation) -> CompletionAck`. Each attempt records its ordinal,
+HTTP status/request ID when available, latency, result and uncertainty; an attempted send is
+not proof of a commit. Failed acknowledgment preserves an unresolved observation and exposes a
+safe error, never an unacknowledged success. Cancellation retains uncertainty and uses at most
+50 ms of the remaining invocation budget for acknowledgment cleanup. No receipt ID or server
+fingerprint is invented from a client hash or event ID.
+
+Pass one `lifecycle_factory(client)` to attach B12's future coordinator to the same owned
+transport, or inject one lifecycle directly. `InMemoryRequestLifecycle` is the explicit Stage-B
+default and is **not restart durable**. B12 must require its durable implementation, enforce
+actual lease/fencing headers on the server and record durable traces; current optional permit
+fields do not claim those server controls exist. B11 still owns context refresh and agent
+execution. Test injection through `http_transport` supplies no second production client.
+
 ## Interfaces for the next cards
 
 `create_app(ApiSettings, store_factory=Store)` owns transport/request IDs and response
@@ -194,7 +252,7 @@ an error and does not produce an invented successful gate.
 required transport headers and typed response envelope. References and discriminator
 mappings resolve against named components. The accept, rework, cancel, close and intake
 inspection operations have no domain body; proof metadata remains a bounded JSON string
-within the multipart form. HTTP tool registration and durable retries remain Stage B/B12.
+within the multipart form. Stage B supplies HTTP registration; B12 owns durable retries.
 
 The HTTP result `OK / DECISION_SAVED` means only that the proposal and receipt were saved.
 An in-scope proposal that is currently ineligible still receives a saved decision with a
@@ -220,7 +278,7 @@ use B1's typed `ToolResult`; error bodies do not echo submitted values, SQL, tra
 | HTTP | Outcome |
 |---|---|
 | 200 (201/202 where explicitly committed and documented) | OK |
-| 200 | NEEDS_REVIEW |
+| 200 / 202 | NEEDS_REVIEW, including a saved exception awaiting the operator |
 | 401 / 403 / 409 | DENIED: credential / permission / revision, key or state conflict |
 | 404 | NOT_FOUND, including out-of-scope records |
 | 400 / 405 / 413 / 415 / 422 / 429 | ERROR; mixed credentials use DENIED at 400 |

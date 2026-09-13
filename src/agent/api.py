@@ -67,6 +67,7 @@ from .http_contracts import (
     ValidationView,
     VendorOptions,
 )
+from .http_protocol import OPERATION_IDS
 from .images import MAX_UPLOAD_BYTES, UploadError, decode_upload, known_synthetic_fixture
 from .intake import persist_signal, resident_signal
 from .investigation import (
@@ -107,47 +108,6 @@ ERROR_RESPONSES = {status: {"model": c.ToolResult[
     400, 401, 403, 404, 405, 409, 413, 415, 422, 429, 500, 503,
 )}
 MAX_MULTIPART_OVERHEAD = 64 * 1024
-
-# Stage B consumes these as protocol names, so every public operation is frozen
-# here rather than falling back to FastAPI's function-name generation.
-OPERATION_IDS = {
-    ("GET", "/health"): "health",
-    ("GET", "/api/demo/session"): "read_demo_session",
-    ("POST", "/api/demo/persona"): "select_demo_persona",
-    ("POST", "/api/signals"): "submit_signal",
-    ("GET", "/api/signals/related"): "find_related_signals",
-    ("GET", "/api/issues/similar"): "find_similar_issues",
-    ("POST", "/api/issues"): "create_issue_from_signal",
-    ("GET", "/api/jobs/{job_id}"): "read_job",
-    ("GET", "/api/budget"): "read_budget",
-    ("POST", "/api/issues/{issue_id}/plan"): "build_resolution_plan",
-    ("GET", "/api/plans/{plan_id}/vendors"): "list_eligible_vendors",
-    ("POST", "/api/plans/{plan_id}/dispatch"): "dispatch_vendor",
-    ("POST", "/api/jobs/{job_id}/accept"): "accept_job",
-    ("POST", "/api/jobs/{job_id}/check-in"): "check_in",
-    ("POST", "/api/jobs/{job_id}/proof"): "submit_proof",
-    ("POST", "/api/jobs/{job_id}/inspect"): "inspect_completion",
-    ("POST", "/api/jobs/{job_id}/settle"): "release_payment",
-    ("POST", "/api/jobs/{job_id}/cancel"): "cancel_job",
-    ("POST", "/api/issues/{issue_id}/close"): "close_issue",
-    ("POST", "/api/jobs/{job_id}/exceptions"): "escalate_completion_exception",
-    ("POST", "/api/issues/{issue_id}/exceptions"): "escalate_issue_exception",
-    ("GET", "/api/exceptions/{exception_id}"): "read_exception",
-    ("GET", "/api/issues/{issue_id}/exceptions"): "list_issue_exceptions",
-    ("POST", "/api/exceptions/{exception_id}/request-completion"): "request_completion",
-    ("POST", "/api/operator-decisions/{decision_id}/rework"): "request_rework",
-    ("POST", "/api/issues/{issue_id}/geocode"): "geocode_location",
-    ("POST", "/api/issues/{issue_id}/sources"): "link_signal",
-    ("POST", "/api/issues/{issue_id}/service-records/search"): "search_311",
-    ("POST", "/api/issues/{issue_id}/classification"): "classify_issue",
-    ("POST", "/api/issues/{issue_id}/jurisdiction"): "determine_jurisdiction",
-    ("POST", "/api/issues/{issue_id}/decisions"): "decide_issue",
-    ("POST", "/api/issues/{issue_id}/operational-decisions"): "decide_operational",
-    ("POST", "/api/issues/{issue_id}/investigation-action"): "apply_investigation_decision",
-    ("POST", "/api/issues/{issue_id}/official-dispute"): "official_dispute",
-    ("POST", "/api/signals/{signal_id}/intake-inspection"): "inspect_intake_photo",
-}
-
 
 def _openapi_request_schema(model: type[c.Record]) -> dict:
     """Use namespaced components for both refs and discriminator mappings.
