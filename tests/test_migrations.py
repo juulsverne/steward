@@ -72,8 +72,8 @@ def test_unversioned_unknown_database_is_not_blessed(tmp_path):
 
 def test_schema_version_three(tmp_path):
     with Store(tmp_path / "new.db") as store:
-        assert SCHEMA_VERSION == 4
-        assert store.db.execute("PRAGMA user_version").fetchone()[0] == 4
+        assert SCHEMA_VERSION == 5
+        assert store.db.execute("PRAGMA user_version").fetchone()[0] == 5
 
 
 def test_upgrade_copied_v1_preserves_bytes_relations_scores_and_sequence(tmp_path):
@@ -139,4 +139,4 @@ def test_concurrent_first_open_and_upgrade(tmp_path, legacy):
             return store.db.execute("PRAGMA user_version").fetchone()[0]
 
     with ThreadPoolExecutor(max_workers=4) as workers:
-        assert list(workers.map(open_store, range(8))) == [4] * 8
+        assert list(workers.map(open_store, range(8))) == [5] * 8

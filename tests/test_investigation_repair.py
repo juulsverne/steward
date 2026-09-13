@@ -523,7 +523,7 @@ def test_schema_three_attempt_bytes_survive_four_and_failed_upgrade_is_atomic(tm
         assert db.execute("PRAGMA user_version").fetchone()[0] == 3
         assert db.execute("SELECT record_json FROM intake_inspections").fetchone()[0] == raw
     with Store(path) as store:
-        assert store.db.execute("PRAGMA user_version").fetchone()[0] == 4
+        assert store.db.execute("PRAGMA user_version").fetchone()[0] == 5
         assert store.db.execute("SELECT record_json FROM intake_inspections").fetchone()[0] == raw
         assert store.get_intake_inspection(record.id).findings == record.findings
         assert store.find_intake_inspection(record.cache_key) is None  # missing full old basis is not qualified cache
@@ -613,6 +613,14 @@ def test_inspector_uses_frozen_model_profile_and_keeps_malformed_usage(tmp_path,
         assert saved.model_id == configured and saved.profile == "offline-profile-one"
         assert saved.metadata.usage.inputTokens == 12 and saved.metadata.request_id == "fake-receipt"
         assert saved.findings is None
+
+
+def test_intake_inspection_uses_ambient_profile_when_none_is_configured(monkeypatch):
+    monkeypatch.delenv("AWS_PROFILE", raising=False)
+    monkeypatch.delenv("AWS_DEFAULT_PROFILE", raising=False)
+    assert inv._inspection_profile() is None
+    monkeypatch.setenv("AWS_DEFAULT_PROFILE", "explicit-profile")
+    assert inv._inspection_profile() == "explicit-profile"
 
 
 def bound_b3_intake(store, tmp_path, name="cause-photo"):

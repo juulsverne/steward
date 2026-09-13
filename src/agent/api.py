@@ -58,6 +58,7 @@ from .operations import (
     build_resolution_plan,
     check_in,
     dispatch_vendor,
+    inspect_completion,
     list_eligible_vendors,
     submit_proof,
 )
@@ -87,6 +88,10 @@ class CheckinRequest(c.Record):
 class ProofMetadata(c.Record):
     before_observed_at: c.Timestamp | None = None
     after_observed_at: c.Timestamp | None = None
+
+
+class InspectCompletionRequest(c.Record):
+    submission_id: c.OpaqueId
 
 
 class IssueCreateRequest(c.Record):
@@ -463,7 +468,8 @@ def request_store(request: Request):
 
 
 def create_app(settings: ApiSettings | None = None,
-               *, store_factory: Callable = Store, adapters=None, intake_inspector=None) -> FastAPI:
+               *, store_factory: Callable = Store, adapters=None, intake_inspector=None,
+               completion_inspector=None) -> FastAPI:
     settings = settings or ApiSettings.from_env()
     personas = _validate_setup(settings)
     app = FastAPI(title="Steward demo sandbox", description=(
@@ -473,6 +479,7 @@ def create_app(settings: ApiSettings | None = None,
     app.state.store_factory = store_factory
     app.state.adapters = adapters or SeededAdapters()
     app.state.intake_inspector = intake_inspector
+    app.state.completion_inspector = completion_inspector
     app.state.sessions = DemoSessions(settings.session_secret, personas)
     app.state.cookie_name = "steward-demo-local" if settings.local_http else "__Host-steward-demo"
     app.state.allowed_origins = frozenset((settings.origin, *settings.development_origins))
@@ -895,6 +902,25 @@ def create_app(settings: ApiSettings | None = None,
         except (UploadError, ValueError):
             raise AccessError(422, "VALIDATION_ERROR") from None
         return result_response(result, status=202)
+
+    @app.post("/api/jobs/{job_id}/inspect", response_model=c.ToolResult[c.CompletionInspectionResult],
+              openapi_extra={"parameters": [{"name": name, "in": "header", "required": True,
+                  "schema": {"type": "string"}} for name in ("Idempotency-Key", "X-Steward-Expected-Revision")]})
+    async def inspect_job_completion(request: Request, job_id: str):
+        context = mutation_context(request, Action.INSPECT, expected_revision=expected_revision(request))
+        body = await parse_json_request(request, InspectCompletionRequest)
+        try:
+            def operation():
+                with request_store(request) as store:
+                    return inspect_completion(store, job_id=job_id, submission_id=body.submission_id,
+                        context=context, image_root=settings.image_root,
+                        inspector=app.state.completion_inspector)
+            result = await to_thread(operation)
+        except (IdempotencyConflict, RevisionConflict):
+            raise
+        except (KeyError, ValueError):
+            raise AccessError(422, "VALIDATION_ERROR") from None
+        return result_response(result, status=200 if result.outcome == "OK" else 503 if result.outcome == "ERROR" else None)
 
     @app.post("/api/issues/{issue_id}/geocode", response_model=c.ToolResult[c.EntityResult])
     async def geocode_issue(request: Request, issue_id: str):

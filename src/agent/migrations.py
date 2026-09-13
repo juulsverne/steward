@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 SCHEMA_1 = """
 CREATE TABLE issues (
@@ -264,6 +264,27 @@ def _upgrade_four(db: sqlite3.Connection) -> None:
                "(json_extract(record_json,'$.actor.actor_id'),operation,idempotency_key)")
 
 
+def _upgrade_five(db: sqlite3.Connection) -> None:
+    """B7 completion attempt journal; existing schema-4 JSON records stay byte-compatible."""
+    db.execute("""CREATE TABLE IF NOT EXISTS completion_inspection_attempts (
+        record_json TEXT NOT NULL, id TEXT PRIMARY KEY,
+        job_id TEXT NOT NULL, issue_id TEXT NOT NULL, submission_id TEXT NOT NULL,
+        cache_key TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('RUNNING','FINISHED','ABANDONED')),
+        FOREIGN KEY(job_id,issue_id) REFERENCES jobs(id,issue_id),
+        FOREIGN KEY(submission_id,job_id,issue_id) REFERENCES submissions(id,job_id,issue_id)
+    )""")
+    db.execute("CREATE UNIQUE INDEX IF NOT EXISTS completion_running_cache ON completion_inspection_attempts(cache_key) "
+               "WHERE status='RUNNING'")
+    db.execute("CREATE UNIQUE INDEX IF NOT EXISTS completion_attempt_request ON completion_inspection_attempts "
+               "(json_extract(record_json,'$.actor.actor_id'),json_extract(record_json,'$.operation'),"
+               "json_extract(record_json,'$.idempotency_key'))")
+    db.execute("CREATE INDEX IF NOT EXISTS completion_attempt_cache ON completion_inspection_attempts(cache_key)")
+    db.execute("""CREATE TABLE IF NOT EXISTS completion_inspection_observations (
+        record_json TEXT NOT NULL, id TEXT PRIMARY KEY,
+        attempt_id TEXT NOT NULL UNIQUE REFERENCES completion_inspection_attempts(id)
+    )""")
+
+
 def migrate(db: sqlite3.Connection) -> None:
     db.execute("PRAGMA foreign_keys=ON")
     db.execute("PRAGMA synchronous=FULL")
@@ -271,7 +292,7 @@ def migrate(db: sqlite3.Connection) -> None:
     with db:
         db.execute("BEGIN IMMEDIATE")
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version not in (0, 1, 2, 3, SCHEMA_VERSION):
+        if version not in (0, 1, 2, 3, 4, SCHEMA_VERSION):
             raise ValueError(f"unsupported database schema {version}")
         if version == 0:
             existing = db.execute("SELECT name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'")
@@ -284,11 +305,14 @@ def migrate(db: sqlite3.Connection) -> None:
             _upgrade_three(db)
         if version < 4:
             _upgrade_four(db)
+        if version < 5:
+            _upgrade_five(db)
         _seed_receipts(db)
         if db.execute("PRAGMA foreign_key_check").fetchone():
             raise ValueError("database schema contains foreign key violations")
         required = {"issues", "signals", "issue_sources", "events", "signal_receipts",
-                    "seed_receipts", "intake_inspection_claims", *TABLES, *FACT_TABLES}
+                    "seed_receipts", "intake_inspection_claims", "completion_inspection_attempts",
+                    "completion_inspection_observations", *TABLES, *FACT_TABLES}
         actual = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         if not required <= actual:
             raise ValueError("incomplete database schema")

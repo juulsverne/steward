@@ -1,12 +1,15 @@
-"""Policy-owning B5 operations. No model, adapter, crew action or payment runs here."""
+"""Policy-owning planning, dispatch, crew and bounded completion inspection operations."""
+import hashlib
+import json
+import math
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
 from . import contracts as c
 from .actors import AccessBoundary, Action
-from .images import ImageStorage, NormalizedImage, UploadError
+from .images import ImageStorage, NormalizedImage, UploadError, hamming
 from .intake import stable_id
 from .investigation import _validated_cause
 from .policy import (
@@ -19,6 +22,13 @@ from .policy import (
     vendor_eligibility,
 )
 from .store import IdempotencyConflict, RevisionConflict, Store, request_fingerprint
+from .verification import FINDING_FIELDS, PAYMENT_MIN, prerequisites_pass, verification_points
+from .vision import (
+    VisionOutputError,
+    VisionRequestBasis,
+    capture_request_basis,
+    inspect_pair_result,
+)
 
 
 class VendorOptions(c.Record):
@@ -38,6 +48,330 @@ class ProofImages:
     before_provenance: c.Provenance | None
     after_provenance: c.Provenance
     before_observed_supplied: bool = False
+
+
+COMPLETION_CLAIM_SECONDS = 120
+
+
+def _completion_basis(*, job: c.JobRecord, submission: c.SubmissionRecord, plan: c.PlanRecord,
+                      before: c.EvidenceRecord, after: c.EvidenceRecord,
+                      frozen: VisionRequestBasis | None = None) -> c.CompletionInspectionBasis:
+    frozen = frozen or capture_request_basis()
+    configuration = hashlib.sha256(json.dumps({"model": frozen.model_id, "region": frozen.region,
+        "profile": frozen.profile, "prompt": frozen.prompt_version, "schema": frozen.schema_version,
+        "request": frozen.request_version, "preprocessing": frozen.preprocessing_version}, sort_keys=True).encode()).hexdigest()[:16]
+    cache = hashlib.sha256(json.dumps({"before": before.image_sha256, "after": after.image_sha256,
+        "target": plan.primary_target, "scope": plan.scope, "work_area": plan.work_area,
+        "location": plan.dispatch_location.model_dump(mode="json") if plan.dispatch_location else None,
+        "model": frozen.model_id, "region": frozen.region, "profile": frozen.profile,
+        "prompt": frozen.prompt_version, "schema": frozen.schema_version,
+        "request": frozen.request_version, "preprocessing": frozen.preprocessing_version,
+        "configuration": configuration, "policy": plan.policy_version}, sort_keys=True).encode()).hexdigest()
+    if plan.primary_target is None or plan.dispatch_location is None:
+        raise ValueError("legacy plan lacks completion inspection basis")
+    return c.CompletionInspectionBasis(cache_key=cache, submission_id=submission.id, plan_id=plan.id,
+        before_evidence_id=before.id, after_evidence_id=after.id, before_sha256=before.image_sha256,
+        after_sha256=after.image_sha256, primary_target=plan.primary_target, scope=plan.scope,
+        work_area=plan.work_area, dispatch_location=plan.dispatch_location, model_id=frozen.model_id,
+        region=frozen.region, profile=frozen.profile, prompt_version=frozen.prompt_version,
+        schema_version=frozen.schema_version, request_version=frozen.request_version,
+        preprocessing_version=frozen.preprocessing_version, configuration_version=configuration,
+        policy_version=plan.policy_version, request_json=frozen.request_json)
+
+
+def _distance_m(a: c.LocationRecord, b: c.LocationRecord) -> float:
+    radius = 6_371_000.0
+    lat1, lat2 = math.radians(a.lat), math.radians(b.lat)
+    delta_lat, delta_lon = lat2 - lat1, math.radians(b.lon - a.lon)
+    value = math.sin(delta_lat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(delta_lon / 2) ** 2
+    return radius * 2 * math.asin(math.sqrt(value))
+
+
+def _completion_checks(store: Store, *, job: c.JobRecord, submission: c.SubmissionRecord,
+                       before: c.EvidenceRecord, after: c.EvidenceRecord,
+                       plan: c.PlanRecord) -> c.CompletionInspectionChecks:
+    distance = None
+    if job.checkin_location is not None and plan.dispatch_location is not None:
+        distance = _distance_m(job.checkin_location, plan.dispatch_location)
+    gps = (None if distance is None or job.checkin_location is None
+           or job.checkin_location.accuracy_m is None or plan.dispatch_location is None
+           or plan.dispatch_location.accuracy_m is None else distance <= 30)
+    ordered = (None if before.observed_at is None or after.observed_at is None
+               else after.observed_at > before.observed_at)
+    priors = store.prior_completion_submissions(submission.id)
+    prior_after = [store.get_evidence(item.after_evidence_id) for item in priors]
+    refs = []
+    unresolved_reuse = bool(prior_after and not after.perceptual_hash)
+    reuse = any(item.image_sha256 == after.image_sha256 for item in prior_after)
+    for prior, evidence in zip(priors, prior_after, strict=True):
+        distance_to_prior = None
+        if after.perceptual_hash and evidence.perceptual_hash:
+            distance_to_prior = hamming(after.perceptual_hash, evidence.perceptual_hash)
+            reuse = reuse or distance_to_prior <= 6
+        elif after.image_sha256 != evidence.image_sha256:
+            unresolved_reuse = True
+        refs.append(c.CompletionReference(submission_id=prior.id, job_id=prior.job_id,
+            after_evidence_id=evidence.id, image_sha256=evidence.image_sha256,
+            perceptual_hash=evidence.perceptual_hash, dhash_distance=distance_to_prior))
+    reuse_result = None if unresolved_reuse and not reuse else reuse
+    cutoff = store.proof_event_for_submission(submission.id).id
+    unmet = tuple(name if ok is False else f"{name}_unknown"
+        for name, ok in (("gps_within_30m", gps), ("after_later_than_before", ordered)) if ok is not True)
+    if reuse_result is not False:
+        unmet += ("image_reuse" if reuse_result is True else "image_reuse_unknown",)
+    return c.CompletionInspectionChecks(gps_within_30m=gps, after_later_than_before=ordered,
+        reuse_detected=reuse_result, distance_m=distance, checkin_location=job.checkin_location,
+        dispatch_location=plan.dispatch_location, before_observed_at=before.observed_at,
+        after_observed_at=after.observed_at, cutoff_event_id=cutoff, prior_completions=tuple(refs), unmet=unmet)
+
+
+def _completion_authorize(store: Store, context: c.MutationContext, job_id: str, submission_id: str):
+    if context.operation != Action.INSPECT.value or context.expected_revision is None:
+        raise ValueError("inspection requires service operation and expected job revision")
+    boundary = AccessBoundary(context.actor, "south_loop_demo")
+    boundary.require(Action.INSPECT)
+    job = boundary.require_job(store, job_id)
+    submission = store.get_submission(submission_id)
+    if submission.job_id != job.id or submission.issue_id != job.issue_id:
+        raise ValueError("submission does not belong to job")
+    _validated_cause(store, context, issue_id=job.issue_id, signal_id=None, job_id=job.id,
+                     submission_id=submission.id)
+    return job, submission
+
+
+def _completion_fingerprint(context: c.MutationContext, job_id: str, submission_id: str) -> str:
+    return request_fingerprint({"job_id": job_id, "submission_id": submission_id,
+        "expected_revision": context.expected_revision, "actor": context.actor.model_dump(mode="json"),
+        "invocation_id": context.invocation_id})
+
+
+def _inspection_metadata(answer: dict, basis: c.CompletionInspectionBasis, wall_time_ms: int,
+                         *, physical_count: int | None = 1) -> c.ModelRunMetadata:
+    return c.ModelRunMetadata(role="image", model_id=basis.model_id, vision_model_id=basis.model_id,
+        region=basis.region, prompt_version=basis.prompt_version, request_id=answer.get("request_id"),
+        usage=c.ModelUsage.model_validate(answer["usage"]) if answer.get("usage") else None,
+        metrics=c.ModelMetrics.model_validate(answer["metrics"]) if answer.get("metrics") else None,
+        attempt_count=physical_count or None, stop_reason=answer.get("stop_reason"), wall_time_ms=wall_time_ms)
+
+
+def _inspection_result(tx, context, fingerprint, attempt, *, outcome, reason=None, verification=None, event=None):
+    result = c.ToolResult[c.CompletionInspectionResult](outcome=outcome, reason_code=reason,
+        data=c.CompletionInspectionResult(record_id=verification.id if verification else attempt.id,
+            state_revision=verification.result_job_revision if verification else None,
+            attempt_id=attempt.id, job_id=attempt.job_id, submission_id=attempt.submission_id,
+            verification_id=verification.id if verification else None,
+            input_job_revision=verification.job_revision if verification else attempt.expected_revision,
+            findings=verification.findings if verification else None,
+            checks=verification.checks if verification else None,
+            prerequisites=verification.prerequisites if verification else (),
+            components=verification.components if verification else None,
+            total=sum(verification.components.model_dump().values()) if verification else None,
+            unmet=verification.unmet if verification else (), metadata=attempt.metadata,
+            cached_from_id=attempt.cached_from_id, physical_call_count=attempt.physical_call_count),
+        unmet=verification.unmet if verification else (),
+        evidence_ids=(attempt.basis.before_evidence_id, attempt.basis.after_evidence_id),
+        event_ids=(event.id,) if event else ())
+    tx.save_request(c.RequestReceipt(id=str(uuid4()), operation=context.operation, actor_id=context.actor.actor_id,
+        idempotency_key=context.idempotency_key, request_sha256=fingerprint, issue_id=attempt.issue_id,
+        job_id=attempt.job_id, invocation_id=context.invocation_id, created_at=datetime.now(UTC), result=result))
+    return result
+
+
+def _attempt_context(attempt: c.CompletionInspectionAttempt) -> c.MutationContext:
+    return c.MutationContext(actor=attempt.actor, operation=attempt.operation,
+        idempotency_key=attempt.idempotency_key, expected_revision=attempt.expected_revision,
+        invocation_id=attempt.invocation_id)
+
+
+def _inspection_event(tx, attempt, *, event_type, outcome, reason=None, verification=None):
+    return tx.append_event(c.NewEvent(issue_id=attempt.issue_id, job_id=attempt.job_id,
+        invocation_id=attempt.invocation_id, event_type=event_type, timestamp=datetime.now(UTC),
+        actor=attempt.actor, state_revision=tx.store.get_job(attempt.job_id).state_revision,
+        policy_version=attempt.basis.policy_version,
+        payload=c.EventFacts(summary="Completion proof inspected" if verification else "Completion inspection failed",
+            outcome=outcome, reason_code=reason, record_id=verification.id if verification else attempt.id,
+            submission_id=attempt.submission_id,
+            evidence_ids=(attempt.basis.before_evidence_id, attempt.basis.after_evidence_id),
+            unmet=verification.unmet if verification else (),
+            score_components=verification.components if verification else None,
+            gate_results=verification.prerequisites if verification else (), metadata=attempt.metadata)))
+
+
+def _finish_inspection_error(tx, attempt, reason, *, abandoned=False, metadata=None, physical_count=None):
+    final = attempt.model_copy(update={"status": "ABANDONED" if abandoned else "FINISHED",
+        "outcome": "ERROR", "error_code": reason, "metadata": metadata,
+        "physical_call_count": physical_count, "finished_at": datetime.now(UTC)})
+    tx.finish_completion_attempt(final)
+    event = _inspection_event(tx, final, event_type="COMPLETION_INSPECTION_FAILED", outcome="ERROR", reason=reason)
+    return _inspection_result(tx, _attempt_context(final), final.request_sha256, final,
+        outcome="ERROR", reason=reason, event=event)
+
+
+def _physical_basis(basis: c.CompletionInspectionBasis) -> VisionRequestBasis:
+    if basis.request_json is None:
+        raise ValueError("legacy attempt lacks frozen physical request")
+    frozen = VisionRequestBasis(model_id=basis.model_id, region=basis.region, profile=basis.profile,
+        request_json=basis.request_json, preprocessing_version=basis.preprocessing_version)
+    if (frozen.request_version, frozen.prompt_version, frozen.schema_version) != (
+            basis.request_version, basis.prompt_version, basis.schema_version):
+        raise ValueError("physical request identity mismatch")
+    return frozen
+
+
+def inspect_completion(store: Store, *, job_id: str, submission_id: str, context: c.MutationContext,
+                       image_root, inspector=None) -> c.ToolResult[c.CompletionInspectionResult]:
+    """Claim a frozen proof inspection, invoke once outside SQLite, then fence final state."""
+    _completion_authorize(store, context, job_id, submission_id)
+    fingerprint = _completion_fingerprint(context, job_id, submission_id)
+    with store.transaction() as tx:
+        job, submission = _completion_authorize(store, context, job_id, submission_id)
+        previous = tx.lookup_request(context, fingerprint)
+        if previous is not None:
+            return previous.result
+        existing = store.completion_attempt_for_request(context)
+        if existing is not None:
+            if existing.request_sha256 != fingerprint:
+                raise IdempotencyConflict("idempotency key payload conflict")
+            if existing.status == "RUNNING":
+                if existing.expires_at > datetime.now(UTC):
+                    return c.ToolResult(outcome="ERROR", reason_code="INSPECTION_IN_PROGRESS")
+                return _finish_inspection_error(tx, existing, "INSPECTION_INTERRUPTED", abandoned=True)
+            # Every terminal attempt is committed with its receipt. A legacy or
+            # corrupt row must never be silently reused under the same unique key.
+            raise ValueError("terminal inspection lacks its immutable receipt")
+        if context.expected_revision != job.state_revision:
+            raise RevisionConflict("stale job revision")
+        if job.status not in {"PROOF_SUBMITTED", "VERIFIED"} or job.latest_submission_id != submission.id:
+            raise RevisionConflict("submission is not current inspectable proof")
+        if store.open_completion_exception(job.id) is not None:
+            raise RevisionConflict("completion exception is open")
+        before, after = store.get_evidence(submission.before_evidence_id), store.get_evidence(submission.after_evidence_id)
+        plan = store.get_plan(job.plan_id)
+        basis = _completion_basis(job=job, submission=submission, plan=plan, before=before, after=after)
+        current_verification = store.current_verification(job.id)
+        if (current_verification is not None and current_verification.basis == basis
+                and current_verification.checks == _completion_checks(store, job=job, submission=submission,
+                    before=before, after=after, plan=plan)):
+            original = store.completion_result_receipt(current_verification.id)
+            tx.save_request(c.RequestReceipt(id=str(uuid4()), operation=context.operation,
+                actor_id=context.actor.actor_id, idempotency_key=context.idempotency_key,
+                request_sha256=fingerprint, issue_id=job.issue_id, job_id=job.id,
+                invocation_id=context.invocation_id, created_at=datetime.now(UTC), result=original.result))
+            return original.result
+        cached = store.cached_completion_attempt(basis.cache_key)
+        running = store.running_completion_attempt(basis.cache_key)
+        if running is not None:
+            if running.expires_at > datetime.now(UTC):
+                return c.ToolResult(outcome="ERROR", reason_code="INSPECTION_IN_PROGRESS")
+            _finish_inspection_error(tx, running, "INSPECTION_INTERRUPTED", abandoned=True)
+        now = datetime.now(UTC)
+        attempt = c.CompletionInspectionAttempt(id=str(uuid4()), actor=context.actor, operation=context.operation,
+            idempotency_key=context.idempotency_key, request_sha256=fingerprint, job_id=job.id, issue_id=job.issue_id,
+            submission_id=submission.id, cache_key=basis.cache_key, basis=basis, cached_from_id=cached.id if cached else None,
+            expected_revision=context.expected_revision, invocation_id=context.invocation_id,
+            started_at=now, expires_at=now + timedelta(seconds=COMPLETION_CLAIM_SECONDS))
+        tx.insert_completion_attempt(attempt)
+
+    answer, metadata, findings, error_code = None, None, None, None
+    invoked, physical_count = False, 0
+    started = datetime.now(UTC)
+    try:
+        before_bytes, after_bytes = ImageStorage(image_root).open(before.image_ref), ImageStorage(image_root).open(after.image_ref)
+        for raw, record in ((before_bytes, before), (after_bytes, after)):
+            if hashlib.sha256(raw).hexdigest() != record.image_sha256 or len(raw) != record.size_bytes:
+                raise ValueError("STORED_IMAGE_MISMATCH")
+        if cached is not None:
+            answer = {"findings": cached.findings.model_dump(), "usage": None, "metrics": None,
+                      "request_id": None, "stop_reason": "cached"}
+        else:
+            physical_basis = _physical_basis(basis)
+            invoked, physical_count = True, None
+            answer = (inspect_pair_result(before_bytes, after_bytes, target=basis.primary_target,
+                scope=basis.scope, work_area=basis.work_area, basis=physical_basis) if inspector is None
+                else inspector(before_bytes, after_bytes, basis))
+            physical_count = 1
+        metadata = _inspection_metadata(answer, basis, int((datetime.now(UTC) - started).total_seconds() * 1000),
+                                        physical_count=physical_count)
+        findings = c.VisionFindings.model_validate(answer.get("findings", answer))
+    except VisionOutputError as exc:
+        physical_count = 1
+        metadata = _inspection_metadata(exc.inspection, basis,
+            int((datetime.now(UTC) - started).total_seconds() * 1000))
+        error_code = "INVALID_MODEL_OUTPUT"
+    except Exception as exc:  # noqa: BLE001 - no-result failures remain attempts only
+        error_code = "STORED_IMAGE_MISMATCH" if str(exc) == "STORED_IMAGE_MISMATCH" else (
+            "INVALID_MODEL_OUTPUT" if isinstance(exc, (ValueError, TypeError)) else "INSPECTION_FAILED")
+
+    if invoked:
+        # A result-installation rollback must not erase an observed physical call.
+        # This independent immutable record never grants cache or job authority.
+        with store.transaction() as tx:
+            tx.insert_completion_observation(c.CompletionInspectionObservation(id=str(uuid4()),
+                attempt_id=attempt.id, metadata=metadata, findings=findings, error_code=error_code,
+                observed_at=datetime.now(UTC)))
+
+    with store.transaction() as tx:
+        current = store.get_completion_attempt(attempt.id)
+        if current.status != "RUNNING" or current.expires_at <= datetime.now(UTC):
+            if current.status == "RUNNING":
+                return _finish_inspection_error(tx, current, "INSPECTION_FENCED", abandoned=True,
+                    metadata=metadata, physical_count=physical_count)
+            # Another request already terminalized this owner. Retain that exact
+            # receipt and the separately recorded observation; never rewrite it.
+            return tx.lookup_request(context, fingerprint).result
+        try:
+            job, submission = _completion_authorize(store, context, job_id, submission_id)
+        except (ValueError, KeyError):
+            return _finish_inspection_error(tx, current, "INSPECTION_CAUSE_CHANGED",
+                metadata=metadata, physical_count=physical_count)
+        if (job.state_revision != context.expected_revision or job.latest_submission_id != submission.id
+                or job.status not in {"PROOF_SUBMITTED", "VERIFIED"}):
+            return _finish_inspection_error(tx, current, "STALE_PROOF", metadata=metadata,
+                                            physical_count=physical_count)
+        if store.open_completion_exception(job.id) is not None:
+            return _finish_inspection_error(tx, current, "COMPLETION_EXCEPTION_OPEN", metadata=metadata,
+                                            physical_count=physical_count)
+        if error_code is not None:
+            return _finish_inspection_error(tx, current, error_code, metadata=metadata,
+                                            physical_count=physical_count)
+        before, after = store.get_evidence(submission.before_evidence_id), store.get_evidence(submission.after_evidence_id)
+        plan = store.get_plan(job.plan_id)
+        if _completion_basis(job=job, submission=submission, before=before, after=after, plan=plan,
+                             frozen=_physical_basis(basis)) != basis:
+            return _finish_inspection_error(tx, current, "INSPECTION_BASIS_CHANGED", metadata=metadata,
+                                            physical_count=physical_count)
+        checks = _completion_checks(store, job=job, submission=submission, before=before, after=after, plan=plan)
+        prerequisites, finding_unmet = prerequisites_pass(findings, reuse_detected=checks.reuse_detected is True)
+        if checks.reuse_detected is None:
+            prerequisites = False
+            finding_unmet.append("image_reuse_unknown")
+        components = c.VerificationComponents(**verification_points(findings, gps_within_30m=checks.gps_within_30m is True,
+            after_later_than_before=checks.after_later_than_before is True))
+        unmet = tuple(dict.fromkeys((*checks.unmet, *finding_unmet,
+            *(name for name in FINDING_FIELDS if getattr(findings, name) is not True))))
+        total = sum(components.model_dump().values())
+        next_revision = job.state_revision + 1
+        verification = c.VerificationRecord(id=str(uuid4()), issue_id=job.issue_id, job_id=job.id,
+            submission_id=submission.id, findings=findings, components=components,
+            prerequisites=(c.GateRecord(name="completion_prerequisites", allowed=prerequisites,
+                                       unmet=tuple(finding_unmet)),
+                c.GateRecord(name="verification_score_min_95", allowed=total >= PAYMENT_MIN,
+                             unmet=("verification_score_below_95",) if total < PAYMENT_MIN else ())),
+            unmet=unmet, policy_version=basis.policy_version, metadata=metadata, inspected_at=datetime.now(UTC),
+            job_revision=job.state_revision, result_job_revision=next_revision, basis=basis, checks=checks,
+            attempt_id=current.id)
+        final = current.model_copy(update={"status": "FINISHED", "outcome": "SUCCESS", "findings": findings,
+            "metadata": metadata, "physical_call_count": physical_count,
+            "cache_eligible": cached is None, "finished_at": datetime.now(UTC)})
+        tx.finish_completion_attempt(final)
+        tx.insert_verification(verification)
+        accepted = prerequisites and total >= PAYMENT_MIN
+        job = job.model_copy(update={"status": "VERIFIED" if accepted else "PROOF_SUBMITTED",
+            "current_verification_id": verification.id, "state_revision": next_revision})
+        tx.replace_job(job, context.expected_revision)
+        event = _inspection_event(tx, final, event_type="COMPLETION_INSPECTED", outcome="OK",
+                                  verification=verification)
+        return _inspection_result(tx, context, fingerprint, final, outcome="OK", verification=verification, event=event)
 
 
 def _authorize(store, context, policy, action, issue_id):

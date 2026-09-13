@@ -49,7 +49,8 @@ def stable_id(kind: str, *parts: str) -> str:
 
 
 def _validated_cause(store: Store, context: c.MutationContext, *,
-                     issue_id: str | None, signal_id: str | None) -> c.EventRecord | None:
+                     issue_id: str | None, signal_id: str | None, job_id: str | None = None,
+                     submission_id: str | None = None) -> c.EventRecord | None:
     """Resolve the immutable intake cause through its saved canonical association.
 
     Invocation binding is trusted persisted state, not inferred or written here. A B3
@@ -60,8 +61,16 @@ def _validated_cause(store: Store, context: c.MutationContext, *,
     invocation = store.get_invocation(context.invocation_id)
     trigger = store.get_event(invocation.trigger_event_id)
     if (trigger.event_type != invocation.trigger_type or trigger.signal_id != invocation.signal_id
-            or trigger.policy_version != invocation.policy_version):
+            or trigger.policy_version != invocation.policy_version
+            or trigger.job_id != invocation.job_id):
         raise ValueError("invocation cause identity is inconsistent")
+    if job_id is not None and invocation.job_id is not None and invocation.job_id != job_id:
+        raise ValueError("invocation cause does not belong to job")
+    if job_id is not None and trigger.job_id is not None and trigger.job_id != job_id:
+        raise ValueError("trigger cause does not belong to job")
+    if (trigger.event_type == "PROOF_SUBMITTED" and submission_id is not None
+            and trigger.payload.submission_id != submission_id):
+        raise ValueError("proof invocation does not name requested submission")
     linked = store.issue_for_signal(signal_id) if signal_id is not None else None
     target_issue = issue_id if issue_id is not None else linked.id if linked is not None else None
     if invocation.issue_id != target_issue:
@@ -585,15 +594,18 @@ def _inspection_basis(image):
 
 
 def _inspection_profile():
-    return os.getenv("AWS_PROFILE") or os.getenv("AWS_DEFAULT_PROFILE") or "default"
+    # Preserve no named profile as ambient credentials for IAM-role hosts.
+    return os.getenv("AWS_PROFILE") or os.getenv("AWS_DEFAULT_PROFILE")
 
 
 def default_intake_inspector(image: bytes, *, basis: c.IntakeInspectionBasis) -> dict:
     """One frozen configured request; SDK retries are disabled for honest attempt accounting."""
-    import boto3
     from botocore.config import Config
 
-    client = boto3.Session(profile_name=basis.profile).client("bedrock-runtime", region_name=basis.region,
+    from .aws_session import frozen_boto3_session
+
+    session = frozen_boto3_session(basis.profile)
+    client = session.client("bedrock-runtime", region_name=basis.region,
         config=Config(connect_timeout=10, read_timeout=90, retries={"total_max_attempts": 1}))
     request = json.loads(json.dumps(INTAKE_REQUEST_TEMPLATE))
     request["messages"][0]["content"][0]["image"]["source"]["bytes"] = image

@@ -450,7 +450,7 @@ def test_actual_server_exposes_only_sandbox_routes_with_explicit_setup(config, m
             "/api/issues/{issue_id}/plan", "/api/plans/{plan_id}/vendors",
             "/api/plans/{plan_id}/dispatch", "/api/jobs/{job_id}",
             "/api/jobs/{job_id}/accept", "/api/jobs/{job_id}/check-in",
-            "/api/jobs/{job_id}/proof", "/api/budget",
+            "/api/jobs/{job_id}/proof", "/api/jobs/{job_id}/inspect", "/api/budget",
             }
         schema = paths["/api/demo/persona"]["post"]["requestBody"]["content"]
         assert schema["application/json"]["schema"]["additionalProperties"] is False

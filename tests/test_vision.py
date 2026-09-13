@@ -1,9 +1,16 @@
 import io
+import sys
+import types
 
 import pytest
 from PIL import Image
 
-from agent.vision import VisionOutputError, inspect_pair_result
+from agent.vision import (
+    VisionOutputError,
+    VisionRequestBasis,
+    build_vision_client,
+    inspect_pair_result,
+)
 
 
 def jpeg():
@@ -69,3 +76,33 @@ def test_invalid_image_does_not_call_bedrock():
     with pytest.raises(ValueError):
         inspect_pair_result(b"", jpeg(), target="couch", work_area="sidewalk", client=client)
     assert client.calls == []
+
+
+def test_frozen_profile_keeps_ambient_credentials_distinct_from_named_profile(monkeypatch):
+    sessions, configs = [], []
+
+    class Session:
+        def __init__(self, **kwargs):
+            sessions.append(kwargs)
+
+        def client(self, *_args, **_kwargs):
+            return object()
+
+    boto3 = types.ModuleType("boto3")
+    boto3.Session = Session
+    config = types.ModuleType("botocore.config")
+    config.Config = lambda **kwargs: configs.append(kwargs) or kwargs
+    monkeypatch.setitem(sys.modules, "boto3", boto3)
+    monkeypatch.setitem(sys.modules, "botocore.config", config)
+
+    build_vision_client(VisionRequestBasis(model_id="m", region="r", profile=None))
+    build_vision_client(VisionRequestBasis(model_id="m", region="r", profile="explicit"))
+
+    assert set(sessions[0]) == {"botocore_session"}
+    assert sessions[0]["botocore_session"].get_config_variable("profile") is None
+    assert sessions[0]["botocore_session"].instance_variables().get("profile") is None
+    assert sessions[1] == {"profile_name": "explicit"}
+    assert configs == [
+        {"connect_timeout": 10, "read_timeout": 90, "retries": {"mode": "standard", "total_max_attempts": 1}},
+        {"connect_timeout": 10, "read_timeout": 90, "retries": {"mode": "standard", "total_max_attempts": 1}},
+    ]

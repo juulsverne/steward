@@ -41,6 +41,8 @@ RECORDS = {
     c.GeocodeFact: "geocode_facts", c.ClassificationFact: "classification_facts",
     c.JurisdictionFact: "jurisdiction_facts", c.IntakeInspectionRecord: "intake_inspections",
     c.IntakeInspectionClaim: "intake_inspection_claims",
+    c.CompletionInspectionAttempt: "completion_inspection_attempts",
+    c.CompletionInspectionObservation: "completion_inspection_observations",
 }
 
 
@@ -579,6 +581,17 @@ class Store:
     def get_verification(self, record_id: str) -> c.VerificationRecord:
         return self._record(c.VerificationRecord, record_id)
 
+    def current_verification(self, job_id: str) -> c.VerificationRecord | None:
+        job = self.get_job(job_id)
+        if job.current_verification_id is None:
+            return None
+        record = self.get_verification(job.current_verification_id)
+        if (record.job_id != job.id or record.issue_id != job.issue_id
+                or record.submission_id != job.latest_submission_id
+                or record.result_job_revision != job.state_revision):
+            raise ValueError("current verification pointer is inconsistent")
+        return record
+
     def get_exception(self, record_id: str) -> c.ExceptionRecord:
         return self._record(c.ExceptionRecord, record_id)
 
@@ -661,6 +674,54 @@ class Store:
         row = self.db.execute("SELECT id FROM intake_inspection_claims WHERE cache_key=? AND status='RUNNING'",
                               (cache_key,)).fetchone()
         return self.get_intake_claim(row[0]) if row else None
+
+    def get_completion_attempt(self, attempt_id: str) -> c.CompletionInspectionAttempt:
+        return self._record(c.CompletionInspectionAttempt, attempt_id)
+
+    def completion_observation(self, attempt_id: str) -> c.CompletionInspectionObservation | None:
+        row = self.db.execute("SELECT id FROM completion_inspection_observations WHERE attempt_id=?",
+                              (attempt_id,)).fetchone()
+        return self._record(c.CompletionInspectionObservation, row[0]) if row else None
+
+    def completion_result_receipt(self, verification_id: str) -> c.RequestReceipt:
+        row = self.db.execute("SELECT id FROM request_receipts WHERE operation='inspect' "
+            "AND json_extract(record_json,'$.result.data.verification_id')=? ORDER BY rowid LIMIT 1",
+            (verification_id,)).fetchone()
+        if row is None:
+            raise KeyError(verification_id)
+        return self.get_request(row[0])
+
+    def completion_attempt_for_request(self, context: c.MutationContext) -> c.CompletionInspectionAttempt | None:
+        row = self.db.execute("SELECT id FROM completion_inspection_attempts WHERE "
+            "json_extract(record_json,'$.actor.actor_id')=? AND json_extract(record_json,'$.operation')=? "
+            "AND json_extract(record_json,'$.idempotency_key')=?",
+            (context.actor.actor_id, context.operation, context.idempotency_key)).fetchone()
+        return self.get_completion_attempt(row[0]) if row else None
+
+    def running_completion_attempt(self, cache_key: str) -> c.CompletionInspectionAttempt | None:
+        row = self.db.execute("SELECT id FROM completion_inspection_attempts WHERE cache_key=? AND status='RUNNING'",
+                              (cache_key,)).fetchone()
+        return self.get_completion_attempt(row[0]) if row else None
+
+    def cached_completion_attempt(self, cache_key: str) -> c.CompletionInspectionAttempt | None:
+        row = self.db.execute("SELECT id FROM completion_inspection_attempts WHERE cache_key=? "
+            "AND json_extract(record_json,'$.outcome')='SUCCESS' "
+            "AND json_extract(record_json,'$.cache_eligible')=1 ORDER BY rowid LIMIT 1", (cache_key,)).fetchone()
+        return self.get_completion_attempt(row[0]) if row else None
+
+    def proof_event_for_submission(self, submission_id: str) -> c.EventRecord:
+        row = self.db.execute("SELECT id FROM events WHERE event_type='PROOF_SUBMITTED' "
+            "AND json_extract(payload,'$.submission_id')=? ORDER BY id DESC LIMIT 1", (submission_id,)).fetchone()
+        if row is None:
+            raise KeyError(submission_id)
+        return self.get_event(row[0])
+
+    def prior_completion_submissions(self, submission_id: str) -> list[c.SubmissionRecord]:
+        """Global server-event ordering; never rely on claimed capture time or job state."""
+        cutoff = self.proof_event_for_submission(submission_id).id
+        rows = self.db.execute("SELECT json_extract(payload,'$.submission_id') FROM events "
+            "WHERE event_type='PROOF_SUBMITTED' AND id<? ORDER BY id", (cutoff,)).fetchall()
+        return [self.get_submission(row[0]) for row in rows if row[0] != submission_id]
 
     def request_for_operation(self, context: c.MutationContext) -> c.RequestReceipt | None:
         row = self.db.execute("SELECT id FROM request_receipts WHERE actor_id=? AND operation=? AND idempotency_key=?",
@@ -903,6 +964,26 @@ class StoreTransaction:
 
     def insert_verification(self, record: c.VerificationRecord) -> None:
         self._insert(record)
+
+    def insert_completion_attempt(self, record: c.CompletionInspectionAttempt) -> None:
+        self._insert(record)
+
+    def insert_completion_observation(self, record: c.CompletionInspectionObservation) -> None:
+        self._insert(record)
+
+    def finish_completion_attempt(self, record: c.CompletionInspectionAttempt) -> None:
+        self._check()
+        current = self.store.get_completion_attempt(record.id)
+        if current.status != "RUNNING" or record.status == "RUNNING":
+            raise RevisionConflict("completion inspection claim is no longer owned")
+        mutable = {"status", "outcome", "error_code", "metadata", "findings", "cache_eligible",
+                   "finished_at", "physical_call_count"}
+        for name in type(record).model_fields:
+            if name not in mutable and getattr(current, name) != getattr(record, name):
+                raise ValueError(f"immutable completion attempt {name}")
+        record = c.CompletionInspectionAttempt.model_validate_json(record.model_dump_json())
+        self.store.db.execute("UPDATE completion_inspection_attempts SET record_json=?,status=? WHERE id=?",
+            (record.model_dump_json(), record.status, record.id))
 
     def insert_exception(self, record: c.ExceptionRecord) -> None:
         self._check()

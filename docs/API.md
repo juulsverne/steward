@@ -254,6 +254,50 @@ assertion remains pending until the first proof is committed in criterion 9, whe
 reference that exact immutable original-before evidence ID. This paired upload contract has no
 separate before-only upload action.
 
+## Completion inspection (B7)
+
+`POST /api/jobs/{id}/inspect` is service-only and accepts exactly a saved
+`submission_id`, with `Idempotency-Key` and the expected current **job** revision in headers.
+The service reloads the job's immutable submission, stored normalized bytes, original before
+association, frozen plan target/scope/work-area/dispatch location, and frozen image request
+configuration. It records a bounded attempt before invoking the inspector outside SQLite, then
+fences finalization against the current proof/revision, saved cause, frozen basis and any
+pending or decided completion exception. The typed response includes the exact attempt/proof
+and verification IDs, input/result revisions, nullable findings and observations, deterministic
+checks, prerequisites, score components/total and named failed or unknown requirements. An ERROR
+has an attempt ID and no invented verification, findings or score. Saved receipts replay the
+original snapshot; existing non-inspection receipt shapes are unchanged.
+
+An exact already-current interpretation requested with a new key references the original result
+and event without advancing the job or invoking again. Changed interpretation configuration may
+install a new result at the then-current revision. The full immutable request includes system
+text, schema/tool description, message template, inference settings, preprocessing identity and
+the plan's separate target, full cleanup scope and work area. Changes require affected live model
+qualification; offline repair checks do not qualify a model.
+
+A live claim returns a transient `INSPECTION_IN_PROGRESS` without a final receipt. After expiry,
+the old key receives an immutable `INSPECTION_INTERRUPTED` error; subsequent work uses a new key.
+A different-key takeover saves the old request's terminal receipt before acquiring a new claim.
+Late physical responses are retained as immutable observations linked to the original attempt,
+but cannot populate the cache, install a result or rewrite a prior receipt. A response first
+finalized after its deadline receives `INSPECTION_FENCED`. Usage is counted by unique physical
+attempt/observation, never by number of replayed receipts. A cache association records zero
+physical calls and its source attempt; unavailable physical usage remains unknown.
+
+Schema 5 adds the completion claim and observation journals while retaining schema-4 rows and
+receipts. `Store.current_verification` is a strict authorization-phase read. After rework,
+payment or cancellation advances the job, history readers use the exact saved exception/payment
+verification ID and validate its relationships instead of weakening that freshness check.
+
+A schema-valid result persists typed findings, deterministic GPS/time/reuse checks, the exact
+input and result job revisions, and `current_verification_id`. Only a current result with all
+prerequisites and at least 95 points changes the job to `VERIFIED`; valid 90 or unknown findings
+remain `PROOF_SUBMITTED` but still supersede an older verification pointer. Reuse compares the
+candidate after image to earlier server-ordered `PROOF_SUBMITTED` after images across jobs; it
+does not use claimed capture time or the before image. Transport or malformed-output failures
+persist only a recoverable failed attempt and receipt: no verification, exception, payment, or
+job state transition is fabricated.
+
 Budget accounting validates the saved relationships and counts outstanding RESERVE
 amounts plus spent CONSUME amounts once; Payment is not subtracted again. RELEASE frees
 the corresponding reservation. Inconsistent journals fail closed. The normal first

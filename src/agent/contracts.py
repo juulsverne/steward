@@ -127,6 +127,8 @@ class ModelRunMetadata(Record):
     metrics: ModelMetrics | None = None
     attempt_count: Positive | None = None
     trace_ref: Text | None = None
+    stop_reason: Text | None = None
+    wall_time_ms: Nonnegative | None = None
 
 
 class MutationContext(Record):
@@ -344,6 +346,111 @@ class VerificationRecord(Record):
     metadata: ModelRunMetadata
     inspected_at: Timestamp
     job_revision: Nonnegative
+    # `job_revision` is the inspected input revision. The result may legitimately
+    # advance a later reinspection without rewriting the immutable submission.
+    result_job_revision: Nonnegative | None = None
+    basis: CompletionInspectionBasis | None = None
+    checks: CompletionInspectionChecks | None = None
+    attempt_id: Text | None = None
+
+
+class CompletionInspectionBasis(Record):
+    """Frozen bytes, plan scope, and physical request configuration for one inspection."""
+
+    cache_key: Digest
+    submission_id: Text
+    plan_id: Text
+    before_evidence_id: Text
+    after_evidence_id: Text
+    before_sha256: Digest
+    after_sha256: Digest
+    primary_target: Text
+    scope: Text
+    work_area: Text
+    dispatch_location: LocationRecord
+    model_id: Text
+    region: Text
+    profile: Text | None = None
+    prompt_version: Text
+    schema_version: Text
+    request_version: Text
+    preprocessing_version: Text
+    configuration_version: Text
+    policy_version: Text
+    # Legacy rows remain readable, but cannot authorize a new physical request.
+    request_json: Text | None = None
+
+
+class CompletionInspectionChecks(Record):
+    gps_within_30m: bool | None
+    after_later_than_before: bool | None
+    reuse_detected: bool | None
+    distance_m: Annotated[float, Field(ge=0)] | None = None
+    checkin_location: LocationRecord | None = None
+    dispatch_location: LocationRecord | None = None
+    before_observed_at: Timestamp | None = None
+    after_observed_at: Timestamp | None = None
+    cutoff_event_id: Positive | None = None
+    prior_completions: tuple[CompletionReference, ...] = ()
+    unmet: tuple[Text, ...] = ()
+
+
+class CompletionReference(Record):
+    submission_id: Text
+    job_id: Text
+    after_evidence_id: Text
+    image_sha256: Digest
+    perceptual_hash: Text | None = None
+    dhash_distance: Nonnegative | None = None
+
+
+class CompletionInspectionAttempt(Record):
+    """Durable bounded physical-attempt record. ERROR never fabricates a verification."""
+
+    id: Text
+    actor: ActorContext
+    operation: Text
+    idempotency_key: Text
+    request_sha256: Digest
+    job_id: Text
+    issue_id: Text
+    submission_id: Text
+    cache_key: Digest
+    basis: CompletionInspectionBasis
+    expected_revision: Nonnegative | None = None
+    invocation_id: Text | None = None
+    physical_call_count: Nonnegative | None = None
+    status: Literal["RUNNING", "FINISHED", "ABANDONED"] = "RUNNING"
+    outcome: Literal["SUCCESS", "ERROR"] | None = None
+    error_code: Text | None = None
+    metadata: ModelRunMetadata | None = None
+    findings: VisionFindings | None = None
+    cached_from_id: Text | None = None
+    cache_eligible: bool = False
+    started_at: Timestamp
+    expires_at: Timestamp
+    finished_at: Timestamp | None = None
+
+    @model_validator(mode="after")
+    def outcome_integrity(self):
+        if self.status == "RUNNING" and self.outcome is not None:
+            raise ValueError("running attempt cannot have outcome")
+        if self.outcome == "SUCCESS" and self.findings is None:
+            raise ValueError("successful inspection requires findings")
+        if self.outcome == "ERROR" and (self.findings is not None or self.error_code is None):
+            raise ValueError("failed inspection requires a bounded error")
+        return self
+
+
+class CompletionInspectionObservation(Record):
+    """Immutable physical outcome, retained even after a claim loses authority."""
+
+    id: Text
+    attempt_id: Text
+    metadata: ModelRunMetadata | None = None
+    findings: VisionFindings | None = None
+    error_code: Text | None = None
+    observed_at: Timestamp
 
 
 class ExceptionRecord(Record):
@@ -555,6 +662,26 @@ class EntityResult(Record):
     state_revision: Nonnegative | None = None
 
 
+class CompletionInspectionResult(EntityResult):
+    """Safe HTTP evidence snapshot; ERROR has an attempt but no invented verification."""
+
+    kind: Literal["completion_inspection"] = "completion_inspection"
+    attempt_id: Text
+    job_id: Text
+    submission_id: Text
+    verification_id: Text | None
+    input_job_revision: Nonnegative | None
+    findings: VisionFindings | None = None
+    checks: CompletionInspectionChecks | None = None
+    prerequisites: tuple[GateRecord, ...] = ()
+    components: VerificationComponents | None = None
+    total: Nonnegative | None = None
+    unmet: tuple[Text, ...] = ()
+    metadata: ModelRunMetadata | None = None
+    cached_from_id: Text | None = None
+    physical_call_count: Nonnegative | None = None
+
+
 ResultData = TypeVar("ResultData", bound=Record)
 
 
@@ -577,7 +704,7 @@ class RequestReceipt(Record):
     signal_id: Text | None = None
     issue_id: Text | None = None
     job_id: Text | None = None
-    result: ToolResult[SignalReceipt | EntityResult]
+    result: ToolResult[SignalReceipt | CompletionInspectionResult | EntityResult]
     invocation_id: Text | None = None
     created_at: Timestamp
 
