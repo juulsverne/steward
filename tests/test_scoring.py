@@ -135,3 +135,45 @@ def test_unknown_authors_and_source_cap():
 def test_invalid_observation_facts_are_rejected(changes):
     with pytest.raises(ValueError):
         replace(signal(), **changes)
+
+
+DAY_LATER = datetime(2026, 9, 13, 14, tzinfo=UTC)
+
+
+def test_same_reporter_fresh_image_a_day_later_adds_persistence_once():
+    first = signal(image_sha256="a" * 64)
+    day_later = signal("s2", "resident-1", "Still here this morning.",
+                       image_sha256="b" * 64, observed=DAY_LATER)
+    two_days = signal("s3", "resident-1", "Third morning.",
+                      image_sha256="c" * 64, observed=datetime(2026, 9, 14, 14, tzinfo=UTC))
+    result = score_evidence([first, day_later], precise_geocode=True)
+    assert result.components["persistence"] == 10
+    assert result.components["independent_sources"] == 20
+    assert result.total == 75
+    assert result.actionable
+    assert score_evidence([first, day_later, two_days]).components["persistence"] == 10
+
+
+@pytest.mark.parametrize("later", [
+    signal("s2", "resident-1", "Too soon.", image_sha256="b" * 64,
+           observed=datetime(2026, 9, 13, 13, 59, tzinfo=UTC)),
+    signal("s2", "resident-1", "Same photo again.", image_sha256="a" * 64, observed=DAY_LATER),
+    signal("s2", "resident-1", "No photo.", observed=DAY_LATER),
+    signal("s2", "resident-1", "Reposted.", image_sha256="b" * 64, repost_of="s1",
+           observed=DAY_LATER),
+    signal("s2", "resident-2", "Different person.", image_sha256="b" * 64, observed=DAY_LATER),
+])
+def test_persistence_requires_same_reporter_fresh_image_after_24h(later):
+    assert score_evidence([signal(image_sha256="a" * 64), later]).components["persistence"] == 0
+
+
+def test_evidence_total_is_capped_at_100():
+    first = signal(image_sha256="a" * 64)
+    second = signal("s2", "resident-2", "Independent report")
+    day_later = signal("s3", "resident-1", "Still here.", image_sha256="b" * 64, observed=DAY_LATER)
+    result = score_evidence(
+        [first, second, day_later], precise_geocode=True,
+        matching_service_record=record(status="OPEN"),
+    )
+    assert sum(result.components.values()) == 110
+    assert result.total == 100

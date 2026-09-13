@@ -82,6 +82,20 @@ def service_record_points(record: ServiceRecord | None) -> int:
 
 def persistence_points(signals: Sequence[Signal]) -> int:
     """Same reporter, distinct image, at least 24h after their earlier image: 10, once."""
+    for members in _source_groups(signals).values():
+        fresh = [
+            member for member in members
+            if member.image_sha256 is not None
+            and member.observed_at is not None
+            and member.repost_of is None
+        ]
+        for earlier in fresh:
+            for later in fresh:
+                if (
+                    later.observed_at - earlier.observed_at >= PERSISTENCE_MIN_GAP
+                    and later.image_sha256 != earlier.image_sha256
+                ):
+                    return 10
     return 0
 
 
