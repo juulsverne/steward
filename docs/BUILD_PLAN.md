@@ -1183,6 +1183,18 @@ uv run --no-sync python -m agent.vision_spike --images data/images --repeats 3
 
 Invoke planned Python modules with `uv run --no-sync` after their tasks add them. Do not present planned commands as successful runs.
 
+### Current execution receipts — September 13
+
+Implementation started on the isolated `codex/steward-build` branch from `1619482`; reviewed planning/model documents were carried forward in `5e0bf16`. The original checkout and local settings are preserved. The thirty-five-card preflight reconciled historical research with the locked PRD: Cedar is excluded, and the old three-post calendar is not a release requirement.
+
+| Task | State and owners | Verified evidence / next gate |
+|---|---|---|
+| B0 | Complete, component baseline only. Builder: Luna medium; independent reviewer: Terra high | Locked dev/web installation in the build worktree; direct package-import path verified; 129 tests passed in 2.08 s and Ruff clean. Offline foundation remains 65/65/85/100, six events after reopen, CANDIDATE. Dated live artifacts retained; no fresh inference or complete couch criterion claimed |
+| M0 | Role-settings implementation started. Builder: Terra high; reviewer: Astra high | Domain and full-workflow qualification remain open until B4/B7/B11–B13/P8 |
+| H1 | Recommendation independently reviewed by Astra high; owner decision pending | [Concrete EC2/EBS/S3 proposal and cost ceiling](HOSTING_DECISION.md) preserve local SQLite and October 8 access. No hosted service selected, provisioned or verified; real spending ceiling and deployment authorization remain open |
+
+On Windows, this build uses `uv sync --locked --extra dev --extra web --cache-dir .steward/uv-cache` and `uv run --no-sync --cache-dir .steward/uv-cache` for checks. A scoped cache avoids the existing global-cache issue without modifying it. Merely changing cwd while using another checkout's editable environment does not isolate imports; use the build environment or verify the source path explicitly.
+
 ### Task receipt template
 
 ```text
