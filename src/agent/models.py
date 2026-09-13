@@ -75,7 +75,7 @@ class EvidenceScore:
 
     @property
     def total(self) -> int:
-        return sum(self.components.values())
+        return min(100, sum(self.components.values()))
 
     @property
     def actionable(self) -> bool:
@@ -88,3 +88,45 @@ class EvidenceScore:
             "threshold": self.threshold,
             "actionable": self.actionable,
         }
+
+
+SERVICE_STATUSES = {"OPEN", "IN_PROGRESS", "COMPLETED"}
+CONFLICT_STATES = {"none", "pending", "disputed"}
+
+
+@dataclass(frozen=True)
+class ServiceRecord:
+    """One external system's account of a service request. Never physical truth."""
+
+    id: str
+    status: str
+    provenance: str
+    completed_at: datetime | None = None
+    conflict: str = "none"
+
+    def __post_init__(self) -> None:
+        nonempty(self.id, "record.id")
+        if self.status not in SERVICE_STATUSES:
+            raise ValueError("service record status must be OPEN, IN_PROGRESS, or COMPLETED")
+        if self.provenance not in PROVENANCE:
+            raise ValueError("service record needs explicit provenance")
+        if self.conflict not in CONFLICT_STATES:
+            raise ValueError("conflict must be none, pending, or disputed")
+        if self.status == "COMPLETED":
+            if self.completed_at is None:
+                raise ValueError("a COMPLETED record needs completed_at")
+            object.__setattr__(self, "completed_at", utc_time(self.completed_at))
+        else:
+            if self.completed_at is not None:
+                raise ValueError("only a COMPLETED record has completed_at")
+            if self.conflict != "none":
+                raise ValueError("only a COMPLETED record can conflict with newer evidence")
+
+    def to_dict(self) -> dict[str, Any]:
+        data = asdict(self)
+        data["completed_at"] = self.completed_at.isoformat() if self.completed_at else None
+        return data
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ServiceRecord:
+        return cls(**data)

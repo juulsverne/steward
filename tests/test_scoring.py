@@ -1,23 +1,36 @@
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from agent.models import Signal
-from agent.scoring import score_evidence
+from agent.models import ServiceRecord, Signal
+from agent.scoring import dispute_supported, score_evidence
+
+OBSERVED = datetime(2026, 9, 12, 14, tzinfo=UTC)
+COMPLETED_AT = datetime(2026, 9, 11, 20, 41, tzinfo=UTC)
 
 
-def signal(signal_id="s1", author="resident-1", text="A couch blocks the sidewalk.", **kwargs):
+def signal(signal_id="s1", author="resident-1", text="A couch blocks the sidewalk.",
+           observed=OBSERVED, **kwargs):
     return Signal(
         id=signal_id,
         source="demo_feed",
         source_author_id=author,
         raw_text=text,
         reported_location="1530 S Michigan Ave",
-        received_at=datetime(2026, 9, 12, 15, tzinfo=UTC),
-        observed_at=datetime(2026, 9, 12, 14, tzinfo=UTC),
+        received_at=observed + timedelta(hours=1),
+        observed_at=observed,
         provenance="seeded",
         **kwargs,
+    )
+
+
+def record(status="COMPLETED", conflict="pending"):
+    completed = status == "COMPLETED"
+    return ServiceRecord(
+        id="demo-service-1", status=status, provenance="seeded",
+        completed_at=COMPLETED_AT if completed else None,
+        conflict=conflict if completed else "none",
     )
 
 
@@ -25,23 +38,63 @@ def test_canonical_scores_are_countable_facts():
     first = signal(image_sha256="a" * 64)
     second = signal("s2", "resident-2", "The sofa and bags are still obstructing the walkway.")
     scores = [
-        score_evidence([first], precise_geocode=True),
-        score_evidence([first, second], precise_geocode=True),
-        score_evidence([first, second], precise_geocode=True, matching_service_record=True),
+        score_evidence([first], precise_geocode=True, matching_service_record=record()),
+        score_evidence([first, second], precise_geocode=True, matching_service_record=record()),
+        score_evidence(
+            [first, second], precise_geocode=True,
+            matching_service_record=record(conflict="disputed"),
+        ),
     ]
     assert [score.total for score in scores] == [65, 85, 100]
     assert [score.actionable for score in scores] == [False, True, True]
     assert scores[0].components == {
-        "image": 30, "independent_sources": 20, "precise_geocode": 15, "service_match": 0
+        "image": 30, "independent_sources": 20, "precise_geocode": 15,
+        "service_match": 0, "persistence": 0,
     }
 
 
-def test_early_service_match_is_not_hidden_to_force_watch():
+def test_open_record_corroborates_a_lone_signal():
     result = score_evidence(
-        [signal(image_sha256="a" * 64)], precise_geocode=True, matching_service_record=True
+        [signal(image_sha256="a" * 64)], precise_geocode=True,
+        matching_service_record=record(status="OPEN"),
     )
     assert result.total == 80
     assert result.actionable
+
+
+def test_completed_record_credits_nothing_until_dispute_is_confirmed():
+    lone = [signal(image_sha256="a" * 64)]
+    pending = score_evidence(lone, precise_geocode=True, matching_service_record=record())
+    disputed = score_evidence(
+        lone, precise_geocode=True, matching_service_record=record(conflict="disputed")
+    )
+    assert pending.total == 65
+    assert disputed.total == 80
+
+
+def test_dispute_needs_two_independent_observations_newer_than_completion():
+    completed = record()
+    first = signal(image_sha256="a" * 64)
+    second = signal("s2", "resident-2", "Sofa still there")
+    assert not dispute_supported([first], completed)
+    assert dispute_supported([first, second], completed)
+    same_author = signal("s3", "resident-1", "Still there, second message")
+    assert not dispute_supported([first, same_author], completed)
+    older = signal("s4", "resident-2", "Saw it last week",
+                   observed=datetime(2026, 9, 11, 9, tzinfo=UTC))
+    assert not dispute_supported([first, older], completed)
+    unknown_time = replace(second, observed_at=None)
+    assert not dispute_supported([first, unknown_time], completed)
+    anonymous = signal("s5", None, "Anonymous but newer")
+    assert not dispute_supported([first, anonymous], completed)
+    assert not dispute_supported([first, second], record(status="OPEN"))
+
+
+def test_service_record_argument_must_be_typed():
+    with pytest.raises(ValueError):
+        score_evidence([signal()], matching_service_record=True)
+    with pytest.raises(ValueError):
+        score_evidence([signal()], precise_geocode=1)
 
 
 @pytest.mark.parametrize("duplicate", [

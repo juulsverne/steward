@@ -3,16 +3,21 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import timedelta
 
-from .models import EvidenceScore, Signal
+from .models import EvidenceScore, ServiceRecord, Signal
+
+DISPUTE_MIN_INDEPENDENT_SOURCES = 2
+PERSISTENCE_MIN_GAP = timedelta(hours=24)
 
 
-def independent_source_count(signals: Sequence[Signal]) -> int:
-    """Conservatively group known authors, copies, images, and repost lineage.
+def _source_groups(signals: Sequence[Signal]) -> dict[str, list[Signal]]:
+    """Group observations that share an author, normalized text, image, or repost lineage.
 
     Source-author IDs must be canonical adapter identities, not channel-local IDs.
-    Exact normalized text/image matches are duplicate evidence, not extra witnesses.
-    This is a small demo check, not semantic matching or production fraud detection.
+    Only known-author signals appear in the returned groups; anonymous signals still
+    join lineage so a repost cannot launder a copy into a new witness. This is a small
+    demo check, not semantic matching or production fraud detection.
     """
     parents: dict[str, str] = {}
 
@@ -36,22 +41,66 @@ def independent_source_count(signals: Sequence[Signal]) -> int:
             join(key, f"image:{signal.image_sha256}")
         if signal.repost_of is not None:
             join(key, f"signal:{signal.repost_of}")
-    return len({
-        root(f"signal:{signal.id}") for signal in signals if signal.source_author_id is not None
-    })
+    groups: dict[str, list[Signal]] = {}
+    for signal in signals:
+        if signal.source_author_id is not None:
+            groups.setdefault(root(f"signal:{signal.id}"), []).append(signal)
+    return groups
+
+
+def independent_source_count(signals: Sequence[Signal]) -> int:
+    return len(_source_groups(signals))
+
+
+def newer_independent_observations(signals: Sequence[Signal], record: ServiceRecord) -> int:
+    """Independent sources with at least one observation observed after the completion."""
+    if record.status != "COMPLETED":
+        return 0
+    return sum(
+        1
+        for members in _source_groups(signals).values()
+        if any(
+            member.observed_at is not None and member.observed_at > record.completed_at
+            for member in members
+        )
+    )
+
+
+def dispute_supported(signals: Sequence[Signal], record: ServiceRecord) -> bool:
+    """Deterministic precondition for disputing a COMPLETED record; not the decision itself."""
+    return newer_independent_observations(signals, record) >= DISPUTE_MIN_INDEPENDENT_SOURCES
+
+
+def service_record_points(record: ServiceRecord | None) -> int:
+    """OPEN/IN_PROGRESS corroborate now; COMPLETED counts only once the dispute is confirmed."""
+    if record is None:
+        return 0
+    if record.status in {"OPEN", "IN_PROGRESS"}:
+        return 15
+    return 15 if record.conflict == "disputed" else 0
+
+
+def persistence_points(signals: Sequence[Signal]) -> int:
+    """Same reporter, distinct image, at least 24h after their earlier image: 10, once."""
+    return 0
 
 
 def score_evidence(
     signals: Sequence[Signal],
     *,
     precise_geocode: bool = False,
-    matching_service_record: bool = False,
+    matching_service_record: ServiceRecord | None = None,
 ) -> EvidenceScore:
-    if type(precise_geocode) is not bool or type(matching_service_record) is not bool:
-        raise ValueError("evidence flags must be booleans")
+    if type(precise_geocode) is not bool:
+        raise ValueError("precise_geocode must be a boolean")
+    if matching_service_record is not None and not isinstance(
+        matching_service_record, ServiceRecord
+    ):
+        raise ValueError("matching_service_record must be a ServiceRecord or None")
     return EvidenceScore({
         "image": 30 if any(s.image_sha256 is not None for s in signals) else 0,
         "independent_sources": min(independent_source_count(signals), 2) * 20,
         "precise_geocode": 15 if precise_geocode else 0,
-        "service_match": 15 if matching_service_record else 0,
+        "service_match": service_record_points(matching_service_record),
+        "persistence": persistence_points(signals),
     })
