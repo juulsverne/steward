@@ -33,6 +33,7 @@ Example public explanation: “Image evidence (30), one independent source (20),
 - The agent may propose issue linkage/category/responsibility; persisted results must reference supporting evidence.
 - Scores are calculated by code from stored facts. The orchestrator cannot supply an authoritative score, price, insurance flag, final verification pass, or budget balance. Bedrock image inspection does supply the structured visual findings; code combines those findings with deterministic checks and policy to decide eligibility.
 - Dispatch reads the stored plan, eligible provider, policy, and available budget again at execution time.
+- Before evidence must establish target presence; absent or uncertain targets route to review without settlement. Mixed prohibited hazards cannot be discarded by selecting an ordinary cleanup category.
 - Settlement reads the latest proof and server-computed verification again. A stale passed result cannot authorize payment against newer failed evidence.
 - Operator decisions originate from the operator surface/event handler. The agent can ask for a decision but cannot manufacture one.
 - Crew events originate from the crew surface/event handler. Narrative claims in a signal are not crew acceptance or GPS check-in.
@@ -40,7 +41,7 @@ Example public explanation: “Image evidence (30), one independent source (20),
 
 ## Denial and error contract
 
-Tools return a structured result with an outcome such as OK, DENIED, NEEDS_REVIEW, NOT_FOUND, or ERROR; a stable reason code; relevant evidence IDs; and persisted event IDs when applicable. For a denial, return the unmet requirements and allowable next actions. Never report a requested action as successful merely because the model asked for it.
+Tools return a structured result with an outcome such as OK, DENIED, NEEDS_REVIEW, NOT_FOUND, or ERROR; a stable reason code; relevant evidence IDs; and persisted event IDs when applicable. For a denial, return the unmet requirements and allowable next actions. Bind completion exceptions to their triggering proof submission. A decision against a closed/superseded exception or invalid job state is stale and cannot mutate the job. Accept new completion proof only after check-in or an operator rework decision; retries of a received submission are idempotent. Never report a requested action as successful merely because the model asked for it.
 
 On 90/95 proof, the required demo includes a settlement authorization request that the action tool denies and logs; Steward then opens an operator exception. Requesting authorization is not permission to pay. The tool remains authoritative even when the model already sees the failed score. If the live agent instead escalates without requesting authorization, record the actual behavior and mark demo step 10 incomplete until the interaction is corrected. Never fabricate a denied tool call in the timeline.
 

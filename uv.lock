@@ -12,7 +12,7 @@ name = "agents-for-humans"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "boto3" },
+    { name = "boto3", extra = ["crt"] },
     { name = "python-dotenv" },
     { name = "rich" },
     { name = "strands-agents" },
@@ -38,7 +38,7 @@ web = [
 requires-dist = [
     { name = "bedrock-agentcore", marker = "extra == 'agentcore'" },
     { name = "bedrock-agentcore-starter-toolkit", marker = "extra == 'agentcore'" },
-    { name = "boto3", specifier = ">=1.35.0" },
+    { name = "boto3", extras = ["crt"], specifier = ">=1.35.0" },
     { name = "fastapi", marker = "extra == 'web'", specifier = ">=0.115.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24.0" },
@@ -365,6 +365,11 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/67/0b/53f833efea7331aab106a65f1156e0035beed9bacbfcb309b128204468d4/boto3-1.43.90.tar.gz", hash = "sha256:4b669742d5b45b8fd20ca50ac414a4e4cf995ebb8f280d21be28676e71c97594", size = 112689, upload-time = "2026-09-08T19:22:30.875Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/4b/c3/1d5c5ea7f599e2b80d122beeb2a9c1a8daff78325ea2391521e5fd5af1fd/boto3-1.43.90-py3-none-any.whl", hash = "sha256:aaaa1216d65ddb3dcf86bf9d93cfa436af05cbcd1e1f8b2847f2b83116012186", size = 140026, upload-time = "2026-09-08T19:22:28.555Z" },
+]
+
+[package.optional-dependencies]
+crt = [
+    { name = "botocore", extra = ["crt"] },
 ]
 
 [[package]]

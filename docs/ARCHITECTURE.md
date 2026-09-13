@@ -70,11 +70,11 @@ Persist the demo budget and reservations in a small ledger/table or equivalent t
 
 Issue: `CANDIDATE → MONITORING → ACTIONABLE → RESOLUTION_ACTIVE → RESOLVED`.
 Alternates: `DISPUTED`, `ROUTED_EXTERNAL`, `DUPLICATE`, `INVALID`, `ESCALATED`.
-An official-record dispute is a timeline event/official-status fact and must not erase an active resolution workflow.
+For the couch flow, an official-record dispute is always a timeline event/official-status fact, never a transition to `DISPUTED`; it must not erase an actionable or active resolution workflow. Reserve `DISPUTED` for a physical-outcome dispute outside an active workflow, unused in the mandatory V1 path. Use `ESCALATED` when human routing is needed and no routine resolution workflow is active. A payment exception on an active job leaves the issue `RESOLUTION_ACTIVE` and is represented by the pending exception.
 
 Job: `POSTED → ASSIGNED → CHECKED_IN → PROOF_SUBMITTED → VERIFIED → PAID`.
 Alternates: `REWORK_REQUIRED`, `REJECTED`, `CANCELLED`.
-A rework submission returns to `PROOF_SUBMITTED`. Failed proof remains unverified while an operator decision is pending; requesting completion sets `REWORK_REQUIRED`. Keep nuance in events.
+A rework submission returns to `PROOF_SUBMITTED`. V1 accepts new completion proof from `CHECKED_IN` or `REWORK_REQUIRED`; a pending completion exception blocks a new completion submission until the operator acts. Idempotent retries return the existing submission result. Failed proof remains unverified while an operator decision is pending; requesting completion sets `REWORK_REQUIRED`. Keep nuance in events.
 
 ## Evidence scoring
 
@@ -100,11 +100,11 @@ auto_pay_min_score: 95
 
 The implementation adds an explicit demo service-area boundary, budget, actionable threshold 70, precise-geocode threshold, and GPS verification threshold 30m. Choose and document the geocode precision threshold during the fixture spike; do not infer a real SSA boundary from the district name.
 
-Dispatch requires current actionable evidence, authorized category/location, eligible vendor, deterministic price at most $100, and sufficient unreserved budget. Refuse unknown authority, prohibited categories, and stale/unvalidated arguments. Settlement requires the latest accepted proof, policy threshold, valid job state, and no existing payment. Reserve once on dispatch, consume once on settlement; retries must not duplicate a job, reservation, or payment.
+Dispatch requires current actionable evidence, authorized category/location, eligible vendor, deterministic price at most $100, and sufficient unreserved budget. Refuse unknown authority, prohibited categories, and stale/unvalidated arguments. Settlement requires the latest accepted proof, policy threshold, valid job state, and no existing payment. Reserve once on dispatch, consume once on settlement, and release once if an unpaid job is cancelled; retries must not duplicate a job, reservation, or payment. Rework retains the same quote and reservation. A mixed prohibited hazard blocks ordinary cleanup; selecting a benign category cannot erase the hazard fact.
 
 ## Verification contract
 
-Bedrock returns nullable booleans `same_scene`, `target_removed`, `no_new_hazard`, `area_clear`, plus concise observable findings. Unknown is not true.
+Bedrock returns nullable booleans `target_present_before`, `same_scene`, `target_removed`, `no_new_hazard`, `area_clear`, plus concise observable findings. `target_present_before` is a prerequisite, not an extra scoring component: it prevents clean before-and-after evidence from authorizing payment for unestablished removal work. Unknown is not true.
 
 | Check | Points |
 |---|---:|
@@ -116,10 +116,10 @@ Bedrock returns nullable booleans `same_scene`, `target_removed`, `no_new_hazard
 
 Maximum 100; automatic payment requires at least 95. Partial cleanup gives 90; complete cleanup gives 100.
 
-**Prerequisite gate:** same scene must be true, required evidence present, no detected reuse, and no unresolved ambiguous findings. Scene mismatch/reused proof cannot pass merely by scoring 100. pHash detects reuse, not scene identity. V1 GPS/timestamp inputs are consistency checks, not production attestation. Missing, contradictory, or uncertain proof routes to manual review without settlement or resolution.
+**Prerequisite gate:** target presence in before evidence and same scene must be true, required evidence present, no detected reuse, and no unresolved ambiguous findings. Scene mismatch/reused proof cannot pass merely by scoring 100. pHash detects reuse, not scene identity. V1 GPS/timestamp inputs are consistency checks, not production attestation. Missing, contradictory, or uncertain proof routes to manual review without settlement or resolution.
 
 ## Resume and failure behavior
 
 Persist the pending exception, stop, accept an `OPERATOR_DECISION` event, and start a new invocation loading issue/job/evidence context. New crew proof likewise starts a new invocation. No immortal waiting session.
 
-Use bounded invocation/tool retries. Live lookup failures return a labeled fixture only in demo mode; unavailable evidence never becomes a fabricated fact. Model failure or invalid structured output leaves the issue unresolved and records an error/review event. Replayed event IDs and payment requests are idempotent. The UI renders persisted events, not an invented transcript.
+Use bounded invocation/tool retries. Explicit demo mode may use labeled fixtures from the start, or as a labeled fallback after an actual live lookup failure; unavailable evidence never becomes a fabricated fact. Model failure or invalid structured output leaves the issue unresolved and records an error/review event. Replayed event IDs and payment requests are idempotent. The UI renders persisted events, not an invented transcript.

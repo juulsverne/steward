@@ -29,3 +29,6 @@ Thumbs.db
 # Demo artifacts
 *.mp4
 !docs/demo/*.mp4
+
+# Local competitive research (not for the public repo)
+research/

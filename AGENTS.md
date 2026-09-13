@@ -1,6 +1,6 @@
 # Steward build instructions
 
-Read `docs/STEWARD.md`, `docs/BUILD_PLAN.md`, and `docs/ARCHITECTURE.md` before implementation. Read `docs/DEMO.md` for acceptance criteria. These implement Cara's canonical September 11 plan; do not redesign the product before the ugly couch works.
+Read `docs/STEWARD.md`, `docs/BUILD_PLAN.md`, and `docs/ARCHITECTURE.md` before implementation. Read `docs/DEMO.md` for acceptance criteria. Read `docs/PRD.md` for the product experience, `docs/USER_MODELS.md` for actor boundaries, and `docs/AGENT_CONTRACT.md` for invocation behavior. These implement Cara's canonical September 11 plan; do not redesign the product before the ugly couch works.
 
 - Build one Strands agent using Bedrock Sonnet. No multiple-agent runtime.
 - Follow the locked V1 and exclusions. New ideas go to the post-competition vision, never the critical path. Reopen the thesis only for evidence of fundamental impossibility; record the evidence first.

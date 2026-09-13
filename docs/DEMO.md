@@ -27,11 +27,12 @@ A blocked payment attempt is deliberate evidence of policy enforcement. The deni
 
 ## Negative cases required before recording
 
-- Unrelated scene, reused photo, invalid timestamp, distant GPS, and unknown vision findings never auto-settle.
-- Electrical/hazardous work never dispatches; city-only responsibility routes externally.
+- Unrelated scene, reused completion photo, invalid timestamp, distant GPS, unknown vision findings, and a target absent/uncertain in before evidence never auto-settle.
+- Electrical/hazardous work never dispatches, including mixed couch-and-hazard observations; city-only responsibility routes externally.
 - Duplicate sources do not create independent corroboration or duplicate issues/jobs.
 - Insufficient budget, ineligible provider, and over-limit quote deny dispatch.
-- Retried events/payments do not duplicate effects; official Completed alone never closes an issue.
+- Retried events/payments do not duplicate effects; stale operator decisions fail without mutation; new completion uploads wait for a pending operator decision; official Completed alone never closes an issue.
+- Rework keeps the same quote/reservation; cancellation of an unpaid job releases its reservation once; payment followed by interrupted closure does not cause another payment on retry.
 
 ## Recording script — maximum 5 minutes
 
