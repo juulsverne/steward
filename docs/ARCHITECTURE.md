@@ -113,7 +113,7 @@ max_auto_dispatch_amount: 100 # dollars in human-readable policy; convert to cen
 auto_pay_min_score: 95
 ```
 
-The implementation adds an explicit demo service-area boundary, budget, actionable threshold 70, precise-geocode threshold, and GPS verification threshold 30m. Choose and document the geocode precision threshold during the fixture spike; do not infer a real SSA boundary from the district name.
+The seeded implementation supplies an explicit demo service-area boundary, a $500 budget, actionable threshold 70, precise-geocode threshold 30m, and GPS verification threshold 30m in `data/policy.yaml`. These values are locked by PRD section 4.2; do not infer a real SSA boundary from the district name. The PRD document version is independent of the `south-loop-v3` policy version.
 
 Dispatch requires current actionable evidence, authorized category/location, eligible vendor, deterministic price at most $100, and sufficient unreserved budget. Refuse unknown authority, prohibited categories, and stale/unvalidated arguments. Settlement requires the latest accepted proof, policy threshold, valid job state, and no existing payment. Reserve once on dispatch, consume once on settlement, and release once if an unpaid job is cancelled; retries must not duplicate a job, reservation, or payment. Rework retains the same quote and reservation. A mixed prohibited hazard blocks ordinary cleanup; selecting a benign category cannot erase the hazard fact.
 

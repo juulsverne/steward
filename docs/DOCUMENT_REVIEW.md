@@ -70,3 +70,35 @@ Fresh verification: `uv run --no-sync pytest -q` returned **129 passed in 2.15s*
 | Hosted records and uploaded image bytes need durable ownership; accepted events need recoverable processing | H1 decision/proof before H2–H6 deployment integration |
 
 The local implementation is ready to continue at B1. The guide does not claim the workflow is already wired, the evaluation has run, or hosted persistence is resolved. App Runner storage documentation was rechecked and still confirms the existing conflict; no replacement architecture was silently selected.
+
+## PRD format and build-context review — September 13
+
+Compared Steward's PRD with four locally available project PRDs, reading their structure and representative requirements, user stories, quality, data and acceptance sections. This was a document comparison, not an implementation audit of those projects. No private project content was copied into Steward.
+
+| Reference | Pattern applied here | Limit |
+|---|---|---|
+| Vibe Modeling | Document control, user goals, numbered stories with Given/When/Then acceptance, explicit NFRs and links to authoritative data/API documents | Its platform scope and operational targets do not transfer to a one-couch hackathon |
+| Date Website Agent | Actor-specific journeys, defaults, receipt-before-success behavior, privacy and accessible mobile interaction requirements | Steward keeps its own sandbox permissions and existing surfaces |
+| ElijahOS WebMCP | Concise user/agent stories, typed contracts and separate implementation/test/deployment evidence | Retrospective release PRD; its completion claims say nothing about Steward |
+| Xorva archived PRD | Persona-to-capability mapping and clear separation of built, partial and planned work | Explicitly historical/superseded inventory; no status, enterprise controls or market claims reused |
+
+The v3 PRD already had a strong couch narrative, exact policy arithmetic, actors, exclusions and agent stopping rules. Its weakness was discoverability and uneven detail: user goals and acceptance examples were implicit, while most data/API/recovery/quality contracts required searching the much longer build guide. PRD v3.1 makes those contracts visible without moving the implementation task list into the PRD.
+
+| Gap or ambiguity | Resolution |
+|---|---|
+| Product purpose and success were mostly a demo narrative | Added problem/value framing and G-01–05 observable goals |
+| Permission matrix did not state what each actor needed | Added primary operator, crew, resident and service jobs to be done |
+| PR-01–14 were short behavior labels | Preserved IDs; added US-01–10 Given/When/Then examples linked to requirements and acceptance |
+| Data/API information scattered across architecture and build tasks | Added a logical record dictionary, lifecycle/retention summary and caller contracts; exact schemas/routes remain with their owners |
+| Quality requirements were distributed across task cards | Added NFR-01–11 with existing build owners: durability, concurrent retries, authority, uploads, privacy, bounded work, responsiveness, accessibility, traces, reproducibility and parity |
+| Success, component tests and evaluation could be conflated | Added a measurement table distinguishing sixteen acceptance criteria, twenty-two scenarios and twelve vision inspections |
+| Seeded budget and score cap were implicit in the PRD | Made existing $500 budget/$428 available balance and 100-point evidence cap explicit; no policy change |
+| Vision status and geocode wording were stale | Linked the dated passed fixture spike; locked 30 m threshold matches code/policy |
+| Required fixture lookup included unsupported general rate-limit claims | Removed hardcoded provider quota claims; O1 must verify current limits before enabling live access |
+| Hosting target could be read as permission to persist only in App Runner | Made the existing H1 durable-state decision explicit; no host/database adaptation selected |
+
+Retained all four tiers, exclusions, policy values, PR IDs, sixteen DEMO criteria and twenty-two EVALUATION cases. The document version is 3.1; runtime policy stays `south-loop-v3`. README navigation and the build guide's coverage map now point to the expanded context. AWS's [App Runner storage contract](https://docs.aws.amazon.com/apprunner/latest/dg/develop.html) was rechecked for the open hosting decision.
+
+Before the PRD edits, the requested integration committed the pending guide as `e11538c`, fast-forwarded local `main` to `tier-1a`, and merged `tier-1a-images` as `f3b6de3`. Git confirmed the image patch was already present via its earlier cherry-pick; dependency conflicts retained the newer Pydantic declaration/lockfile. The merge tree is identical to `e11538c`. Fresh verification used the installed environment: `.venv/Scripts/python.exe -m pytest -q` returned **129 passed in 2.23s**, and `.venv/Scripts/ruff.exe check .` returned **All checks passed**. The first `uv` invocation was blocked by restricted cache access; the Python test run required access outside the restricted shell. Local Claude settings were excluded. No push, deployment, Mac synchronization, new inference, evaluation run or acceptance completion occurred.
+
+Documentation verification: `git diff --check` passed; all **45 relative file links** across the five edited documents and all PRD table-of-contents anchors resolve. The PRD retains **14 original PR IDs**, adds **10 explanatory stories** and **11 cross-cutting NFRs**, and the acceptance/evaluation files remain unchanged at **16 criteria / 22 cases**. Application source, tests, policy data and dependency files are unchanged by this PRD review. Both requested branches are ancestors of local `main`.

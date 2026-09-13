@@ -1,8 +1,21 @@
-# Steward — hackathon build spec (v3)
+# Steward — Product Requirements Document (v3.1)
 
 **Autonomous neighborhood operations. Steward manages reality, not tickets.**
 
-Status: build specification for the AWS Agents for Humans hackathon, Good Neighbor Agents track. Deadline Monday, September 14, 2026, 5 PM Pacific / 7 PM Chicago; internal target two hours earlier. This document is the scope authority for the hackathon build. [ARCHITECTURE.md](ARCHITECTURE.md) is the code contract, [DEMO.md](DEMO.md) the acceptance criteria, [BUILD_PLAN.md](BUILD_PLAN.md) the sequencing, [EVALUATION.md](EVALUATION.md) the evaluation protocol, [SUBMISSION.md](SUBMISSION.md) the release checklist, and [VISION.md](VISION.md) everything after the hackathon. This document describes intended behavior; the README reports what is implemented.
+| Document control | Value |
+|---|---|
+| Status | Locked hackathon scope; intended behavior, not an implementation-complete claim |
+| Version / reviewed | 3.1 / September 13, 2026 |
+| Product owner | Elijah |
+| Release | AWS Agents for Humans hackathon, Good Neighbor Agents track |
+| Deadline | Monday, September 14, 2026, 5 PM Pacific / 7 PM Chicago; internal target two hours earlier |
+| Change in this version | Make the existing scope easier to build: user goals, acceptance examples, data/API overview, quality requirements, success measures and explicit open decisions |
+
+This document is the scope authority. [ARCHITECTURE.md](ARCHITECTURE.md) owns the code and deployment contract; [DEMO.md](DEMO.md) owns the sixteen acceptance criteria and required negative cases; [BUILD_PLAN.md](BUILD_PLAN.md) owns task order, interfaces, engineering defaults and progress receipts; [EVALUATION.md](EVALUATION.md) owns the evaluation protocol; [SUBMISSION.md](SUBMISSION.md) owns release requirements. [VISION.md](VISION.md) contains post-competition ideas. The [README](../README.md) reports what is actually implemented.
+
+**How to read this PRD.** Sections 1–5 explain purpose, scope and users; 6–9 describe journeys, screens and agent/failure behavior; 10–13 define acceptance, success, truth labels and risks; 14–16 summarize data/API contracts, quality requirements and the builder handoff. Existing section numbers and PR-01–PR-14 IDs are preserved so build references stay valid. Where a summary and its owning document diverge, reconcile them before implementing the affected behavior; do not silently weaken a product rule or acceptance gate.
+
+**Contents:** [Purpose and goals](#1-what-we-are-building) · [Principles](#2-principles) · [Vocabulary](#3-vocabulary) · [Scope](#4-scope) · [Users](#5-actors-and-permissions) · [Journey](#6-the-couch-journey) · [Screens](#7-surfaces) · [Agent](#8-agent-behavior) · [Failures](#9-failure-behavior) · [Requirements and stories](#10-requirements) · [Done and success](#11-definition-of-done) · [Truth labels](#12-truth-labels) · [Risks and decisions](#13-risks-assumptions-and-open-items) · [Data and API](#14-data-lifecycle-and-api-contracts) · [Quality](#15-non-functional-requirements) · [Build handoff](#16-build-handoff-and-change-control).
 
 ## 1. What we are building
 
@@ -13,6 +26,24 @@ The hackathon proves this with one dumped couch near 1530 S Michigan Ave in the 
 1. **Wait.** The first signal scores 65 evidence points against an actionable threshold of 70. The 311 lookup finds a COMPLETED city record, which does not count as corroboration. Steward records the conflict and waits.
 2. **Dispute.** A second independent report raises the score to 85. Two observations newer than the official completion confirm the dispute; the record is credited and the score is 100. The issue stays open despite the city's closed record.
 3. **Block payment.** After authorized dispatch at $72, the crew's partial cleanup scores 90 verification points against 95 required. The settlement tool denies payment. The operator requests completion; fresh proof scores 100; one simulated $72 settlement occurs and the issue resolves.
+
+### 1.1 Problem and product value
+
+A neighborhood operator receives observations from residents, community channels and service records, but must still connect them to the same physical condition, establish responsibility, arrange authorized work and check whether it was finished. A closed record can disagree with a newer photograph; a crew submission can show only partial completion. Treating either as resolution leaves the operator responsible for discovering the gap.
+
+Steward's proposed value is continuity of responsibility from observation to verified outcome, with human attention directed to a specific unresolved decision. The hackathon tests that mechanism on a seeded case. It does not establish customer demand, operating savings, municipal performance or production reliability. Commercial positioning and expansion belong in VISION.md.
+
+### 1.2 Goals and observable success
+
+| Goal | What the finished proof must demonstrate | Verification owner |
+|---|---|---|
+| G-01 Keep one coherent case | Independent observations corroborate the couch without manufacturing witnesses or merging different nearby conditions | PR-01–05/14; DEMO 1–5 and negatives |
+| G-02 Exercise bounded autonomy | Steward chooses to wait, investigate and dispatch; stored authority and budget determine whether dispatch succeeds | PR-04–06; DEMO 2–7 |
+| G-03 Pay only for accepted completion | Partial proof causes a real denial; human-directed rework and fresh accepted proof permit exactly one simulated settlement | PR-07–11; DEMO 8–15 |
+| G-04 Make decisions understandable | A tester can explain the wait, official dispute, failed proof, operator action and permitted payment from the UI | PR-12; DEMO 5/9–15 |
+| G-05 Make the result reproducible | Saved state survives interruption; a documented reset reproduces the flow; evaluation publishes actual outcomes | PR-13; DEMO 16/negatives; EVALUATION |
+
+These are build outcomes. They introduce no adoption targets, new analytics product or additional release checklist.
 
 ## 2. Principles
 
@@ -58,7 +89,7 @@ The South Loop Demo District supplies a service boundary, an operating policy, a
 
 Autonomous categories: litter, bulky waste, approved graffiti removal. Route to the city: potholes, streetlights, traffic signals. Never dispatch: electrical, structural, hazardous material. Unknown responsibility goes to review. A mixed couch-plus-hazard observation keeps the hazard and blocks autonomous cleanup. A demo district claims no real municipal authority.
 
-**Evidence points** are deterministic and computed from stored facts. Actionable at 70.
+**Evidence points** are deterministic and computed from stored facts. Actionable at 70; the total is capped at 100 while the individual components remain inspectable.
 
 | Fact | Points |
 |---|---:|
@@ -72,9 +103,11 @@ Autonomous categories: litter, bulky waste, approved graffiti removal. Route to 
 
 **Persistence rule.** The same reporter re-observing the same issue with a fresh image at least 24 hours after their previous observation adds 10 points, once. A lone persistent reporter reaches 75 and Steward acts.
 
-Rate limits are not a concern at one lookup per signal. Open311 defaults to roughly 10 requests per minute without a key, and the Socrata data portal allows 1,000 per hour with a free app token.
+The required lookup uses a fixture and has no external quota dependency. Before enabling the tier-4 live adapter, verify that provider's current access and rate limits and configure bounded requests; one lookup per signal is not a general rate-limit guarantee.
 
 **Contract.** Bulky waste is $60 base + $12 large object = $72. The model selects the service; code computes the price. The autonomous dispatch limit is $100. Dispatch reserves the quote once; settlement consumes it once; cancellation of an unpaid job releases it once.
+
+The seeded district budget is **$500**. Available = starting budget − outstanding reservations − settled spending. After dispatch: available $428, reserved $72, spent $0. After denied proof and rework those amounts stay unchanged. After settlement: available $428, reserved $0, spent $72. Unpaid cancellation releases the reservation and restores available $500 in this single-job example. Store all amounts as integer cents; this is a demo ledger, not a payment integration.
 
 **Verification points** are deterministic checks over Bedrock's structured findings. Automatic payment at 95.
 
@@ -101,7 +134,7 @@ A persona switcher in the header selects Operator, Crew (per vendor), or Residen
 ### 4.4 Stack and deployment
 
 - One Strands agent on Amazon Bedrock Sonnet, with Bedrock vision for image inspection. No second agent or model.
-- A FastAPI service owns SQLite state, enforces policy at every mutation, and serves the built React/Vite frontend as static files, in one container on AWS App Runner.
+- A FastAPI service owns local SQLite state, enforces policy at every mutation, and serves the built React/Vite frontend as static files. App Runner is the hosting target, conditional on the durable-state decision in section 13; its container filesystem is not an approved durable database or image store.
 - The agent runs on Amazon Bedrock AgentCore Runtime with AgentCore Observability (traces to CloudWatch). Agent tools are HTTP clients of the API, always: localhost in development, the App Runner URL with a service token in deployment. AgentCore Gateway exposes the same API operations as MCP tools once Runtime works.
 - Seeded geocoding: the ten addresses ship with coordinates. Live geocoding behind a flag is tier 4.
 
@@ -119,6 +152,19 @@ Each tier starts only after the previous tier passes. Nothing below is cut; lowe
 No real payments, open labor marketplace, bidding, worker onboarding, insurance-verification service, procurement, tax allocation, production fraud detection, full SSA integration, multi-city operation, advanced routing, preventive maintenance, learning engine, resolution-graph analytics, full community verification, Cedar, multiple agents, Flock, TikTok, Facebook, X, resident status page, or operator payment override. Once the sixteen steps pass through the UI, stop adding product.
 
 ## 5. Actors and permissions
+
+### 5.1 Users and jobs to be done
+
+| Actor | Need and success | V1 interaction |
+|---|---|---|
+| District operator — primary user | Understand unresolved conditions and decide exceptions without coordinating every routine step | Board, Issue Detail and Inbox; Request completion on a pending failed-proof exception |
+| Assigned provider crew | Know the agreed scope, price and proof requirements; understand exactly what remains after rejection | Own vendor's Crew Form; accept, check in, submit proof and perform requested rework |
+| Resident | Report what they observed without knowing jurisdiction, contractor categories or internal workflow | Description/location and optional image; persisted receipt, no resident tracking portal |
+| Steward service | Investigate current evidence and request the next permitted action within district authority | One event-triggered agent using typed HTTP tools; code enforces every mutation |
+
+A judge or builder reviews the same labeled sandbox experience. That is not another operational role. The personas describe intended users of the workflow; seeded identities and provider facts do not imply real customers or municipal participation.
+
+### 5.2 Permission boundary
 
 | Capability | Resident | Assigned crew | Operator | Steward service |
 |---|---|---|---|---|
@@ -191,7 +237,9 @@ The operator selects **Request completion**. The decision is saved once; repeate
 | PROOF_SUBMITTED | Job, before and latest after evidence, prior findings, policy | Inspect; request settlement or raise an exception |
 | OPERATOR_DECISION | Pending exception, recorded choice, current job and evidence | Resume with the actual decision; request rework |
 
-The API validates and persists triggers; only reasoning-bearing events invoke the agent. Context comes from the database, never from a browser-supplied transcript.
+The API validates and persists triggers; only reasoning-bearing events invoke the agent. Context comes from the database, never from a browser-supplied transcript. A saved intake trigger may reference only a signal until matching creates or selects its issue; a pending report must not require an invented issue ID.
+
+**Context contract.** Every reasoning run receives its trigger and invocation IDs, server-bound actor context, current state revision, relevant policy and source/observation-time provenance. When present, include the current job/quote/reservation, latest proof and findings, pending exception and actual operator decision; absent records remain absent. Include successful prior effects so recovery does not redispatch or repay. Supply concise, bounded history with explicit truncation and retrievable evidence IDs; never truncate away current failed proof or gating facts. BUILD_PLAN section 6 owns the initial context and invocation limits. No browser transcript, private scratch note or prior model conversation is required to resume.
 
 **Decision record.** Each decision persists `issue_id`, optional `job_id`, `trigger_event_id`, `decision_type` (MONITOR, MARK_ACTIONABLE, DISPUTE_OFFICIAL_STATUS, ROUTE_EXTERNAL, REQUEST_DISPATCH, REQUEST_SETTLEMENT, REQUEST_OPERATOR, REQUEST_REWORK, RESOLVE), a concise `summary`, `evidence_ids`, score components, `policy_version`, gate results, and `next_actor` / `next_event`. Tool calls and results are captured separately under the same invocation ID. Decisions are intentions; only successful action-tool results mutate state. No hidden chain-of-thought.
 
@@ -237,6 +285,10 @@ Two requests arriving together cannot both spend one reservation or settle one j
 
 ## 10. Requirements
 
+### 10.1 Functional requirement index
+
+Every PR requirement below is required. The four build tiers sequence delivery; they do not turn unfinished mandatory behavior into an optional feature. The acceptance examples that follow make these requirements concrete without replacing DEMO.md.
+
 | ID | Required behavior | Steps |
 |---|---|---|
 | PR-01 | Persist direct reports with provenance, server signal ID, receipt time, and separate observation time | 3, 16 |
@@ -256,13 +308,70 @@ Two requests arriving together cannot both spend one reservation or settle one j
 
 UI vocabulary: Watching is MONITORING; Request completion leads to REWORK_REQUIRED; Proof is a crew submission; Evidence is everything supporting a decision. An exception is pending human attention, not an issue status. The sixteen criteria in [DEMO.md](DEMO.md) are the release contract; this document adds no second checklist.
 
+### 10.2 User stories and acceptance examples
+
+**US-01 — Report an observation** (resident; PR-01/02/03, DEMO 1/3/16). As a resident, I want to report the condition in ordinary words so that reporting does not require operational knowledge.
+
+- **Given** a description and reported location, with an optional image and observation time, **when** intake succeeds, **then** the signal and receipt time are persisted before a receipt is shown. Unknown location or observation time remains unknown; later matching preserves the original signal. A failed save never looks successful. Feed ingestion preserves stable source identities and its simulated-channel label.
+
+**US-02 — See why Steward waits** (operator; PR-04/05/12, DEMO 2). As an operator, I want an explicit waiting decision so that I can distinguish insufficient evidence from forgotten work.
+
+- **Given** one image, one independent witness and a precise location, **when** the matching 311 record is COMPLETED, **then** the score stays 65, the conflict is pending and the issue is MONITORING with unlock conditions. No job or reservation exists. A restart reloads that wait without keeping a model session alive.
+
+**US-03 — Reconcile conflicting evidence** (operator; PR-03/04/05/12, DEMO 3–5). As an operator, I want the city record and newer observations considered together so that an administrative closure cannot hide an unresolved couch.
+
+- **Given** the first observation and an earlier city completion, **when** a second independent newer observation corroborates the same couch, **then** the trace shows 85 before dispute confirmation and 100 after the qualifying record is credited. Both observation times, the completion time and source labels are visible. A repost is not independent; a different nearby object is not silently merged.
+
+**US-04 — Delegate authorized cleanup** (operator; PR-06, DEMO 6–7). As an operator, I want routine authorized work arranged within the existing contract so that I do not approve each ordinary job.
+
+- **Given** actionable evidence, known district authority, an eligible vendor and sufficient budget, **when** Steward requests the couch plan and dispatch, **then** code prices it at $72, saves the scope/proof requirements and creates one job and one reservation. Unknown authority, mixed hazards, an ineligible vendor, insufficient budget or an over-limit quote denies dispatch. Retrying cannot create another job.
+
+**US-05 — Submit work against a clear scope** (crew; PR-07/08, DEMO 8–9). As the assigned crew, I want proof requirements before starting so that completion is evaluated against the work I accepted.
+
+- **Given** my vendor's job, **when** I accept, check in and submit valid evidence, **then** those actor events persist in order and the UI says Proof received while inspection runs. Another vendor cannot perform them. Upload failure preserves form inputs and explains what must be fixed; submission alone never means Verified or Paid.
+
+**US-06 — Hold inadequate payment** (operator; PR-08/09/12, DEMO 9–10). As an operator, I want an exception grounded in the failed requirement so that I can request the remaining work.
+
+- **Given** same-scene proof with the couch removed but debris remaining, **when** inspection yields 90 and Steward requests settlement, **then** the actual tool returns DENIED against 95, records the attempt and leaves spent $0/reserved $72. One pending exception references that exact proof and failed area-clear check. Unrelated, reused or uncertain proof cannot pass through score arithmetic.
+
+**US-07 — Request completion and resume** (operator and crew; PR-09/10, DEMO 11–12). As an operator, I want one saved Request completion action to give the crew a specific next step.
+
+- **Given** a current pending exception, **when** the operator chooses Request completion, **then** the decision is persisted once and a fresh invocation requests rework on the same job/quote/reservation. The crew receives the remaining-work instruction. Until the operator acts, new completion submissions are blocked; stale decisions fail and identical retries return their saved result. Fresh rework proof receives a new submission ID and does not overwrite the failed proof.
+
+**US-08 — Resolve on accepted evidence** (operator; PR-10/11/12, DEMO 12–15). As an operator, I want the Board to show actual verified resolution and correct spending so that I can trust its status.
+
+- **Given** current fresh proof that passes every prerequisite and scores 100, **when** settlement and closure succeed, **then** there is one simulated $72 payment, a PAID job, a RESOLVED issue with accepted evidence and a resolution time, and a green marker with a text label. Available/reserved/spent are $428/$0/$72. If closure is interrupted after payment, retry finalizes closure without another payment.
+
+**US-09 — Act on valid lone-reporter evidence** (resident and operator; PR-04/14, EVALUATION 21–22). As a resident, I want useful fresh evidence considered even when no second resident reports.
+
+- **Given** the single 65-point observation, **when** an OPEN matching record corroborates it, **then** it reaches 80; **when instead** the same reporter supplies a fresh image observed at least 24 hours later, **then** the once-only persistence bonus yields 75. Neither path creates another independent witness. Actionability still requires a separate authority/dispatch gate.
+
+**US-10 — Reproduce and recover the case** (builder exercising the operator workflow; PR-13 and cross-cutting failure rules, DEMO 16/negatives). As a builder, I want to start, interrupt and repeat the documented flow so that a successful demo is inspectable.
+
+- **Given** a named demo store and documented setup, **when** the app restarts during an operator wait or after receiving an unfinished event, **then** saved records support recovery without manual database edits. An explicit reset recreates the starting fixtures and preserves separate run evidence. Replays, retries and concurrent requests do not duplicate jobs, reservations, exceptions, decisions or payments.
+
 ## 11. Definition of done
+
+### 11.1 Required completion evidence
 
 - All sixteen steps pass through the UI, plus the negative cases in DEMO.md, on a clean install with documented commands.
 - A live Strands trace shows evidence-dependent tool choices; a replay or unit test alone does not count. Calling a mutation endpoint directly with a disallowed action is denied.
 - The evaluation scenarios run through Steward and publish counts with denominators, failures, and limitations.
 - A tester can explain from the UI alone why Steward waited, why it disputed the closure, what the crew failed to finish, what the operator chose, and why payment became permitted. A missing explanation is a defect.
 - Labels (live, seeded, synthetic, simulated) match runtime behavior, screenshots, and narration. No customer-savings, municipal-speed, or accuracy claims.
+
+### 11.2 Success measures and claim boundaries
+
+| Measure | Required report | Limit on interpretation |
+|---|---|---|
+| Couch acceptance | Actual pass/fail for all 16 criteria at API gate, then UI gate; retained trace, final state and reset/repeat evidence | API projections for steps 5/15 do not prove their screen rendering |
+| Policy integrity | Direct-call denials and DEMO negative cases; zero duplicate/unauthorized executed financial effects in those tests | Tests prove the exercised cases, not production fraud prevention |
+| Internal evaluation | All 22 frozen scenarios; the routing, merge, proposed-action and escalation metrics defined in EVALUATION.md, with numerators/denominators and executed violations separate | No invented pass-rate target, excluded failures or claim of broad reliability; comparison arm remains tier 4 |
+| Comprehension | Record whether a tester can explain the five judgments in section 1.2 from the UI, and fix missing explanations | No fabricated user-study percentage |
+| Operational behavior | Actual invocation/inspection latency, model/tool errors and token usage; record configuration and run versions | Measured observations, not a promised response-time or dollar-cost SLA |
+| Release/access | Clean-install evidence, truthful artifacts and verified judging access under SUBMISSION.md | Local tests, a video or a provisioned service do not prove hosted acceptance |
+
+The sixteen-step acceptance run, twenty-two-scenario evaluation and twelve-inspection vision spike have different denominators and purposes. Keep their results separate. A deterministic replay can reproduce events; model wording or tool ordering need not be byte-identical when the required judgments and policy outcomes are preserved.
 
 ## 12. Truth labels
 
@@ -272,12 +381,100 @@ UI vocabulary: Watching is MONITORING; Request completion leads to REWORK_REQUIR
 
 Replays never masquerade as live inference. Public assets carry provenance and usage rights.
 
-## 13. Open items
+## 13. Risks, assumptions and open items
+
+### 13.1 Assumptions and mitigations
+
+| Assumption / risk | Required response | Build owner |
+|---|---|---|
+| Synthetic images and seeded identities simplify the case | Preserve source labels; test duplicates, mismatched scenes and unknown findings; publish fixture limitations | B3/B4/B7; P8/P9 |
+| A bounded vision result may be wrong | Keep prerequisite gates and deterministic scores; any false automatic acceptance blocks the affected unattended-verification claim | B7; VISION_SPIKE; P8 |
+| Selected Bedrock access may expire or fail | Verify live inference for the candidate run; retain failure events and recover without fabricated observations | B11/B12; R1 |
+| A persona switcher can be mistaken for real identity verification | Label sandbox access; bind server sessions and enforce vendor/actor permissions; keep service credentials server-side | B2; P1; H4 |
+| Accepted events or money state can be lost or replayed during interruption | Persist triggers, revisions and once-only effects; test recovery, concurrent requests and interrupted closure | B1–B12 |
+| App Runner's container files cannot fulfill the hosted persistence contract | Resolve durable records, proof bytes and pending work before deploying; seed/reset is not recovery | H1–H6 |
+| Time pressure encourages scope expansion or inflated completion claims | Follow the four tiers; preserve unfinished gates; move new product ideas to VISION.md | All tasks; R1/R2 |
+
+### 13.2 Decision register
 
 | Item | Position | Blocks |
 |---|---|---|
-| Vision spike | Run before/middle/after/unrelated/reused pairs three times each against real Bedrock output; any false automatic acceptance blocks unattended verification for that case | Automatic 100-point verification claim |
+| Vision spike | Component gate passed September 13: four before→completion pairings × three repeats, 12/12 expected outcomes, documented in [VISION_SPIKE.md](VISION_SPIKE.md). Rerun affected checks if images, model, prompt or verification logic change; prior results do not establish full workflow acceptance | No remaining blocker for the tested fixture spike; API/UI proof remains open |
 | App Runner and AgentCore specifics | Hosting durability conflict recorded in [DOCUMENT_REVIEW.md](DOCUMENT_REVIEW.md): App Runner local files cannot be the durable SQLite owner. Resolve persistence/hosting before deployment, then container build, service token, Runtime entrypoint, Observability, Gateway; record actual commands | Tier 3 |
 | Tier-4 flags | Live 311, Amazon Location, plain-Sonnet evaluation arm; only after tier 3 | Nothing required |
 
 Routine parameters are decided in the build documentation with evidence. No open item permits changing thresholds, scope, or labels silently.
+
+## 14. Data lifecycle and API contracts
+
+### 14.1 Logical records and ownership
+
+This is the product-level data dictionary. ARCHITECTURE owns physical fields and lifecycle values; BUILD_PLAN B1/B2/B10 owns typed schemas and endpoint contracts. The records below are requirements, not a claim that all tables exist. Keep one authoritative FastAPI/store boundary and the existing Python package.
+
+| Record | Minimum product information | Creation / invariant |
+|---|---|---|
+| Signal | Source/author lineage, content, reported place, observation time, receipt time, provenance and evidence references | Intake or authorized adapter; persisted before matching; receipt does not imply corroboration |
+| Issue and source links | Canonical condition/location/category, responsibility, lifecycle, source links, evidence components and resolution evidence/time | Validated matching/state operations; separate nearby conditions stay distinct when uncertain |
+| Official record / lookup receipt | External record ID/status, completion and lookup times, source mode, match and conflict/dispute facts | Trusted adapter; an official-record Signal never becomes another resident witness or recursively starts lookups |
+| Plan | Condition, service, authority, scope, required equipment, server-priced quote and proof requirements | Model proposes work; server derives price/eligibility from stored policy |
+| Job | Issue/plan/vendor, agreed amount, status, actor events and check-in | Authorized dispatch; one couch job, with rework on the same quote |
+| Evidence / proof submission | Immutable submission ID, issue/job, before/after role, image reference/digest, times/location and provenance | Validated upload/adapter; bytes must remain available whenever saved evidence references them |
+| Inspection | Exact submission, structured nullable findings, prerequisite results, score components, model/prompt/policy versions | Trusted inspector; a stale inspection cannot authorize newer proof |
+| Exception and operator decision | Issue/job/proof, unmet requirement, pending/handled state, actual actor choice/reason/time | Service creates exception; operator saves choice; service consumes the current choice once |
+| Budget, reservation and payment | Starting budget, outstanding reservation, settled amount, job and idempotency links | Transactional policy boundary; integer cents and simulated settlement only |
+| Event, decision, request receipt and invocation | Trigger/actor/entity IDs, revision, outcome/reason, evidence, safe trace references and processing status | Append-only history plus persisted processing state; intentions do not claim successful actions |
+
+Policy, district boundary, providers, rates and addresses are versioned seed/configuration inputs. There is no policy editor. Save source facts and their uncertainties; never infer an observation timestamp from an upload timestamp. Use UTC internally and show understandable timestamps with a timezone in evidence comparisons.
+
+### 14.2 Lifecycle and retention
+
+The ordinary issue lifecycle is `CANDIDATE → MONITORING → ACTIONABLE → RESOLUTION_ACTIVE → RESOLVED`. The ordinary job lifecycle is `POSTED → ASSIGNED → CHECKED_IN → PROOF_SUBMITTED → VERIFIED → PAID`; requested rework returns through `REWORK_REQUIRED → PROOF_SUBMITTED`. ARCHITECTURE defines alternate states and valid transitions; these arrows do not require an unnecessary watch step for already-actionable evidence.
+
+An official-status dispute is a fact/event, not a replacement for the issue's active lifecycle. A pending payment exception leaves the issue active and the job unpaid. Routed externally does not mean resolved. New observations after resolution become signals for review, not silent edits to the completed case. Board counts and budgets come from stored records, not model prose.
+
+Keep failed and accepted proof, decisions and audit events through the demo run and recovery. An explicit reset affects only its named demo store and associated demo assets, never source fixtures, unrelated stores or separately retained run artifacts. No automatic retention purge, resident history portal or production records-management system is implied. Public release artifacts use publishable, labeled inputs; the sandbox is not a place to collect private resident reports.
+
+### 14.3 API and tool interaction
+
+| Caller / operation | Contract |
+|---|---|
+| Resident intake | Submit description/location and optional evidence/time; server binds reporter context and returns a durable receipt before agent processing |
+| Crew events | Bound vendor/job, explicit accept/check-in/proof actions; validate transition and evidence requirements at the API |
+| Operator action | Reference the exact pending exception/proof and revision; save Request completion before starting the resume invocation |
+| Agent reads and proposals | Retrieve bounded case facts; submit validated classification/responsibility/plan/decision proposals; never submit authoritative scores, money or human identity |
+| Agent action tools | Call the same gated HTTP operations locally and on AgentCore; server recomputes authority and returns the actual persisted result |
+| UI reads | Receive role-scoped board/issue/job/exception projections and saved processing state; never query SQLite or render an invented action transcript |
+
+All mutations carry idempotency keys; stale-sensitive operations also reference expected revision and exact submission/exception IDs. An identical retry returns the existing result; a changed payload under the same key conflicts. Business state and its audit event commit together. A denial may append an audit event while leaving the job and money unchanged. Never hold a write transaction open during Bedrock or other network calls.
+
+Use the shared `ToolResult` outcomes in section 8: `OK`, `DENIED`, `NEEDS_REVIEW`, `NOT_FOUND`, `ERROR`, with reason, data, unmet requirements, allowed next actions and evidence/event IDs. BUILD_PLAN section 12 contains the planned endpoint map; FastAPI/OpenAPI and typed models must agree before tools/screens depend on them. API routes and HTTP status mappings are implementation contracts, not independent product policy.
+
+## 15. Non-functional requirements
+
+These requirements make the existing journey usable and trustworthy. They attach to current build tasks and acceptance/negative cases; they add no new product surface. Engineering defaults may be adjusted with evidence in BUILD_PLAN, while product thresholds and permissions remain locked.
+
+| ID | Required property and verification | Build owner |
+|---|---|---|
+| NFR-01 Durability | Reopen the store and resume a pending operator decision or accepted unfinished event with the same evidence and ledger; migrate existing state without silently resetting it | B1/B3/B12; H1/H6; R1 |
+| NFR-02 Once-only effects | Concurrent/repeated requests cannot duplicate a job, reservation, exception, operator action or payment; failed writes roll back; latest proof and revisions are checked at mutation time | B1/B5–B9/B12; DEMO negatives |
+| NFR-03 Actor and service boundaries | Server binds actor/vendor/district; direct requests obey section 5. A sandbox user cannot select service identity, and the frontend contains no service token or AWS credentials | B2/B10; P1; H4/H6 |
+| NFR-04 Input and image safety | Treat text/image instructions as data; validate schema and image bytes, normalize images and compute hashes server-side; reject malformed/oversize uploads and filesystem paths. B3 starts with JPEG/PNG and a documented 10 MiB upload cap | B2/B3/B7/B11 |
+| NFR-05 Privacy and provenance | Expose only each role's permitted records; keep other reporter identities out of resident responses. Preserve source labels; exclude credentials and hidden chain-of-thought from prompts, traces, browser payloads and published artifacts | B2/B10–B12; P6/P9; R2 |
+| NFR-06 Bounded work and cost visibility | End invocations at their stopping conditions; never loop on unchanged denials. A denial can lead to escalation in the same run. Begin with BUILD_PLAN's 12 model cycles, 40 tool calls, up to 3 transient attempts per external request and 120-second invocation deadline; the deadline bounds retries too. Record latency/usage, do not promise a dollar cost or unlimited retries | B10–B12; P8; H2/H4 |
+| NFR-07 Truthful responsiveness | Save input before acknowledging it; distinguish saved, processing, waiting, failed and completed states. Show recoverable errors, preserve form input on upload failure and reject stale decisions visibly. Long model work does not hold the request's write transaction | B3/B6/B8/B12; P1–P7 |
+| NFR-08 Accessible surfaces | Complete the flow by keyboard with labeled controls and visible focus; pair status colors with text. Verify crew/intake on a narrow mobile layout and preserve navigation if map tiles fail | P1–P7 |
+| NFR-09 Auditability | Link each actual decision, tool result and human action to trigger/invocation/evidence IDs, policy version and current state; retain the denied attempt after successful rework | B1/B10–B12; P2/P8; H3 |
+| NFR-10 Reproducibility | Record candidate commit, locked dependencies, model/region, prompt/tool/policy/fixture versions, exact commands, outputs and failed cases. Public instructions must suffice without ignored local notes | B13; P7/P8; R1/R2 |
+| NFR-11 Environment parity | Keep one HTTP tool implementation and one mutation authority. Hosted persistence must retain records, proof bytes and pending work across requests and instance replacement before hosted acceptance is claimed | B10; H1–H6 |
+
+The local prototype has no production uptime, throughput or geographic-coverage promise. Measure actual demo latency and failure behavior; do not copy performance or enterprise-security claims from another project's PRD.
+
+## 16. Build handoff and change control
+
+1. Read AGENTS.md, this PRD, ARCHITECTURE, DEMO and BUILD_PLAN. Check the actual branch, working tree and current implementation before choosing the first unfinished task.
+2. For that task, identify its PR/story/NFR IDs, input/output contracts, mutation/actor rules and named success/failure evidence. BUILD_PLAN owns B/P/H/O/R task packets and the full coverage map.
+3. Preserve the four-tier sequence: sixteen outcomes through the API before surfaces, UI/evaluation/presentation before hosting, then optional flags. A unit test, spike or planned command does not close a later gate.
+4. Record changed files/interfaces, actual commands/results and remaining limits in the task receipt; update README/build status only when evidence supports it. Keep requirement changes synchronized across their owning documents.
+5. Resolve routine engineering choices within the existing scope and record them. New product ideas go to VISION; threshold/authority changes or the H1 hosting adjustment need an explicit recorded decision. Publishing, deployment and submission retain their separate authorization gates.
+
+The September 13 checkpoint remains component-level: Tier 1A is verified and pure Tier 1B policy/fixtures exist; the complete event API, financial workflow, Steward prompt/tools, UI, evaluation and hosting are unfinished. Continue with BUILD_PLAN B1 after checking for newer work. The Mac mini is the SSH development host for persistent headless coding, separate from the AWS judging host; source handoff and remote runtime readiness must be verified independently.

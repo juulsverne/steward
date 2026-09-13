@@ -16,7 +16,7 @@ The competition proof is one couch: wait at evidence score 65; corroborate at 85
 
 ## Build documents
 
-- [Hackathon build spec: scope, actors, journey, agent behavior, requirements](docs/PRD.md)
+- [Product requirements: goals, users, stories, agent behavior, data/API and quality](docs/PRD.md)
 - [Architecture, data, tools, policy, and deployment contract](docs/ARCHITECTURE.md)
 - [Build guide: what, why, how, AWS connections, task order and verification](docs/BUILD_PLAN.md)
 - [Sixteen acceptance criteria and demo script](docs/DEMO.md)

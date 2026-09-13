@@ -73,7 +73,7 @@ The PRD is specific enough to continue the local build. The main missing work is
 
 **Hosting has one unresolved architecture decision.** App Runner's local filesystem is temporary. Keeping SQLite and uploaded proof only inside its container cannot meet the saved-state requirement. H1 must select and document a durable owner or an approved hosting adjustment before deployment. A reset cannot recover an in-progress job or money ledger. [AWS storage contract, rechecked September 13](https://docs.aws.amazon.com/apprunner/latest/dg/develop.html).
 
-Two smaller documentation discrepancies do not change scope: the PRD open-items table still describes running the vision spike, whose passed checkpoint is now in VISION_SPIKE.md; the architecture still says to choose a precision threshold, while current policy fixes it at 30 m.
+The PRD v3.1 context review reconciled two smaller discrepancies: its decision register now links the passed, dated vision checkpoint, and ARCHITECTURE records the locked 30 m geocode threshold. Neither correction changes scope or constitutes a new live run. PRD user stories and NFRs make the existing task requirements easier to find; policy remains `south-loop-v3`.
 
 Ignored `docs/plans/`, engineering checklists and `.superpowers/` notes are historical references. Their old task numbers, optional infrastructure, incomplete sketches, or unchecked claims do not override this guide and the locked specifications. The complete guide travels with the public repository; a new builder must not need private scratch notes.
 
@@ -903,7 +903,7 @@ Before assigning work there, inspect its actual checkout, branch, dirty files, d
 
 | PRD area / requirement | Build tasks |
 |---|---|
-| §§1–3 purpose, principles, vocabulary | Guide §§3–6; B1/B11; P2/P7/P9 |
+| §§1–3 purpose, goals G-01–05, principles, vocabulary | Guide §§3–6; B1/B11; P2/P7/P9 |
 | §4 inputs, authorized work, stack, tiers and exclusions | B2–B10; P1–P9; H1–H6; O1–O3; all gates |
 | §5 actors and permissions | B1/B2/B6/B8/B10; P1/P4–P6 |
 | §6 couch journey | B3–B13; P2–P7 |
@@ -924,8 +924,15 @@ Before assigning work there, inspect its actual checkout, branch, dirty files, d
 | PR-12 evidence/decisions/policy/tool results | B1/B4–B12; P2–P7; H3 |
 | PR-13 repeatable reset | B3/B13; P7; R1 |
 | PR-14 once-only persistence | B0/B4; P8 |
-| §§11–12 done criteria and truth labels | B13; P7–P9; H6; R1/R2 |
-| §13 open items | B0 checkpoint; H1; O1–O3 |
+| §10.2 stories US-01–10 | Existing PR-01–14 rows above; B1–B13; P1–P8; DEMO negatives |
+| §§11–12 done criteria, success measures and truth labels | B13; P7–P9; H6; R1/R2 |
+| §13 risks, assumptions and decision register | B0 checkpoint; B1–B12; H1; O1–O3; R1/R2 |
+| §14 logical data, lifecycle and API summary | B1/B2/B3/B7–B12; shared connection contract in guide §12 |
+| NFR-01 durability; NFR-02 once-only effects | B1/B3/B5–B9/B12; B13 negatives; H1/H6; R1 |
+| NFR-03 actor boundary; NFR-04 input/images; NFR-05 privacy/provenance | B2/B3/B7/B10–B12; P1/P6/P9; H4/H6; R2 |
+| NFR-06 bounded work; NFR-07 responsiveness; NFR-08 accessibility | B3/B6/B8/B10–B12; P1–P8; H2/H4 |
+| NFR-09 auditability; NFR-10 reproducibility; NFR-11 parity | B1/B10–B13; P2/P7/P8; H1–H6; R1/R2 |
+| §16 handoff and change control | Guide §§12–14; every task receipt |
 
 ### Sixteen demo outcomes
 
@@ -1024,5 +1031,6 @@ Gate evidence adds model ID/region, prompt/tool/policy/fixture versions, event t
 | Sep 13 | React static + FastAPI, App Runner target, AgentCore Runtime/Observability/Gateway, HTTP tools | One policy authority/tool implementation; hosting durability gate remains open |
 | Sep 13 | Sandbox persona, Request completion only, five synthetic labeled images | Smallest honest surfaces for sixteen steps |
 | Sep 13, this guide | Explicit task/data/workflow graphs, trigger context and delegation receipts | Make the complete build teachable and transferable without private notes |
+| Sep 13, PRD v3.1 | User goals, stories, data/API overview, quality requirements, measures and risks made explicit | Documentation context only; existing policy numbers, exclusions, sixteen demo criteria, twenty-two evaluation scenarios and four tiers preserved |
 
 Append evidence-backed implementation decisions as the build progresses. Record changed engineering limits or interfaces with the result that justified them. Product thresholds, authority and exclusions cannot silently change to make a test pass.
