@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from agent.migrations import SCHEMA_VERSION
+from agent.migrations import SCHEMA_VERSION, TABLES
 from agent.store import Store
 
 # Frozen original schema, deliberately independent of the production migration DDL.
@@ -57,6 +57,101 @@ def raw_state(path):
                 for table in ("issues", "signals", "issue_sources", "events")}
 
 
+def populated_schema_five_exception(path):
+    """A relationally complete v5 completion exception and saved operator choice.
+
+    The records deliberately use opaque historical JSON: this test is about the
+    migration's physical FKs and byte preservation, not rewriting old payloads.
+    """
+    with Store(path) as store:
+        store.create_issue("issue-v5", "bulky_waste", "Demo")
+        db = store.db
+        db.execute("INSERT INTO vendors(record_json,id) VALUES (?,?)", ('{"old":"vendor"}', "vendor-v5"))
+        db.execute("INSERT INTO plans(record_json,id,issue_id,district_id,quote_cents,state_revision) "
+                   "VALUES (?,?,?,?,?,?)", ('{"old":"plan"}', "plan-v5", "issue-v5", "south_loop_demo", 500, 0))
+        db.execute("INSERT INTO jobs(record_json,id,issue_id,plan_id,vendor_id,price_cents,status,state_revision) "
+                   "VALUES (?,?,?,?,?,?,?,?)", ('{"old":"job"}', "job-v5", "issue-v5", "plan-v5", "vendor-v5", 500,
+                                                   "PROOF_SUBMITTED", 4))
+        for evidence_id, image_ref, digest in (("before-v5", "before-ref-v5", "a" * 64),
+                                               ("after-v5", "after-ref-v5", "b" * 64)):
+            db.execute("INSERT INTO evidence(record_json,id,image_ref,image_sha256,provenance) VALUES (?,?,?,?,?)",
+                       ('{"old":"evidence"}', evidence_id, image_ref, digest, "seeded"))
+        db.execute("INSERT INTO evidence_associations(record_json,id,evidence_id,role,issue_id,job_id) "
+                   "VALUES (?,?,?,?,?,?)", ('{"old":"before"}', "assoc-before-v5", "before-v5", "before", "issue-v5", "job-v5"))
+        db.execute("INSERT INTO evidence_associations(record_json,id,evidence_id,role,issue_id,job_id) "
+                   "VALUES (?,?,?,?,?,?)", ('{"old":"after"}', "assoc-after-v5", "after-v5", "completion", "issue-v5", "job-v5"))
+        db.execute("INSERT INTO submissions(record_json,id,issue_id,job_id,before_evidence_id,after_evidence_id) "
+                   "VALUES (?,?,?,?,?,?)", ('{"old":"submission"}', "submission-v5", "issue-v5", "job-v5", "before-v5", "after-v5"))
+        db.execute("INSERT INTO verifications(record_json,id,issue_id,job_id,submission_id,job_revision) "
+                   "VALUES (?,?,?,?,?,?)", ('{"old":"verification"}', "verification-v5", "issue-v5", "job-v5", "submission-v5", 4))
+        denial = db.execute("INSERT INTO events(issue_id,job_id,event_type,timestamp,payload,actor_id,actor_json,"
+                            "state_revision,policy_version) VALUES (?,?,?,?,?,?,?,?,?)", (
+            "issue-v5", "job-v5", "SETTLEMENT_DENIED", "2026-09-13T00:00:00+00:00", "{}", "service-v5", "{}", 4, "v1"
+        )).lastrowid
+        db.execute("INSERT INTO exceptions(record_json,id,issue_id,job_id,submission_id,verification_id,denial_event_id,"
+                   "kind,reason_code,status,state_revision) VALUES (?,?,?,?,?,?,?,?,?,?,?)", (
+            '{"opaque":"exception-v5"}', "exception-v5", "issue-v5", "job-v5", "submission-v5", "verification-v5", denial,
+            "completion", "incomplete", "DECIDED", 1,
+        ))
+        db.execute("INSERT INTO operator_decisions(record_json,id,exception_id,issue_id,job_id,submission_id,handled_at) "
+                   "VALUES (?,?,?,?,?,?,?)", ('{"opaque":"decision-v5"}', "decision-v5", "exception-v5", "issue-v5", "job-v5",
+                                                 "submission-v5", None))
+        # Recreate the exact old exception status constraint while the decision
+        # child still references its replacement parent.  This is the topology
+        # B8's v6 upgrade must preserve for populated databases.
+        old_exceptions = TABLES["exceptions"].replace("'HANDLED','CANCELLED'", "'HANDLED'")
+        old_decisions = TABLES["operator_decisions"].replace("REFERENCES exceptions(", "REFERENCES exceptions_v5(")
+        db.execute("PRAGMA foreign_keys=OFF")
+        db.execute(f"CREATE TABLE exceptions_v5 (record_json TEXT NOT NULL, {old_exceptions})")
+        db.execute("INSERT INTO exceptions_v5 SELECT * FROM exceptions")
+        db.execute(f"CREATE TABLE operator_decisions_v5 (record_json TEXT NOT NULL, {old_decisions})")
+        db.execute("INSERT INTO operator_decisions_v5 SELECT * FROM operator_decisions")
+        db.execute("DROP TABLE operator_decisions")
+        db.execute("DROP TABLE exceptions")
+        db.execute("ALTER TABLE exceptions_v5 RENAME TO exceptions")
+        db.execute("ALTER TABLE operator_decisions_v5 RENAME TO operator_decisions")
+        db.execute("PRAGMA foreign_keys=ON")
+        db.execute("PRAGMA user_version=5")
+        db.commit()
+
+
+def test_upgrade_schema_five_preserves_populated_completion_exception_and_decision(tmp_path):
+    path = tmp_path / "schema-five.db"
+    populated_schema_five_exception(path)
+    with Store(path) as store:
+        assert store.db.execute("PRAGMA user_version").fetchone()[0] == 6
+        assert store.db.execute("SELECT record_json FROM exceptions WHERE id='exception-v5'").fetchone()[0] == \
+            '{"opaque":"exception-v5"}'
+        assert store.db.execute("SELECT record_json FROM operator_decisions WHERE id='decision-v5'").fetchone()[0] == \
+            '{"opaque":"decision-v5"}'
+        assert store.db.execute("PRAGMA foreign_key_check").fetchall() == []
+        assert store.db.execute("PRAGMA foreign_key_list(operator_decisions)").fetchall()[0][2] == "exceptions"
+
+
+def test_schema_five_exception_upgrade_rolls_back_after_rebuild(tmp_path, monkeypatch):
+    from agent import migrations
+
+    path = tmp_path / "schema-five-rollback.db"
+    populated_schema_five_exception(path)
+    real = migrations._upgrade_six
+
+    def fail_after_rebuild(db):
+        real(db)
+        raise RuntimeError("injected v6 failure")
+
+    monkeypatch.setattr(migrations, "_upgrade_six", fail_after_rebuild)
+    with pytest.raises(RuntimeError, match="injected v6 failure"):
+        Store(path)
+    with sqlite3.connect(path) as db:
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 5
+        assert db.execute("SELECT record_json FROM exceptions WHERE id='exception-v5'").fetchone()[0] == \
+            '{"opaque":"exception-v5"}'
+        assert db.execute("SELECT record_json FROM operator_decisions WHERE id='decision-v5'").fetchone()[0] == \
+            '{"opaque":"decision-v5"}'
+        assert "'CANCELLED'" not in db.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='exceptions'").fetchone()[0]
+        assert db.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
 def test_unversioned_unknown_database_is_not_blessed(tmp_path):
     path = tmp_path / "unknown.db"
     with sqlite3.connect(path) as db:
@@ -70,10 +165,10 @@ def test_unversioned_unknown_database_is_not_blessed(tmp_path):
         ]
 
 
-def test_schema_version_three(tmp_path):
+def test_schema_version_six(tmp_path):
     with Store(tmp_path / "new.db") as store:
-        assert SCHEMA_VERSION == 5
-        assert store.db.execute("PRAGMA user_version").fetchone()[0] == 5
+        assert SCHEMA_VERSION == 6
+        assert store.db.execute("PRAGMA user_version").fetchone()[0] == 6
 
 
 def test_upgrade_copied_v1_preserves_bytes_relations_scores_and_sequence(tmp_path):
@@ -139,4 +234,4 @@ def test_concurrent_first_open_and_upgrade(tmp_path, legacy):
             return store.db.execute("PRAGMA user_version").fetchone()[0]
 
     with ThreadPoolExecutor(max_workers=4) as workers:
-        assert list(workers.map(open_store, range(8))) == [5] * 8
+        assert list(workers.map(open_store, range(8))) == [6] * 8

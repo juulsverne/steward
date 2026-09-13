@@ -58,8 +58,12 @@ from .operations import (
     build_resolution_plan,
     check_in,
     dispatch_vendor,
+    escalate_to_operator,
+    exception_detail,
     inspect_completion,
     list_eligible_vendors,
+    request_completion,
+    request_rework,
     submit_proof,
 )
 from .policy import load_policy
@@ -92,6 +96,28 @@ class ProofMetadata(c.Record):
 
 class InspectCompletionRequest(c.Record):
     submission_id: c.OpaqueId
+
+
+class CompletionExceptionRequest(c.Record):
+    submission_id: c.OpaqueId
+    verification_id: c.OpaqueId
+    denial_event_id: c.Positive
+    reason_code: c.Text
+
+
+class IssueExceptionRequest(c.Record):
+    kind: Literal["authority", "no_vendor", "budget"]
+    reason_code: c.Text
+    denial_event_id: c.Positive | None = None
+
+
+class RequestCompletionRequest(c.Record):
+    submission_id: c.OpaqueId
+    expected_job_revision: c.Nonnegative
+
+
+class ExceptionListView(c.Record):
+    exceptions: tuple[c.ExceptionDetail, ...]
 
 
 class IssueCreateRequest(c.Record):
@@ -921,6 +947,112 @@ def create_app(settings: ApiSettings | None = None,
         except (KeyError, ValueError):
             raise AccessError(422, "VALIDATION_ERROR") from None
         return result_response(result, status=200 if result.outcome == "OK" else 503 if result.outcome == "ERROR" else None)
+
+    @app.post("/api/jobs/{job_id}/exceptions", response_model=c.ToolResult[c.EntityResult], status_code=202,
+              openapi_extra={"parameters": [{"name": name, "in": "header", "required": True,
+                  "schema": {"type": "string"}} for name in ("Idempotency-Key", "X-Steward-Expected-Revision")],
+                  "requestBody": {"required": True, "content": {"application/json": {
+                      "schema": CompletionExceptionRequest.model_json_schema()}}}})
+    async def escalate_completion_exception(request: Request, job_id: str):
+        context = mutation_context(request, Action.ESCALATE, expected_revision=expected_revision(request))
+        body = await parse_json_request(request, CompletionExceptionRequest)
+        try:
+            def operation():
+                with request_store(request) as store:
+                    return escalate_to_operator(store, issue_id=store.get_job(job_id).issue_id,
+                        job_id=job_id, submission_id=body.submission_id,
+                        verification_id=body.verification_id, denial_event_id=body.denial_event_id,
+                        reason_code=body.reason_code, context=context, policy_path=settings.policy_path).result
+            result = await to_thread(operation)
+        except (IdempotencyConflict, RevisionConflict):
+            raise
+        except (KeyError, ValueError):
+            raise AccessError(422, "VALIDATION_ERROR") from None
+        return result_response(result, status=202)
+
+    @app.post("/api/issues/{issue_id}/exceptions", response_model=c.ToolResult[c.EntityResult], status_code=202,
+              openapi_extra={"parameters": [{"name": name, "in": "header", "required": True,
+                  "schema": {"type": "string"}} for name in ("Idempotency-Key", "X-Steward-Expected-Revision")],
+                  "requestBody": {"required": True, "content": {"application/json": {
+                      "schema": IssueExceptionRequest.model_json_schema()}}}})
+    async def escalate_issue_exception(request: Request, issue_id: str):
+        context = mutation_context(request, Action.ESCALATE, expected_revision=expected_revision(request))
+        body = await parse_json_request(request, IssueExceptionRequest)
+        try:
+            def operation():
+                with request_store(request) as store:
+                    return escalate_to_operator(store, issue_id=issue_id, kind=body.kind,
+                        reason_code=body.reason_code, denial_event_id=body.denial_event_id,
+                        context=context, policy_path=settings.policy_path).result
+            result = await to_thread(operation)
+        except (IdempotencyConflict, RevisionConflict):
+            raise
+        except (KeyError, ValueError):
+            raise AccessError(422, "VALIDATION_ERROR") from None
+        return result_response(result, status=202)
+
+    @app.get("/api/exceptions/{exception_id}", response_model=c.ToolResult[c.ExceptionDetail])
+    def read_exception(request: Request, exception_id: str):
+        actor = require_action(request, Action.READ_ISSUE)
+        with request_store(request) as store:
+            return c.ToolResult[c.ExceptionDetail](outcome="OK",
+                data=exception_detail(store, exception_id=exception_id, actor=actor,
+                                      policy_path=settings.policy_path))
+
+    @app.get("/api/issues/{issue_id}/exceptions", response_model=c.ToolResult[ExceptionListView])
+    def list_issue_exceptions(request: Request, issue_id: str):
+        actor = require_action(request, Action.READ_ISSUE)
+        with request_store(request) as store:
+            AccessBoundary(actor, settings.district_id).issue(store, issue_id)
+            return c.ToolResult[ExceptionListView](outcome="OK", data=ExceptionListView(
+                exceptions=tuple(exception_detail(store, exception_id=record.id, actor=actor,
+                                                  policy_path=settings.policy_path)
+                                 for record in store.exceptions_for_issue(issue_id))))
+
+    @app.post("/api/exceptions/{exception_id}/request-completion",
+              response_model=c.ToolResult[c.PendingEntityResult], status_code=202,
+              openapi_extra={"parameters": [{"name": name, "in": "header", "required": True,
+                  "schema": {"type": "string"}} for name in ("Idempotency-Key", "X-Steward-Expected-Revision")],
+                  "requestBody": {"required": True, "content": {"application/json": {
+                      "schema": RequestCompletionRequest.model_json_schema()}}}})
+    async def operator_request_completion(request: Request, exception_id: str):
+        context = mutation_context(request, Action.REQUEST_COMPLETION, expected_revision=expected_revision(request))
+        body = await parse_json_request(request, RequestCompletionRequest)
+        try:
+            def operation():
+                with request_store(request) as store:
+                    return request_completion(store, exception_id=exception_id, submission_id=body.submission_id,
+                        expected_job_revision=body.expected_job_revision, context=context,
+                        policy_path=settings.policy_path).result
+            result = await to_thread(operation)
+        except (IdempotencyConflict, RevisionConflict):
+            raise
+        except (KeyError, ValueError):
+            raise AccessError(422, "VALIDATION_ERROR") from None
+        return result_response(result, status=202)
+
+    @app.post("/api/operator-decisions/{decision_id}/rework", response_model=c.ToolResult[c.EntityResult],
+              openapi_extra={"parameters": [{"name": name, "in": "header", "required": True,
+                  "schema": {"type": "string"}} for name in ("Idempotency-Key", "X-Steward-Expected-Revision")]})
+    async def apply_operator_rework(request: Request, decision_id: str):
+        context = mutation_context(request, Action.REWORK, expected_revision=expected_revision(request))
+        content_length = _header(request, "content-length")
+        if content_length is not None and (not content_length.isdigit() or int(content_length) != 0):
+            raise AccessError(422, "VALIDATION_ERROR")
+        async for chunk in request.stream():
+            if chunk:
+                raise AccessError(422, "VALIDATION_ERROR")
+        try:
+            def operation():
+                with request_store(request) as store:
+                    return request_rework(store, decision_id=decision_id, context=context,
+                        policy_path=settings.policy_path).result
+            result = await to_thread(operation)
+        except (IdempotencyConflict, RevisionConflict):
+            raise
+        except (KeyError, ValueError):
+            raise AccessError(422, "VALIDATION_ERROR") from None
+        return result_response(result)
 
     @app.post("/api/issues/{issue_id}/geocode", response_model=c.ToolResult[c.EntityResult])
     async def geocode_issue(request: Request, issue_id: str):

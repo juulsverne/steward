@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 SCHEMA_1 = """
 CREATE TABLE issues (
@@ -71,7 +71,7 @@ TABLES = {
     "exceptions": """id TEXT PRIMARY KEY, issue_id TEXT NOT NULL REFERENCES issues(id),
         job_id TEXT, submission_id TEXT, verification_id TEXT, denial_event_id INTEGER
         REFERENCES events(id), kind TEXT NOT NULL, reason_code TEXT NOT NULL,
-        status TEXT NOT NULL CHECK(status IN ('PENDING','DECIDED','HANDLED')),
+        status TEXT NOT NULL CHECK(status IN ('PENDING','DECIDED','HANDLED','CANCELLED')),
         state_revision INTEGER NOT NULL CHECK(state_revision>=0),
         UNIQUE(id, submission_id, job_id, issue_id),
         CHECK(submission_id IS NULL OR job_id IS NOT NULL),
@@ -285,6 +285,34 @@ def _upgrade_five(db: sqlite3.Connection) -> None:
     )""")
 
 
+def _upgrade_six(db: sqlite3.Connection) -> None:
+    """Permit cancellation while preserving populated exception/decision relationships.
+
+    Exceptions are intentionally mutable state records: an append-only trigger would
+    make PENDING -> DECIDED -> HANDLED impossible.  Rebuild the one dependent table
+    as well, because renaming the parent changes SQLite's child FK target.
+    """
+    sql = db.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='exceptions'").fetchone()[0]
+    if "'CANCELLED'" not in sql:
+        db.execute(f"CREATE TABLE exceptions_v6 (record_json TEXT NOT NULL, {TABLES['exceptions']})")
+        db.execute("INSERT INTO exceptions_v6 SELECT * FROM exceptions")
+        decision_columns = TABLES["operator_decisions"].replace(
+            "REFERENCES exceptions(", "REFERENCES exceptions_v6("
+        )
+        db.execute(f"CREATE TABLE operator_decisions_v6 (record_json TEXT NOT NULL, {decision_columns})")
+        db.execute("INSERT INTO operator_decisions_v6 SELECT * FROM operator_decisions")
+        db.execute("DROP TABLE operator_decisions")
+        db.execute("DROP TABLE exceptions")
+        db.execute("ALTER TABLE exceptions_v6 RENAME TO exceptions")
+        db.execute("ALTER TABLE operator_decisions_v6 RENAME TO operator_decisions")
+    db.execute("CREATE UNIQUE INDEX IF NOT EXISTS pending_completion ON exceptions(job_id) "
+               "WHERE kind='completion' AND status IN ('PENDING','DECIDED')")
+    db.execute("CREATE UNIQUE INDEX IF NOT EXISTS completion_failure ON exceptions(job_id,submission_id,reason_code) "
+               "WHERE kind='completion'")
+    db.execute("CREATE UNIQUE INDEX IF NOT EXISTS pending_issue_exception ON exceptions(issue_id,kind,reason_code) "
+               "WHERE job_id IS NULL AND status IN ('PENDING','DECIDED')")
+
+
 def migrate(db: sqlite3.Connection) -> None:
     db.execute("PRAGMA foreign_keys=ON")
     db.execute("PRAGMA synchronous=FULL")
@@ -292,7 +320,7 @@ def migrate(db: sqlite3.Connection) -> None:
     with db:
         db.execute("BEGIN IMMEDIATE")
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version not in (0, 1, 2, 3, 4, SCHEMA_VERSION):
+        if version not in (0, 1, 2, 3, 4, 5, SCHEMA_VERSION):
             raise ValueError(f"unsupported database schema {version}")
         if version == 0:
             existing = db.execute("SELECT name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'")
@@ -307,6 +335,8 @@ def migrate(db: sqlite3.Connection) -> None:
             _upgrade_four(db)
         if version < 5:
             _upgrade_five(db)
+        if version < 6:
+            _upgrade_six(db)
         _seed_receipts(db)
         if db.execute("PRAGMA foreign_key_check").fetchone():
             raise ValueError("database schema contains foreign key violations")

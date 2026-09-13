@@ -523,7 +523,7 @@ def test_schema_three_attempt_bytes_survive_four_and_failed_upgrade_is_atomic(tm
         assert db.execute("PRAGMA user_version").fetchone()[0] == 3
         assert db.execute("SELECT record_json FROM intake_inspections").fetchone()[0] == raw
     with Store(path) as store:
-        assert store.db.execute("PRAGMA user_version").fetchone()[0] == 5
+        assert store.db.execute("PRAGMA user_version").fetchone()[0] == migrations.SCHEMA_VERSION
         assert store.db.execute("SELECT record_json FROM intake_inspections").fetchone()[0] == raw
         assert store.get_intake_inspection(record.id).findings == record.findings
         assert store.find_intake_inspection(record.cache_key) is None  # missing full old basis is not qualified cache

@@ -460,16 +460,18 @@ class ExceptionRecord(Record):
     submission_id: Text | None = None
     verification_id: Text | None = None
     denial_event_id: Positive | None = None
-    kind: Literal["completion", "authority", "no_vendor"]
+    kind: Literal["completion", "authority", "no_vendor", "budget"]
     reason_code: Text
     unmet: tuple[Text, ...]
     scope: Text
     before_evidence_id: Text | None = None
     after_evidence_id: Text | None = None
-    status: Literal["PENDING", "DECIDED", "HANDLED"] = "PENDING"
+    status: Literal["PENDING", "DECIDED", "HANDLED", "CANCELLED"] = "PENDING"
     state_revision: Nonnegative = 0
     created_at: Timestamp
     handled_at: Timestamp | None = None
+    cancelled_at: Timestamp | None = None
+    cancellation_event_id: Positive | None = None
 
     @model_validator(mode="after")
     def completion_proof(self):
@@ -493,6 +495,7 @@ class OperatorDecisionRecord(Record):
     choice: Literal["REQUEST_COMPLETION"] = "REQUEST_COMPLETION"
     reason: Text
     expected_exception_revision: Nonnegative
+    expected_job_revision: Nonnegative | None = None
     created_at: Timestamp
     handled_at: Timestamp | None = None
 
@@ -501,6 +504,42 @@ class OperatorDecisionRecord(Record):
         if self.actor.actor_type != "operator":
             raise ValueError("operator decision requires operator actor")
         return self
+
+
+class ExceptionDetail(Record):
+    """Operator/service-safe saved explanation; private byte locations stay server-only."""
+
+    id: Text
+    issue_id: Text
+    job_id: Text | None = None
+    submission_id: Text | None = None
+    verification_id: Text | None = None
+    kind: Literal["completion", "authority", "no_vendor", "budget"]
+    reason_code: Text
+    status: Literal["PENDING", "DECIDED", "HANDLED", "CANCELLED"]
+    state_revision: Nonnegative
+    job_revision: Nonnegative | None = None
+    scope: Text
+    primary_target: Text | None = None
+    work_area: Text | None = None
+    before_evidence_id: Text | None = None
+    after_evidence_id: Text | None = None
+    denial_event_id: Positive | None = None
+    components: VerificationComponents | None = None
+    total: Nonnegative | None = None
+    findings: VisionFindings | None = None
+    checks: CompletionInspectionChecks | None = None
+    prerequisites: tuple[GateRecord, ...] = ()
+    score_gate: GateRecord | None = None
+    payment_threshold: Literal[95] = 95
+    unmet: tuple[Text, ...] = ()
+    allowed_next: tuple[Text, ...] = ()
+    decision_id: Text | None = None
+    invocation_id: Text | None = None
+    invocation_status: InvocationStatus | None = None
+    handled_at: Timestamp | None = None
+    cancelled_at: Timestamp | None = None
+    cancellation_event_id: Positive | None = None
 
 
 class BudgetRecord(Record):
@@ -662,6 +701,12 @@ class EntityResult(Record):
     state_revision: Nonnegative | None = None
 
 
+class PendingEntityResult(EntityResult):
+    """New receipt shape for a durable trigger without rewriting old entity receipts."""
+
+    invocation_id: Text
+
+
 class CompletionInspectionResult(EntityResult):
     """Safe HTTP evidence snapshot; ERROR has an attempt but no invented verification."""
 
@@ -704,7 +749,7 @@ class RequestReceipt(Record):
     signal_id: Text | None = None
     issue_id: Text | None = None
     job_id: Text | None = None
-    result: ToolResult[SignalReceipt | CompletionInspectionResult | EntityResult]
+    result: ToolResult[SignalReceipt | CompletionInspectionResult | PendingEntityResult | EntityResult]
     invocation_id: Text | None = None
     created_at: Timestamp
 

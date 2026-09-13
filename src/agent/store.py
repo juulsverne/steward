@@ -493,6 +493,11 @@ class Store:
         row = self.db.execute("SELECT id FROM reservations WHERE job_id=?", (job_id,)).fetchone()
         return self.get_reservation(row[0]) if row else None
 
+    def ledger_for_reservation(self, reservation_id: str) -> tuple[c.LedgerEntry, ...]:
+        self.get_reservation(reservation_id)
+        return tuple(self.get_ledger_entry(row[0]) for row in self.db.execute(
+            "SELECT id FROM ledger WHERE reservation_id=? ORDER BY id", (reservation_id,)))
+
     def budget_availability(self, budget_id: str) -> c.BudgetAvailability:
         """Validate saved financial relationships and count each terminal movement once.
 
@@ -605,6 +610,47 @@ class Store:
 
     def get_operator_decision(self, record_id: str) -> c.OperatorDecisionRecord:
         return self._record(c.OperatorDecisionRecord, record_id)
+
+    def operator_decision_for_exception(self, exception_id: str) -> c.OperatorDecisionRecord | None:
+        row = self.db.execute("SELECT id FROM operator_decisions WHERE exception_id=?", (exception_id,)).fetchone()
+        return self.get_operator_decision(row[0]) if row else None
+
+    def completion_exception_for_failure(self, job_id: str, submission_id: str, reason_code: str) -> c.ExceptionRecord | None:
+        row = self.db.execute("SELECT id FROM exceptions WHERE job_id=? AND submission_id=? AND reason_code=? "
+                              "AND kind='completion'", (job_id, submission_id, reason_code)).fetchone()
+        return self.get_exception(row[0]) if row else None
+
+    def exceptions_for_issue(self, issue_id: str, *, limit: int = 50) -> list[c.ExceptionRecord]:
+        if type(limit) is not int or not 1 <= limit <= 100:
+            raise ValueError("limit must be an integer between 1 and 100")
+        self.get_issue_record(issue_id)
+        return [self.get_exception(row[0]) for row in self.db.execute(
+            "SELECT id FROM exceptions WHERE issue_id=? ORDER BY rowid DESC LIMIT ?", (issue_id, limit)
+        )]
+
+    def invocation_for_decision(self, decision_id: str) -> c.InvocationRecord | None:
+        row = self.db.execute("SELECT invocations.id FROM invocations JOIN events "
+            "ON events.id=invocations.trigger_event_id WHERE invocations.trigger_type='OPERATOR_DECISION' "
+            "AND json_extract(events.payload,'$.decision_id')=?", (decision_id,)).fetchone()
+        return self.get_invocation(row[0]) if row else None
+
+    def receipt_for_event(self, event_id: int, *, operation: str | None = None) -> c.RequestReceipt | None:
+        sql = "SELECT id FROM request_receipts WHERE EXISTS (SELECT 1 FROM json_each(record_json, '$.result.event_ids') WHERE value=?)"
+        params: list[object] = [event_id]
+        if operation is not None:
+            sql += " AND operation=?"
+            params.append(operation)
+        row = self.db.execute(sql + " ORDER BY rowid DESC LIMIT 1", params).fetchone()
+        return self.get_request(row[0]) if row else None
+
+    def exception_result_receipt(self, exception_id: str) -> c.RequestReceipt:
+        """The original persisted escalation result, not a later compatible retry."""
+        row = self.db.execute("SELECT id FROM request_receipts WHERE operation='escalate_to_operator' "
+            "AND json_extract(record_json,'$.result.data.record_id')=? ORDER BY rowid LIMIT 1",
+            (exception_id,)).fetchone()
+        if row is None:
+            raise KeyError(exception_id)
+        return self.get_request(row[0])
 
     def get_budget(self, record_id: str) -> c.BudgetRecord:
         return self._record(c.BudgetRecord, record_id)
@@ -1077,7 +1123,7 @@ class StoreTransaction:
             "current_verification_id", "rework_instructions"})
 
     def replace_exception(self, record: c.ExceptionRecord, expected_revision: int) -> None:
-        self._replace(record, expected_revision, {"status", "handled_at"})
+        self._replace(record, expected_revision, {"status", "handled_at", "cancelled_at", "cancellation_event_id"})
 
     def replace_reservation(self, record: c.ReservationRecord, expected_revision: int) -> None:
         self._check()

@@ -305,5 +305,60 @@ dispatch displays total 50000, reserved 7200, spent 0 and available 42800 cents.
 
 B5 provides the HTTP operation and model-selected-vendor request seam. Generalized
 persisted agent intent and runtime orchestration remain B10/B11 work; B4's decision
-route still owns only its investigation decisions. Crew proof, verification, exceptions
-and settlement remain separate later cards.
+route still owns only its investigation decisions. Settlement remains a later B9 card.
+
+## Exceptions and operator rework (B8)
+
+Completion escalation is service-only. `POST /api/jobs/{job_id}/exceptions` requires an
+`Idempotency-Key`, a job revision in `X-Steward-Expected-Revision`, and strict JSON with
+the saved `submission_id`, `verification_id`, `denial_event_id`, and `reason_code`. It
+accepts only the exact current B7 verification/proof and a persisted `settle` denial whose
+event, components, gates, unmet requirements, frozen proof basis, current checks, policy,
+and unpaid reservation all agree. This card's tests use a plainly synthetic, authentic-shaped
+settlement denial primitive; B9 owns the actual settlement endpoint.
+
+`POST /api/issues/{issue_id}/exceptions` uses an issue revision in the same header. It
+accepts strict `authority`, `no_vendor`, or `budget` kinds. A budget exception additionally
+requires the saved B5 `DISPATCH_DENIED` event ID. The service recomputes the attempted plan,
+vendor, quote, policy, issue/fact basis, and current journal balance; stale, recovered,
+inconsistent, or non-budget denials cannot create a funding exception. Pre-job exceptions
+retain no invented job, proof, verification, or image relationship.
+The saved denial keeps its original budget snapshot; current funds may legitimately differ
+and must still be insufficient. All pre-job kinds require an unresolved pre-job lifecycle
+with no active job.
+
+Authorized operators and the service can read `GET /api/exceptions/{id}` and
+`GET /api/issues/{id}/exceptions`. The safe detail includes exception and current job
+revisions, saved proof/verification and evidence IDs, scope/target/work area, nullable
+findings/checks, prerequisite and 95-point score gates, unmet requirements, denial identity,
+and saved decision/invocation status. It omits private image references and stored bytes.
+Advertised actions are actor-specific and require current applicable evidence. Operators
+see only Request completion on an eligible PENDING exception; DECIDED processing status is
+visible without exposing the service's rework control. Historical proof remains readable
+after later job revisions or interpretation changes.
+
+Only an authenticated operator can `POST /api/exceptions/{id}/request-completion`. Its
+header names the expected exception revision; its strict JSON body contains only
+`submission_id` and `expected_job_revision`. A successful `202 NEEDS_REVIEW / DECISION_SAVED`
+persists one immutable decision, `OPERATOR_DECISION` event, one pending invocation, and the
+exception's DECIDED transition. The `PendingEntityResult` contains the decision ID and actual
+invocation ID while leaving `state_revision` null; current E+1 and unchanged job J are read
+from the safe detail. It is an acknowledgment of durable intent, not processing, payment, or
+rework completion. Same-key and compatible second-key clicks return the saved choice.
+Compatible new-key escalation receipts retain the original event, evidence, requirements,
+and result revision; read detail for current revisions. They create no second exception event.
+
+`POST /api/operator-decisions/{id}/rework` is service-only, bodyless, and uses the expected
+job revision header. It validates the unhandled saved decision, exact proof/verification,
+unpaid RESERVED reservation, and saved operator event/invocation before atomically marking the
+same job `REWORK_REQUIRED`, the exception HANDLED, and the decision handled. It preserves the
+plan, vendor, quote, reservation, ledger, and original proof. If `area_clear` was explicitly
+false the instruction asks to clear remaining material; unknown findings instead name the
+unresolved requirement without claiming debris was observed. PENDING and DECIDED completion
+exceptions continue blocking new proof until this committed transition. Cancellation and
+settlement mutations remain B9 responsibilities.
+Every new completion action rechecks the full frozen interpretation, saved proof/plan/source,
+current policy, deterministic prerequisites and score, and original reserved journal. A
+supplied service invocation must match the exact saved operator choice before receipt replay
+and under the transaction. Exact committed-request replay remains historical after fresh
+identity and saved-cause authorization; it does not re-execute work or refresh an old finding.

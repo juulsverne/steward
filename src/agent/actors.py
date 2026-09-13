@@ -126,6 +126,8 @@ class Action(StrEnum):
     CHECK_IN = "check_in"
     SUBMIT_PROOF = "submit_proof"
     REQUEST_COMPLETION = "request_completion"
+    ESCALATE = "escalate_to_operator"
+    REWORK = "request_rework"
     DISPATCH = "dispatch"
     BUILD_PLAN = "build_resolution_plan"
     LIST_VENDORS = "list_eligible_vendors"
@@ -149,6 +151,8 @@ _ACTION_ROLES = {
     Action.CHECK_IN: {"crew"},
     Action.SUBMIT_PROOF: {"crew"},
     Action.REQUEST_COMPLETION: {"operator"},
+    Action.ESCALATE: {"service"},
+    Action.REWORK: {"service"},
     Action.DISPATCH: {"service"},
     Action.BUILD_PLAN: {"service"},
     Action.LIST_VENDORS: {"service"},

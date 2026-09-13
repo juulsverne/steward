@@ -125,6 +125,25 @@ def _completion_checks(store: Store, *, job: c.JobRecord, submission: c.Submissi
         after_observed_at=after.observed_at, cutoff_event_id=cutoff, prior_completions=tuple(refs), unmet=unmet)
 
 
+def _evaluate_completion(findings: c.VisionFindings, checks: c.CompletionInspectionChecks
+                         ) -> tuple[c.VerificationComponents, tuple[c.GateRecord, ...], tuple[str, ...]]:
+    """One deterministic evaluation for inspection and subsequent mutation gates."""
+    allowed, finding_unmet = prerequisites_pass(findings, reuse_detected=checks.reuse_detected is True)
+    if checks.reuse_detected is None:
+        allowed = False
+        finding_unmet.append("image_reuse_unknown")
+    components = c.VerificationComponents(**verification_points(findings,
+        gps_within_30m=checks.gps_within_30m is True,
+        after_later_than_before=checks.after_later_than_before is True))
+    total = sum(components.model_dump().values())
+    gates = (c.GateRecord(name="completion_prerequisites", allowed=allowed, unmet=tuple(finding_unmet)),
+        c.GateRecord(name="verification_score_min_95", allowed=total >= PAYMENT_MIN,
+                    unmet=("verification_score_below_95",) if total < PAYMENT_MIN else ()))
+    unmet = tuple(dict.fromkeys((*checks.unmet, *finding_unmet,
+        *(name for name in FINDING_FIELDS if getattr(findings, name) is not True))))
+    return components, gates, unmet
+
+
 def _completion_authorize(store: Store, context: c.MutationContext, job_id: str, submission_id: str):
     if context.operation != Action.INSPECT.value or context.expected_revision is None:
         raise ValueError("inspection requires service operation and expected job revision")
@@ -341,22 +360,11 @@ def inspect_completion(store: Store, *, job_id: str, submission_id: str, context
             return _finish_inspection_error(tx, current, "INSPECTION_BASIS_CHANGED", metadata=metadata,
                                             physical_count=physical_count)
         checks = _completion_checks(store, job=job, submission=submission, before=before, after=after, plan=plan)
-        prerequisites, finding_unmet = prerequisites_pass(findings, reuse_detected=checks.reuse_detected is True)
-        if checks.reuse_detected is None:
-            prerequisites = False
-            finding_unmet.append("image_reuse_unknown")
-        components = c.VerificationComponents(**verification_points(findings, gps_within_30m=checks.gps_within_30m is True,
-            after_later_than_before=checks.after_later_than_before is True))
-        unmet = tuple(dict.fromkeys((*checks.unmet, *finding_unmet,
-            *(name for name in FINDING_FIELDS if getattr(findings, name) is not True))))
-        total = sum(components.model_dump().values())
+        components, gates, unmet = _evaluate_completion(findings, checks)
         next_revision = job.state_revision + 1
         verification = c.VerificationRecord(id=str(uuid4()), issue_id=job.issue_id, job_id=job.id,
             submission_id=submission.id, findings=findings, components=components,
-            prerequisites=(c.GateRecord(name="completion_prerequisites", allowed=prerequisites,
-                                       unmet=tuple(finding_unmet)),
-                c.GateRecord(name="verification_score_min_95", allowed=total >= PAYMENT_MIN,
-                             unmet=("verification_score_below_95",) if total < PAYMENT_MIN else ())),
+            prerequisites=gates,
             unmet=unmet, policy_version=basis.policy_version, metadata=metadata, inspected_at=datetime.now(UTC),
             job_revision=job.state_revision, result_job_revision=next_revision, basis=basis, checks=checks,
             attempt_id=current.id)
@@ -365,7 +373,7 @@ def inspect_completion(store: Store, *, job_id: str, submission_id: str, context
             "cache_eligible": cached is None, "finished_at": datetime.now(UTC)})
         tx.finish_completion_attempt(final)
         tx.insert_verification(verification)
-        accepted = prerequisites and total >= PAYMENT_MIN
+        accepted = all(gate.allowed for gate in gates)
         job = job.model_copy(update={"status": "VERIFIED" if accepted else "PROOF_SUBMITTED",
             "current_verification_id": verification.id, "state_revision": next_revision})
         tx.replace_job(job, context.expected_revision)
@@ -849,3 +857,591 @@ def dispatch_vendor(store: Store, *, plan_id: str, vendor_id: str,
             reservation_id=reservation.id, kind="RESERVE", amount_cents=reservation.amount_cents,
             event_id=receipt.result.event_ids[0], created_at=datetime.now(UTC)))
         return receipt
+
+
+def _operator_fingerprint(context: c.MutationContext, **values) -> str:
+    return request_fingerprint(values | {"actor": context.actor.model_dump(mode="json"),
+        "expected_revision": context.expected_revision, "invocation_id": context.invocation_id})
+
+
+def _operator_event(tx, *, issue_id: str, job_id: str | None, context: c.MutationContext,
+                    event_type: str, policy_version: str, state_revision: int,
+                    outcome: c.Outcome, record_id: str, submission_id: str | None = None,
+                    exception_id: str | None = None, decision_id: str | None = None,
+                    unmet=(), components=None, summary: str) -> c.EventRecord:
+    return tx.append_event(c.NewEvent(issue_id=issue_id, job_id=job_id,
+        invocation_id=context.invocation_id, event_type=event_type, timestamp=datetime.now(UTC),
+        actor=context.actor, state_revision=state_revision, policy_version=policy_version,
+        payload=c.EventFacts(summary=summary, outcome=outcome, record_id=record_id,
+            submission_id=submission_id, exception_id=exception_id, decision_id=decision_id,
+            unmet=tuple(unmet), score_components=components, simulated=True)))
+
+
+def _operator_receipt(tx, *, context: c.MutationContext, fingerprint: str, issue_id: str,
+                      job_id: str | None, result: c.ToolResult, invocation_id: str | None = None) -> c.RequestReceipt:
+    receipt = c.RequestReceipt(id=str(uuid4()), operation=context.operation, actor_id=context.actor.actor_id,
+        idempotency_key=context.idempotency_key, request_sha256=fingerprint, issue_id=issue_id,
+        job_id=job_id, invocation_id=invocation_id or context.invocation_id,
+        created_at=datetime.now(UTC), result=result)
+    tx.save_request(receipt)
+    return receipt
+
+
+def _operator_authorize(store: Store, context: c.MutationContext, *, action: Action,
+                        issue_id: str, job_id: str | None = None,
+                        submission_id: str | None = None, policy: dict | None = None) -> AccessBoundary:
+    """Authorize a B8 mutation before considering a saved idempotency receipt.
+
+    Service operations retain their saved invocation cause; an operator's browser
+    choice has no model invocation and is intentionally authorized by its session
+    actor alone.
+    """
+    if context.operation != action.value:
+        raise ValueError("operation does not match mutation")
+    policy = policy if policy is not None else load_policy()
+    boundary = AccessBoundary(context.actor, policy["district"])
+    boundary.require(action)
+    boundary.issue(store, issue_id)
+    if job_id is not None:
+        job = boundary.require_job(store, job_id)
+        if job.issue_id != issue_id:
+            raise ValueError("job does not belong to issue")
+        if submission_id is not None:
+            submission = store.get_submission(submission_id)
+            if submission.job_id != job.id or submission.issue_id != issue_id:
+                raise ValueError("submission does not belong to job")
+    if context.actor.actor_type == "service":
+        _validated_cause(store, context, issue_id=issue_id, signal_id=None,
+                         job_id=job_id, submission_id=submission_id)
+    return boundary
+
+
+def _reserved_contract(store: Store, job: c.JobRecord, plan: c.PlanRecord,
+                       policy: dict) -> c.ReservationRecord:
+    """Validate the original unpaid contract without recomputing its price."""
+    reservation = store.reservation_for_job(job.id)
+    if (reservation is None or reservation.status != "RESERVED" or job.paid_at is not None
+            or job.status in {"PAID", "CANCELLED", "REJECTED"}
+            or plan.issue_id != job.issue_id or plan.district_id != policy["district"]
+            or plan.policy_version != policy["version"]
+            or reservation.issue_id != job.issue_id or reservation.budget_id != plan.district_id
+            or plan.quote_cents != job.price_cents or job.price_cents != reservation.amount_cents):
+        raise RevisionConflict("completion work is not the original unpaid reserved contract")
+    budget = store.get_budget(reservation.budget_id)
+    if budget.policy_version != policy["version"] or budget.initial_cents != policy["budget_cents"]:
+        raise ValueError("reserved budget does not match policy")
+    store.budget_availability(reservation.budget_id)
+    entries = store.ledger_for_reservation(reservation.id)
+    if len(entries) != 1 or entries[0].kind != "RESERVE":
+        raise ValueError("unpaid contract lacks its sole reserve movement")
+    event = store.get_event(entries[0].event_id)
+    receipt = store.receipt_for_event(event.id, operation=Action.DISPATCH.value)
+    audit = event.payload.dispatch
+    if (event.event_type != "SIMULATED_DISPATCH" or event.actor.actor_type != "service"
+            or receipt is None or receipt.actor_id != event.actor.actor_id
+            or receipt.issue_id != job.issue_id or receipt.job_id != job.id
+            or receipt.result.outcome != "OK" or audit is None
+            or audit.plan_id != plan.id or audit.vendor_id != job.vendor_id
+            or audit.reservation_id != reservation.id or audit.computed_quote_cents != job.price_cents):
+        raise ValueError("reserved contract lacks its authentic dispatch")
+    return reservation
+
+
+def _current_completion(store: Store, *, job: c.JobRecord, submission: c.SubmissionRecord,
+                         verification: c.VerificationRecord, policy: dict
+                         ) -> tuple[c.PlanRecord, c.EvidenceRecord, c.EvidenceRecord]:
+    """Current authority only. Historical reads and exact receipt replay bypass freshness."""
+    current = store.current_verification(job.id)
+    plan = store.get_plan(job.plan_id)
+    if (job.status not in {"PROOF_SUBMITTED", "VERIFIED"}
+            or store.get_issue_record(job.issue_id).status != "RESOLUTION_ACTIVE"
+            or current is None or current.id != verification.id
+            or submission.job_id != job.id or submission.issue_id != job.issue_id
+            or verification.job_id != job.id or verification.issue_id != job.issue_id
+            or verification.submission_id != submission.id or job.latest_submission_id != submission.id
+            or verification.result_job_revision != job.state_revision
+            or verification.result_job_revision != verification.job_revision + 1
+            or verification.job_revision < submission.job_revision
+            or verification.policy_version != policy["version"] or plan.policy_version != policy["version"]
+            or verification.basis is None or verification.checks is None or verification.attempt_id is None
+            or plan.basis is None):
+        raise RevisionConflict("completion interpretation is not current")
+    before, after = store.get_evidence(submission.before_evidence_id), store.get_evidence(submission.after_evidence_id)
+    proof_event = store.proof_event_for_submission(submission.id)
+    if (proof_event.job_id != job.id or proof_event.issue_id != job.issue_id
+            or proof_event.actor != submission.submitted_by
+            or proof_event.state_revision != submission.job_revision
+            or submission.submitted_by.vendor_id != job.vendor_id):
+        raise ValueError("completion proof has inconsistent ownership")
+    for evidence, role in ((before, "before"), (after, "completion")):
+        if not any(link.job_id == job.id and link.issue_id == job.issue_id and link.role == role
+                   for link in store.evidence_associations(evidence.id)):
+            raise ValueError("completion evidence lacks its saved job role")
+    if any(prior.before_evidence_id != before.id for prior in store.prior_completion_submissions(submission.id)
+           if prior.job_id == job.id):
+        raise ValueError("completion changed the original before evidence")
+    basis = _completion_basis(job=job, submission=submission, plan=plan, before=before, after=after)
+    _physical_basis(verification.basis)
+    if verification.basis != basis:
+        raise RevisionConflict("completion interpretation basis is obsolete")
+    checks = _completion_checks(store, job=job, submission=submission, before=before, after=after, plan=plan)
+    components, gates, unmet = _evaluate_completion(verification.findings, checks)
+    if (verification.checks != checks or verification.components != components
+            or verification.prerequisites != gates or verification.unmet != unmet):
+        raise ValueError("completion evaluation does not match current trusted facts")
+    attempt = store.get_completion_attempt(verification.attempt_id)
+    receipt = store.completion_result_receipt(verification.id)
+    data = receipt.result.data
+    if (attempt.status != "FINISHED" or attempt.outcome != "SUCCESS" or attempt.finished_at is None
+            or attempt.operation != Action.INSPECT.value or attempt.actor.actor_type != "service"
+            or attempt.job_id != job.id or attempt.issue_id != job.issue_id
+            or attempt.submission_id != submission.id or attempt.basis != basis
+            or attempt.cache_key != basis.cache_key or attempt.findings != verification.findings
+            or attempt.metadata != verification.metadata
+            or attempt.expected_revision != verification.job_revision
+            or receipt.request_sha256 != attempt.request_sha256 or receipt.actor_id != attempt.actor.actor_id
+            or receipt.issue_id != job.issue_id or receipt.job_id != job.id or receipt.result.outcome != "OK"
+            or not isinstance(data, c.CompletionInspectionResult) or data.attempt_id != attempt.id
+            or data.verification_id != verification.id or data.findings != verification.findings
+            or data.input_job_revision != verification.job_revision
+            or data.state_revision != verification.result_job_revision
+            or data.checks != checks or data.components != components or data.prerequisites != gates
+            or data.metadata != attempt.metadata):
+        raise ValueError("completion lacks its successful inspection result")
+    if len(receipt.result.event_ids) != 1:
+        raise ValueError("inspection result lacks its committed event")
+    inspected = store.get_event(receipt.result.event_ids[0])
+    if (inspected.event_type != "COMPLETION_INSPECTED" or inspected.actor != attempt.actor
+            or inspected.issue_id != job.issue_id or inspected.job_id != job.id
+            or inspected.policy_version != verification.policy_version
+            or inspected.state_revision != verification.result_job_revision
+            or inspected.payload.outcome != "OK" or inspected.payload.record_id != verification.id
+            or inspected.payload.submission_id != submission.id):
+        raise ValueError("inspection result event does not match this proof")
+    source = store.get_completion_attempt(attempt.cached_from_id) if attempt.cached_from_id else attempt
+    observation = store.completion_observation(source.id)
+    if (source.status != "FINISHED" or source.outcome != "SUCCESS" or not source.cache_eligible
+            or source.cached_from_id is not None or source.cache_key != basis.cache_key
+            or source.findings != verification.findings or observation is None
+            or observation.error_code is not None or observation.findings != source.findings
+            or observation.metadata != source.metadata):
+        raise ValueError("completion lacks its authoritative physical source")
+    return plan, before, after
+
+
+def _completion_denial(store: Store, *, job: c.JobRecord, submission: c.SubmissionRecord,
+                       verification: c.VerificationRecord, denial_event_id: int, policy: dict):
+    """Require the exact B9-shaped settle denial; arbitrary events cannot escalate work."""
+    plan, before, after = _current_completion(store, job=job, submission=submission,
+                                             verification=verification, policy=policy)
+    _reserved_contract(store, job, plan, policy)
+    event = store.get_event(denial_event_id)
+    receipt = store.receipt_for_event(event.id, operation=Action.SETTLE.value)
+    if (receipt is None or receipt.issue_id != job.issue_id or receipt.job_id != job.id
+            or receipt.actor_id != event.actor.actor_id or event.event_type != "SETTLEMENT_DENIED"
+            or event.actor.actor_type != "service" or event.issue_id != job.issue_id or event.job_id != job.id
+            or event.state_revision != job.state_revision or event.policy_version != plan.policy_version
+            or receipt.result.outcome != "DENIED" or event.payload.outcome != "DENIED"
+            or event.payload.submission_id != submission.id
+            or event.payload.record_id != verification.id or event.id not in receipt.result.event_ids
+            or event.payload.score_components != verification.components
+            or event.payload.gate_results != verification.prerequisites
+            or event.payload.unmet != verification.unmet):
+        raise ValueError("completion escalation requires exact settlement denial")
+    if all(gate.allowed for gate in verification.prerequisites):
+        raise ValueError("settlement denial is not a completion threshold failure")
+    return event, plan, before, after
+
+
+def _completion_exception_fields(store: Store, *, job: c.JobRecord, submission: c.SubmissionRecord,
+                                 verification: c.VerificationRecord, denial_event_id: int, policy: dict):
+    return _completion_denial(store, job=job, submission=submission,
+        verification=verification, denial_event_id=denial_event_id, policy=policy)
+
+
+def _exception_current(store: Store, exception: c.ExceptionRecord, policy: dict
+                       ) -> tuple[c.JobRecord, c.SubmissionRecord, c.VerificationRecord, c.PlanRecord]:
+    if (exception.kind != "completion" or exception.status not in {"PENDING", "DECIDED"}
+            or any(value is None for value in (exception.job_id, exception.submission_id,
+                exception.verification_id, exception.denial_event_id))):
+        raise RevisionConflict("exception has no actionable completion basis")
+    job = store.get_job(exception.job_id)
+    submission = store.get_submission(exception.submission_id)
+    verification = store.get_verification(exception.verification_id)
+    _denial, plan, before, after = _completion_exception_fields(store, job=job, submission=submission,
+        verification=verification, denial_event_id=exception.denial_event_id, policy=policy)
+    if (exception.issue_id != job.issue_id or exception.before_evidence_id != before.id
+            or exception.after_evidence_id != after.id or exception.scope != plan.scope
+            or exception.unmet != verification.unmet):
+        raise ValueError("exception contradicts its saved completion basis")
+    return job, submission, verification, plan
+
+
+def _operator_decision_cause(store: Store, decision: c.OperatorDecisionRecord,
+                             context: c.MutationContext | None = None) -> c.InvocationRecord:
+    """Validate immutable cause before replay; do not require an unhandled current state."""
+    exception = store.get_exception(decision.exception_id)
+    job = store.get_job(decision.job_id)
+    plan = store.get_plan(job.plan_id)
+    invocation = store.invocation_for_decision(decision.id)
+    if (exception.issue_id != decision.issue_id or exception.job_id != decision.job_id
+            or exception.submission_id != decision.submission_id or job.issue_id != decision.issue_id
+            or invocation is None or invocation.issue_id != job.issue_id or invocation.job_id != job.id
+            or invocation.trigger_type != "OPERATOR_DECISION" or invocation.policy_version != plan.policy_version
+            or (context is not None and context.invocation_id is not None and context.invocation_id != invocation.id)):
+        raise ValueError("service cause must be the exact saved operator choice")
+    trigger = store.get_event(invocation.trigger_event_id)
+    if (trigger.event_type != "OPERATOR_DECISION" or trigger.actor != decision.actor
+            or trigger.policy_version != invocation.policy_version or trigger.signal_id != invocation.signal_id
+            or trigger.job_id != job.id or trigger.issue_id != job.issue_id
+            or trigger.state_revision != decision.expected_job_revision
+            or trigger.payload.outcome != "NEEDS_REVIEW" or trigger.payload.record_id != decision.id
+            or trigger.payload.decision_id != decision.id or trigger.payload.exception_id != exception.id
+            or trigger.payload.submission_id != decision.submission_id):
+        raise ValueError("operator decision trigger is inconsistent")
+    return invocation
+
+
+def _existing_exception_result(store: Store, exception: c.ExceptionRecord, *, policy: dict,
+                                expected_revision: int) -> c.ToolResult:
+    original = store.exception_result_receipt(exception.id)
+    result = original.result
+    if (original.issue_id != exception.issue_id or original.job_id != exception.job_id
+            or result.outcome != "NEEDS_REVIEW" or not isinstance(result.data, c.EntityResult)
+            or result.data.record_id != exception.id or len(result.event_ids) != 1):
+        raise ValueError("exception lacks its original escalation result")
+    event = store.get_event(result.event_ids[0])
+    if (event.event_type != "EXCEPTION_RAISED" or event.actor.actor_type != "service"
+            or event.actor.actor_id != original.actor_id or event.issue_id != exception.issue_id
+            or event.job_id != exception.job_id or event.policy_version != policy["version"]
+            or event.state_revision != expected_revision or event.payload.record_id != exception.id
+            or event.payload.exception_id != exception.id or event.payload.unmet != exception.unmet
+            or result.unmet != exception.unmet):
+        raise IdempotencyConflict("existing exception has a different escalation basis")
+    expected_evidence = (exception.before_evidence_id, exception.after_evidence_id) if exception.job_id else ()
+    if result.evidence_ids != expected_evidence:
+        raise ValueError("exception result lost its saved evidence")
+    # This receipt references the original event/result revision, not a new state transition.
+    return result
+
+
+def escalate_to_operator(store: Store, *, issue_id: str, reason_code: str, context: c.MutationContext,
+                         job_id: str | None = None, submission_id: str | None = None,
+                         verification_id: str | None = None, denial_event_id: int | None = None,
+                         kind: str | None = None,
+                         policy_path: Path = DEFAULT_POLICY_PATH) -> c.RequestReceipt:
+    """Save only evidence-backed waiting work; this never dispatches, pays, or reworks."""
+    policy = load_policy(policy_path)
+    if context.expected_revision is None:
+        raise ValueError("expected revision is required")
+    completion = job_id is not None
+    if completion != (kind in (None, "completion")):
+        raise ValueError("completion identity and exception kind disagree")
+    kind = "completion" if completion else kind
+    if kind not in {"completion", "authority", "no_vendor", "budget"}:
+        raise ValueError("unknown exception kind")
+    _operator_authorize(store, context, action=Action.ESCALATE, issue_id=issue_id,
+                        job_id=job_id, submission_id=submission_id, policy=policy)
+    fingerprint = _operator_fingerprint(context, issue_id=issue_id, kind=kind, reason_code=reason_code,
+        job_id=job_id, submission_id=submission_id, verification_id=verification_id,
+        denial_event_id=denial_event_id)
+    with store.transaction() as tx:
+        boundary = _operator_authorize(store, context, action=Action.ESCALATE, issue_id=issue_id,
+                                       job_id=job_id, submission_id=submission_id, policy=policy)
+        previous = tx.lookup_request(context, fingerprint)
+        if previous is not None:
+            return previous
+        if completion:
+            if any(value is None for value in (submission_id, verification_id, denial_event_id)):
+                raise ValueError("completion exception requires proof, verification and denial")
+            job = boundary.require_job(store, job_id)
+            if job.issue_id != issue_id:
+                raise ValueError("job does not belong to issue")
+            tx.require_job(job.id, context.expected_revision)
+            submission, verification = store.get_submission(submission_id), store.get_verification(verification_id)
+            if (submission.job_id != job.id or verification.job_id != job.id
+                    or verification.submission_id != submission.id):
+                raise ValueError("completion records do not match job proof")
+            denial, plan, before, after = _completion_exception_fields(store, job=job, submission=submission,
+                verification=verification, denial_event_id=denial_event_id, policy=policy)
+            existing = store.completion_exception_for_failure(job.id, submission.id, reason_code)
+            if existing is not None:
+                if (existing.verification_id != verification.id or existing.denial_event_id != denial.id):
+                    raise IdempotencyConflict("completion failure already has a different basis")
+                return _operator_receipt(tx, context=context, fingerprint=fingerprint, issue_id=issue_id,
+                    job_id=job.id, result=_existing_exception_result(store, existing, policy=policy,
+                                                                   expected_revision=job.state_revision))
+            if store.open_completion_exception(job.id) is not None:
+                raise RevisionConflict("completion exception already blocks this job")
+            exception = c.ExceptionRecord(id=str(uuid4()), issue_id=issue_id, job_id=job.id,
+                submission_id=submission.id, verification_id=verification.id, denial_event_id=denial.id,
+                kind="completion", reason_code=reason_code, unmet=verification.unmet, scope=plan.scope,
+                before_evidence_id=before.id, after_evidence_id=after.id, created_at=datetime.now(UTC))
+            tx.insert_exception(exception)
+            event = _operator_event(tx, issue_id=issue_id, job_id=job.id, context=context,
+                event_type="EXCEPTION_RAISED", policy_version=plan.policy_version,
+                state_revision=job.state_revision, outcome="NEEDS_REVIEW", record_id=exception.id,
+                submission_id=submission.id, exception_id=exception.id, unmet=verification.unmet,
+                components=verification.components, summary="Completion requires operator decision")
+            return _operator_receipt(tx, context=context, fingerprint=fingerprint, issue_id=issue_id,
+                job_id=job.id, result=c.ToolResult(outcome="NEEDS_REVIEW", reason_code="EXCEPTION_OPEN",
+                    data=c.EntityResult(record_id=exception.id, state_revision=exception.state_revision),
+                    unmet=verification.unmet, evidence_ids=(before.id, after.id), event_ids=(event.id,)))
+
+        issue = tx.require_issue(issue_id, context.expected_revision)
+        if (issue.status not in {"CANDIDATE", "MONITORING", "ACTIONABLE", "ROUTED_EXTERNAL"}
+                or store.active_job_for_issue(issue_id) is not None):
+            raise RevisionConflict("pre-job exception cannot replace active or terminal work")
+        facts = store.current_issue_facts(issue_id)
+        plan = store.plans_for_issue(issue_id)[-1] if store.plans_for_issue(issue_id) else None
+        if kind == "authority":
+            if facts.jurisdiction is None or facts.jurisdiction.responsibility == "district":
+                raise ValueError("authority escalation lacks current non-district fact")
+        elif kind == "no_vendor":
+            current_unmet, _ = _plan_current(store, plan, issue, facts, policy) if plan else (("no_plan",), None)
+            eligible = () if plan is None else tuple(v for v in store.list_vendors()
+                if not vendor_eligibility(policy, v.model_dump(), category=plan.service_type,
+                    required_equipment=list(plan.required_equipment)))
+            if (plan is None or current_unmet or store.active_job_for_issue(issue_id) is not None
+                    or eligible):
+                raise ValueError("no-vendor escalation lacks current unassigned plan")
+        else:  # budget
+            if denial_event_id is None or store.active_job_for_issue(issue_id) is not None:
+                raise ValueError("budget escalation lacks current unassigned plan")
+            denial = store.get_event(denial_event_id)
+            receipt = store.receipt_for_event(denial.id, operation=Action.DISPATCH.value)
+            audit = denial.payload.dispatch
+            if audit is None:
+                raise ValueError("budget escalation requires actual dispatch shortage")
+            attempted_plan = store.get_plan(audit.plan_id)
+            if (attempted_plan.issue_id != issue_id or attempted_plan.district_id != policy["district"]
+                    or attempted_plan.policy_version != policy["version"]):
+                raise ValueError("budget escalation has stale dispatch plan")
+            facts = store.current_issue_facts(issue_id)
+            plan_unmet, computed_quote = _plan_current(store, attempted_plan, issue, facts, policy)
+            try:
+                vendor = store.get_vendor(audit.vendor_id).model_dump()
+                budget_record = store.get_budget(policy["district"])
+                if (budget_record.policy_version != policy["version"]
+                        or budget_record.initial_cents != policy["budget_cents"]):
+                    raise ValueError("budget does not match configured allocation")
+                budget = store.budget_availability(policy["district"])
+            except (KeyError, ValueError) as error:
+                raise ValueError("budget escalation has inconsistent dispatch records") from error
+            score = store.current_evidence_score(issue_id)
+            location = facts.geocode.location if facts.geocode else None
+            gate = dispatch_gate(policy, issue_status=issue.status, evidence_total=score.total,
+                category=facts.classification.category if facts.classification else attempted_plan.service_type,
+                hazards=facts.unresolved_hazards, coordinates=location.model_dump() if location else None,
+                vendor=vendor, required_equipment=list(attempted_plan.required_equipment),
+                quote=computed_quote or attempted_plan.quote_cents, available_cents=budget.available_cents)
+            if "insufficient_budget" not in denial.payload.unmet:
+                raise ValueError("budget escalation requires an actual shortage")
+            if budget.available_cents >= (computed_quote or attempted_plan.quote_cents):
+                raise RevisionConflict("funds have recovered")
+            if (receipt is None or receipt.issue_id != issue_id or receipt.actor_id != denial.actor.actor_id
+                    or receipt.result.outcome != "DENIED" or denial.event_type != "DISPATCH_DENIED"
+                    or denial.actor.actor_type != "service" or denial.payload.outcome != "DENIED"
+                    or denial.policy_version != policy["version"]
+                    or denial.issue_id != issue_id or denial.state_revision != issue.state_revision
+                    or audit.expected_issue_revision != issue.state_revision
+                    or audit.actual_issue_revision != issue.state_revision
+                    or audit.computed_quote_cents != computed_quote
+                    or audit.budget is None or audit.budget.budget_id != budget.budget_id
+                    or audit.budget.initial_cents != budget.initial_cents
+                    or audit.budget.available_cents >= computed_quote
+                    or audit.budget.available_cents != (audit.budget.initial_cents
+                        - audit.budget.reserved_cents - audit.budget.spent_cents)
+                    or plan_unmet or gate.unmet != ("insufficient_budget",)
+                    or denial.payload.unmet != gate.unmet
+                    or denial.payload.score_components != c.EvidenceComponents(**score.components)
+                    or denial.payload.gate_results != (c.GateRecord(name="dispatch_policy", allowed=False,
+                                                                      unmet=gate.unmet),)
+                    or denial.id not in receipt.result.event_ids):
+                raise ValueError("budget escalation requires actual dispatch shortage")
+            plan = attempted_plan
+        existing = next((item for item in store.exceptions_for_issue(issue_id)
+                         if item.kind == kind and item.reason_code == reason_code and item.status in {"PENDING", "DECIDED"}), None)
+        if existing is not None:
+            if (existing.denial_event_id != (denial_event_id if kind == "budget" else None)
+                    or existing.scope != (plan.scope if plan else issue.location)):
+                raise IdempotencyConflict("existing pre-job exception has a different basis")
+            return _operator_receipt(tx, context=context, fingerprint=fingerprint, issue_id=issue_id, job_id=None,
+                result=_existing_exception_result(store, existing, policy=policy,
+                                                  expected_revision=issue.state_revision))
+        exception = c.ExceptionRecord(id=str(uuid4()), issue_id=issue_id, kind=kind, reason_code=reason_code,
+            unmet=(reason_code,), scope=plan.scope if plan else issue.location, denial_event_id=denial_event_id if kind == "budget" else None,
+            created_at=datetime.now(UTC))
+        tx.insert_exception(exception)
+        event = _operator_event(tx, issue_id=issue_id, job_id=None, context=context,
+            event_type="EXCEPTION_RAISED", policy_version=policy["version"], state_revision=issue.state_revision,
+            outcome="NEEDS_REVIEW", record_id=exception.id, exception_id=exception.id,
+            unmet=exception.unmet, summary="Issue requires operator review")
+        return _operator_receipt(tx, context=context, fingerprint=fingerprint, issue_id=issue_id, job_id=None,
+            result=c.ToolResult(outcome="NEEDS_REVIEW", reason_code="EXCEPTION_OPEN",
+                data=c.EntityResult(record_id=exception.id, state_revision=exception.state_revision),
+                unmet=exception.unmet, event_ids=(event.id,)))
+
+
+def request_completion(store: Store, *, exception_id: str, submission_id: str, expected_job_revision: int,
+                       context: c.MutationContext, policy_path: Path = DEFAULT_POLICY_PATH) -> c.RequestReceipt:
+    policy = load_policy(policy_path)
+    if context.expected_revision is None:
+        raise ValueError("expected exception revision is required")
+    fingerprint = _operator_fingerprint(context, exception_id=exception_id, submission_id=submission_id,
+        expected_job_revision=expected_job_revision)
+    exception = store.get_exception(exception_id)
+    _operator_authorize(store, context, action=Action.REQUEST_COMPLETION, issue_id=exception.issue_id,
+                        job_id=exception.job_id, submission_id=submission_id, policy=policy)
+    with store.transaction() as tx:
+        exception = store.get_exception(exception_id)
+        boundary = _operator_authorize(store, context, action=Action.REQUEST_COMPLETION,
+                                       issue_id=exception.issue_id, job_id=exception.job_id,
+                                       submission_id=submission_id, policy=policy)
+        previous = tx.lookup_request(context, fingerprint)
+        if previous is not None:
+            return previous
+        decision = store.operator_decision_for_exception(exception.id)
+        if decision is not None:
+            job = boundary.require_job(store, decision.job_id)
+            invocation = _operator_decision_cause(store, decision)
+            _exception_current(store, exception, policy)
+            if (decision.submission_id != submission_id or decision.expected_exception_revision != context.expected_revision
+                    or decision.expected_job_revision != expected_job_revision or job.state_revision != expected_job_revision
+                    or exception.status != "DECIDED" or exception.state_revision != context.expected_revision + 1
+                    or decision.handled_at is not None):
+                raise RevisionConflict("operator choice is no longer compatible")
+            return _operator_receipt(tx, context=context, fingerprint=fingerprint, issue_id=exception.issue_id,
+                job_id=job.id, invocation_id=invocation.id, result=c.ToolResult(outcome="NEEDS_REVIEW",
+                    reason_code="DECISION_SAVED", data=c.PendingEntityResult(record_id=decision.id,
+                    invocation_id=invocation.id), event_ids=(invocation.trigger_event_id,)))
+        if exception.kind != "completion" or exception.status != "PENDING" or exception.submission_id != submission_id:
+            raise RevisionConflict("exception cannot request completion")
+        if exception.state_revision != context.expected_revision:
+            raise RevisionConflict("stale exception revision")
+        job = boundary.require_job(store, exception.job_id)
+        tx.require_job(job.id, expected_job_revision)
+        job, _submission, verification, _plan = _exception_current(store, exception, policy)
+        decision = c.OperatorDecisionRecord(id=str(uuid4()), exception_id=exception.id, issue_id=exception.issue_id,
+            job_id=job.id, submission_id=submission_id, actor=context.actor, reason="Operator requested completion of saved scope",
+            expected_exception_revision=exception.state_revision, expected_job_revision=job.state_revision,
+            created_at=datetime.now(UTC))
+        tx.insert_operator_decision(decision)
+        updated = exception.model_copy(update={"status": "DECIDED", "state_revision": exception.state_revision + 1})
+        tx.replace_exception(updated, exception.state_revision)
+        event = _operator_event(tx, issue_id=job.issue_id, job_id=job.id, context=context,
+            event_type="OPERATOR_DECISION", policy_version=policy["version"], state_revision=job.state_revision,
+            outcome="NEEDS_REVIEW", record_id=decision.id, submission_id=submission_id,
+            exception_id=exception.id, decision_id=decision.id, unmet=exception.unmet,
+            components=verification.components, summary="Operator saved request for completion")
+        invocation = tx.insert_pending_invocation(c.PendingInvocationSpec(id=stable_id("operator-decision", decision.id, decision.id),
+            trigger_type="OPERATOR_DECISION", policy_version=policy["version"]), event)
+        return _operator_receipt(tx, context=context, fingerprint=fingerprint, issue_id=job.issue_id, job_id=job.id,
+            invocation_id=invocation.id, result=c.ToolResult(outcome="NEEDS_REVIEW", reason_code="DECISION_SAVED",
+                data=c.PendingEntityResult(record_id=decision.id, invocation_id=invocation.id),
+                event_ids=(event.id,)))
+
+
+def request_rework(store: Store, *, decision_id: str, context: c.MutationContext,
+                   policy_path: Path = DEFAULT_POLICY_PATH) -> c.RequestReceipt:
+    policy = load_policy(policy_path)
+    if context.expected_revision is None:
+        raise ValueError("expected job revision is required")
+    fingerprint = _operator_fingerprint(context, decision_id=decision_id)
+    decision = store.get_operator_decision(decision_id)
+    _operator_authorize(store, context, action=Action.REWORK, issue_id=decision.issue_id,
+                        job_id=decision.job_id, submission_id=decision.submission_id, policy=policy)
+    _operator_decision_cause(store, decision, context)
+    with store.transaction() as tx:
+        decision = store.get_operator_decision(decision_id)
+        exception = store.get_exception(decision.exception_id)
+        boundary = _operator_authorize(store, context, action=Action.REWORK, issue_id=decision.issue_id,
+                                       job_id=decision.job_id, submission_id=decision.submission_id, policy=policy)
+        _operator_decision_cause(store, decision, context)
+        job = boundary.require_job(store, decision.job_id)
+        previous = tx.lookup_request(context, fingerprint)
+        if previous is not None:
+            return previous
+        if (decision.handled_at is not None or decision.expected_job_revision is None
+                or decision.expected_job_revision != context.expected_revision
+                or exception.status != "DECIDED" or exception.state_revision != decision.expected_exception_revision + 1
+                or exception.status == "CANCELLED"):
+            raise RevisionConflict("operator choice is not actionable")
+        tx.require_job(job.id, context.expected_revision)
+        job, submission, verification, plan = _exception_current(store, exception, policy)
+        if verification is not None and verification.findings.area_clear is False:
+            instructions = "Clear the remaining material in the agreed work area and submit a fresh after photo."
+        else:
+            requirements = ", ".join(exception.unmet) or "the saved completion requirements"
+            instructions = ("Submit fresh proof for the agreed scope that resolves the saved requirement(s): "
+                            f"{requirements}.")
+        server_time = datetime.now(UTC)
+        updated_job = job.model_copy(update={"status": "REWORK_REQUIRED", "rework_instructions": instructions,
+            "state_revision": job.state_revision + 1})
+        tx.replace_job(updated_job, job.state_revision)
+        updated_exception = exception.model_copy(update={"status": "HANDLED", "handled_at": server_time,
+            "state_revision": exception.state_revision + 1})
+        tx.replace_exception(updated_exception, exception.state_revision)
+        tx.mark_operator_decision_handled(decision.id, server_time)
+        event = _operator_event(tx, issue_id=job.issue_id, job_id=job.id, context=context,
+            event_type="REWORK_REQUIRED", policy_version=plan.policy_version, state_revision=updated_job.state_revision,
+            outcome="OK", record_id=job.id, submission_id=submission.id, exception_id=exception.id,
+            decision_id=decision.id, unmet=exception.unmet, components=verification.components if verification else None,
+            summary="Same crew must complete the remaining saved scope")
+        return _operator_receipt(tx, context=context, fingerprint=fingerprint, issue_id=job.issue_id, job_id=job.id,
+            result=c.ToolResult(outcome="OK", data=c.EntityResult(record_id=job.id,
+                state_revision=updated_job.state_revision), evidence_ids=(submission.before_evidence_id,
+                submission.after_evidence_id), event_ids=(event.id,)))
+
+
+def exception_detail(store: Store, *, exception_id: str, actor: c.ActorContext,
+                     policy_path: Path = DEFAULT_POLICY_PATH) -> c.ExceptionDetail:
+    """Return the immutable basis for one operator/service exception without byte locations."""
+    policy = load_policy(policy_path)
+    boundary = AccessBoundary(actor, policy["district"])
+    boundary.require(Action.READ_ISSUE)
+    exception = store.get_exception(exception_id)
+    boundary.issue(store, exception.issue_id)
+    decision = store.operator_decision_for_exception(exception.id)
+    invocation = store.invocation_for_decision(decision.id) if decision is not None else None
+    job = boundary.require_job(store, exception.job_id) if exception.job_id is not None else None
+    plan = store.get_plan(job.plan_id) if job is not None else None
+    verification = store.get_verification(exception.verification_id) if exception.verification_id else None
+    if verification is not None:
+        submission = store.get_submission(exception.submission_id)
+        if (job is None or verification.job_id != job.id or verification.issue_id != exception.issue_id
+                or verification.submission_id != submission.id or submission.job_id != job.id
+                or submission.before_evidence_id != exception.before_evidence_id
+                or submission.after_evidence_id != exception.after_evidence_id):
+            raise ValueError("historical exception proof relationships disagree")
+    components = verification.components if verification else None
+    score_gate = next((gate for gate in verification.prerequisites
+        if gate.name == "verification_score_min_95"), None) if verification else None
+    allowed = ()
+    if exception.status in {"PENDING", "DECIDED"} and exception.kind == "completion":
+        try:
+            current_job, _submission, _verification, _plan = _exception_current(store, exception, policy)
+            if actor.actor_type == "operator" and exception.status == "PENDING" and decision is None:
+                allowed = (Action.REQUEST_COMPLETION.value,)
+            elif actor.actor_type == "service" and exception.status == "DECIDED" and decision is not None:
+                _operator_decision_cause(store, decision)
+                if (decision.handled_at is None and decision.expected_job_revision == current_job.state_revision
+                        and exception.state_revision == decision.expected_exception_revision + 1):
+                    allowed = (Action.REWORK.value,)
+        except (KeyError, ValueError, RevisionConflict):
+            # Stale authority hides actions; the exact historical explanation remains readable.
+            pass
+    return c.ExceptionDetail(id=exception.id, issue_id=exception.issue_id, job_id=exception.job_id,
+        submission_id=exception.submission_id, verification_id=exception.verification_id,
+        kind=exception.kind, reason_code=exception.reason_code, status=exception.status,
+        state_revision=exception.state_revision, job_revision=job.state_revision if job else None,
+        scope=exception.scope, primary_target=plan.primary_target if plan else None,
+        work_area=plan.work_area if plan else None, before_evidence_id=exception.before_evidence_id,
+        after_evidence_id=exception.after_evidence_id, denial_event_id=exception.denial_event_id,
+        components=components, total=sum(components.model_dump().values()) if components else None,
+        findings=verification.findings if verification else None, checks=verification.checks if verification else None,
+        prerequisites=verification.prerequisites if verification else (), score_gate=score_gate,
+        unmet=exception.unmet, allowed_next=allowed, decision_id=decision.id if decision else None,
+        invocation_id=invocation.id if invocation else None,
+        invocation_status=invocation.status if invocation else None, handled_at=exception.handled_at,
+        cancelled_at=exception.cancelled_at, cancellation_event_id=exception.cancellation_event_id)
