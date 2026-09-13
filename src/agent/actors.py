@@ -120,6 +120,8 @@ class Action(StrEnum):
     READ_JOB = "read_job"
     READ_EVIDENCE = "read_evidence"
     READ_CONTEXT = "read_context"
+    INVESTIGATE = "investigate"
+    APPLY_INVESTIGATION_DECISION = "apply_investigation_decision"
     ACCEPT_JOB = "accept_job"
     CHECK_IN = "check_in"
     SUBMIT_PROOF = "submit_proof"
@@ -139,6 +141,8 @@ _ACTION_ROLES = {
     Action.READ_JOB: {"crew", "operator", "service"},
     Action.READ_EVIDENCE: {"crew", "operator", "service"},
     Action.READ_CONTEXT: {"service"},
+    Action.INVESTIGATE: {"service"},
+    Action.APPLY_INVESTIGATION_DECISION: {"service"},
     Action.ACCEPT_JOB: {"crew"},
     Action.CHECK_IN: {"crew"},
     Action.SUBMIT_PROOF: {"crew"},
@@ -246,6 +250,15 @@ class AccessBoundary:
             status=record.status, state_revision=record.state_revision,
             evidence_score=record.evidence_score, components=record.components,
             responsibility=record.responsibility, hazards=record.hazards)
+
+    def signal(self, store: Store, signal_id: str):
+        """Service investigation scope, including signals linked after intake."""
+        self.require(Action.INVESTIGATE)
+        signal = store.get_signal(signal_id)
+        issue = store.issue_for_signal(signal_id)
+        if issue is not None:
+            self._issue(store, issue.id)
+        return signal
 
     def require_job(self, store: Store, job_id: str) -> c.JobRecord:
         """Saved ownership only; later operations also check role and policy gates."""

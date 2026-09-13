@@ -32,6 +32,7 @@ def _source_groups(signals: Sequence[Signal]) -> dict[str, list[Signal]]:
     def join(left: str, right: str) -> None:
         parents[root(left)] = root(right)
 
+    prior_fingerprints: list[Signal] = []
     for signal in signals:
         key = f"signal:{signal.id}"
         root(key)
@@ -40,6 +41,11 @@ def _source_groups(signals: Sequence[Signal]) -> dict[str, list[Signal]]:
             join(key, f"author:{signal.source_author_id}")
         if signal.image_sha256 is not None:
             join(key, f"image:{signal.image_sha256}")
+        if signal.image_dhash is not None:
+            for prior in prior_fingerprints:
+                if prior.image_dhash is not None and hamming(signal.image_dhash, prior.image_dhash) <= REUSE_MAX_DISTANCE:
+                    join(key, f"signal:{prior.id}")
+            prior_fingerprints.append(signal)
         if signal.repost_of is not None:
             join(key, f"signal:{signal.repost_of}")
     groups: dict[str, list[Signal]] = {}

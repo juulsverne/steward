@@ -438,7 +438,16 @@ def test_actual_server_exposes_only_sandbox_routes_with_explicit_setup(config, m
     with TestClient(server.app, base_url=ORIGIN) as client:
         assert client.post("/ask", json={"prompt": "bypass"}).status_code == 404
         paths = client.get("/openapi.json").json()["paths"]
-        assert set(paths) == {"/health", "/api/demo/session", "/api/demo/persona", "/api/signals"}
+        assert set(paths) == {
+            "/health", "/api/demo/session", "/api/demo/persona", "/api/signals",
+            "/api/signals/related", "/api/issues/similar", "/api/issues",
+            "/api/issues/{issue_id}/sources",
+            "/api/issues/{issue_id}/geocode", "/api/issues/{issue_id}/service-records/search",
+            "/api/issues/{issue_id}/classification", "/api/issues/{issue_id}/jurisdiction",
+            "/api/issues/{issue_id}/decisions", "/api/issues/{issue_id}/investigation-action",
+            "/api/issues/{issue_id}/official-dispute",
+            "/api/signals/{signal_id}/intake-inspection",
+        }
         schema = paths["/api/demo/persona"]["post"]["requestBody"]["content"]
         assert schema["application/json"]["schema"]["additionalProperties"] is False
         assert "persona_id" in schema["application/json"]["schema"]["properties"]

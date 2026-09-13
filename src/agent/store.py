@@ -38,6 +38,9 @@ RECORDS = {
     c.BudgetRecord: "budgets", c.ReservationRecord: "reservations", c.PaymentRecord: "payments",
     c.LedgerEntry: "ledger", c.DecisionRecord: "decisions", c.InvocationRecord: "invocations",
     c.RequestReceipt: "request_receipts", c.ServiceLookupRecord: "service_lookups",
+    c.GeocodeFact: "geocode_facts", c.ClassificationFact: "classification_facts",
+    c.JurisdictionFact: "jurisdiction_facts", c.IntakeInspectionRecord: "intake_inspections",
+    c.IntakeInspectionClaim: "intake_inspection_claims",
 }
 
 
@@ -513,6 +516,110 @@ class Store:
     def get_service_lookup(self, record_id: str) -> c.ServiceLookupRecord:
         return self._record(c.ServiceLookupRecord, record_id)
 
+    def service_lookups_for_issue(self, issue_id: str) -> list[c.ServiceLookupRecord]:
+        self.get_issue_record(issue_id)
+        return [self.get_service_lookup(row[0]) for row in self.db.execute(
+            "SELECT id FROM service_lookups WHERE issue_id=? ORDER BY rowid", (issue_id,)
+        )]
+
+    def latest_service_lookup(self, issue_id: str) -> c.ServiceLookupRecord | None:
+        records = self.service_lookups_for_issue(issue_id)
+        return records[-1] if records else None
+
+    def get_geocode_fact(self, record_id: str) -> c.GeocodeFact:
+        return self._record(c.GeocodeFact, record_id)
+
+    def get_classification_fact(self, record_id: str) -> c.ClassificationFact:
+        return self._record(c.ClassificationFact, record_id)
+
+    def get_jurisdiction_fact(self, record_id: str) -> c.JurisdictionFact:
+        return self._record(c.JurisdictionFact, record_id)
+
+    def get_intake_inspection(self, record_id: str) -> c.IntakeInspectionRecord:
+        return self._record(c.IntakeInspectionRecord, record_id)
+
+    def intake_inspections_for_signal(self, signal_id: str) -> list[c.IntakeInspectionRecord]:
+        self.get_signal(signal_id)
+        return [self.get_intake_inspection(row[0]) for row in self.db.execute(
+            "SELECT id FROM intake_inspections WHERE signal_id=? ORDER BY id", (signal_id,)
+        )]
+
+    def find_intake_inspection(self, cache_key: str) -> c.IntakeInspectionRecord | None:
+        row = self.db.execute("SELECT id FROM intake_inspections WHERE cache_key=? "
+            "AND json_extract(record_json,'$.outcome')='SUCCESS' "
+            "AND json_extract(record_json,'$.cache_eligible')=1 ORDER BY rowid LIMIT 1", (cache_key,)).fetchone()
+        return self.get_intake_inspection(row[0]) if row is not None else None
+
+    def get_intake_claim(self, claim_id: str) -> c.IntakeInspectionClaim:
+        return self._record(c.IntakeInspectionClaim, claim_id)
+
+    def intake_claim_for_request(self, context: c.MutationContext) -> c.IntakeInspectionClaim | None:
+        row = self.db.execute("SELECT id FROM intake_inspection_claims WHERE "
+            "json_extract(record_json,'$.actor.actor_id')=? AND operation=? AND idempotency_key=?",
+            (context.actor.actor_id, context.operation, context.idempotency_key)).fetchone()
+        return self.get_intake_claim(row[0]) if row else None
+
+    def running_intake_claim(self, cache_key: str) -> c.IntakeInspectionClaim | None:
+        row = self.db.execute("SELECT id FROM intake_inspection_claims WHERE cache_key=? AND status='RUNNING'",
+                              (cache_key,)).fetchone()
+        return self.get_intake_claim(row[0]) if row else None
+
+    def request_for_operation(self, context: c.MutationContext) -> c.RequestReceipt | None:
+        row = self.db.execute("SELECT id FROM request_receipts WHERE actor_id=? AND operation=? AND idempotency_key=?",
+            (context.actor.actor_id, context.operation, context.idempotency_key)).fetchone()
+        return self.get_request(row[0]) if row else None
+
+    def related_signals(self, signal_id: str) -> list[Signal]:
+        source = self.get_signal(signal_id)
+        return [item for row in self.db.execute("SELECT id FROM signals WHERE id<>? ORDER BY id", (signal_id,))
+                if (item := self.get_signal(row[0])).effective_source_role != "official_record"
+                and item.reported_location == source.reported_location]
+
+    def similar_issue_records(self, signal_id: str) -> list[c.IssueRecord]:
+        source = self.get_signal(signal_id)
+        return [self.get_issue_record(row[0]) for row in self.db.execute(
+            "SELECT id FROM issues WHERE location=? AND status NOT IN ('RESOLVED','DUPLICATE','INVALID') ORDER BY id",
+            (source.reported_location,))]
+
+    @staticmethod
+    def _latest_facts(records):
+        return max(records, key=lambda record: (record.fact_version, record.created_at, record.id), default=None)
+
+    def current_issue_facts(self, issue_id: str) -> c.CurrentIssueFacts:
+        issue = self.get_issue_record(issue_id)
+        classifications = [self.get_classification_fact(row[0]) for row in self.db.execute(
+            "SELECT id FROM classification_facts WHERE issue_id=?", (issue_id,)
+        )]
+        geocodes = [self.get_geocode_fact(row[0]) for row in self.db.execute(
+            "SELECT id FROM geocode_facts WHERE issue_id=?", (issue_id,)
+        )]
+        jurisdictions = [self.get_jurisdiction_fact(row[0]) for row in self.db.execute(
+            "SELECT id FROM jurisdiction_facts WHERE issue_id=?", (issue_id,)
+        )]
+        signal_ids = issue.signal_ids
+        inspections = tuple(
+            self.get_intake_inspection(row[0]) for row in self.db.execute(
+                "SELECT id FROM intake_inspections WHERE signal_id IN "
+                f"({','.join('?' for _ in signal_ids)}) ORDER BY id", signal_ids
+            )
+        ) if signal_ids else ()
+        classification = self._latest_facts(classifications)
+        jurisdiction = self._latest_facts(jurisdictions)
+        geocode = self._latest_facts(geocodes)
+        current_ids = {f.id for f in (classification, geocode) if f is not None}
+        if jurisdiction is not None and (classification is None
+                or jurisdiction.classification_fact_id != classification.id
+                or not set(jurisdiction.supporting_fact_ids) <= current_ids):
+            jurisdiction = None
+        sources = tuple(c.HazardSource(hazard=h, classification_fact_id=f.id)
+                        for f in classifications for h in f.hazards) + tuple(
+            c.HazardSource(hazard=h, intake_inspection_id=f.id) for f in inspections
+            if f.outcome == "SUCCESS" and f.findings is not None for h in f.findings.visible_hazards)
+        return c.CurrentIssueFacts(issue_id=issue_id, issue_revision=issue.state_revision,
+            classification=classification, jurisdiction=jurisdiction, geocode=geocode,
+            intake_inspections=inspections, hazard_sources=sources,
+            unresolved_hazards=tuple(sorted({s.hazard for s in sources})))
+
     def get_invocation(self, record_id: str) -> c.InvocationRecord:
         return self._record(c.InvocationRecord, record_id)
 
@@ -747,6 +854,43 @@ class StoreTransaction:
 
     def insert_service_lookup(self, record: c.ServiceLookupRecord) -> None:
         self._insert(record)
+
+    def insert_geocode_fact(self, record: c.GeocodeFact) -> None:
+        self._insert(record)
+
+    def insert_classification_fact(self, record: c.ClassificationFact) -> None:
+        self._insert(record)
+
+    def insert_jurisdiction_fact(self, record: c.JurisdictionFact) -> None:
+        self._check()
+        fact = self.store.get_classification_fact(record.classification_fact_id)
+        if fact.issue_id != record.issue_id:
+            raise ValueError("jurisdiction fact classification belongs to another issue")
+        self._insert(record)
+
+    def insert_intake_inspection(self, record: c.IntakeInspectionRecord) -> None:
+        self._check()
+        evidence = self.store.get_evidence(record.evidence_id)
+        if evidence.image_sha256 != record.evidence_sha256:
+            raise ValueError("intake inspection evidence digest mismatch")
+        if not any(item.id == record.evidence_id for item in self.store.evidence_for_entity(
+            signal_id=record.signal_id
+        )):
+            raise ValueError("intake inspection evidence is not associated with signal")
+        self._insert(record)
+
+    def insert_intake_claim(self, record: c.IntakeInspectionClaim) -> None:
+        self._insert(record)
+
+    def finish_intake_claim(self, claim_id: str, *, abandoned: bool = False) -> None:
+        self._check()
+        record = self.store.get_intake_claim(claim_id)
+        if record.status != "RUNNING":
+            raise RevisionConflict("inspection claim is no longer owned")
+        record = record.model_copy(update={"status": "ABANDONED" if abandoned else "FINISHED",
+                                          "finished_at": datetime.now(UTC)})
+        self.store.db.execute("UPDATE intake_inspection_claims SET record_json=?,status=?,finished_at=? WHERE id=?",
+            (record.model_dump_json(), record.status, record.finished_at.isoformat(), record.id))
 
     def replace_job(self, record: c.JobRecord, expected_revision: int) -> None:
         self._replace(record, expected_revision, {"status", "checkin_location", "checked_in_at",

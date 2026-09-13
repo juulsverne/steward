@@ -596,6 +596,7 @@ class ServiceLookupRecord(Record):
     completed_at: Timestamp | None = None
     looked_up_at: Timestamp
     provenance: Provenance
+    source_mode: Text = "seeded_adapter"
     error_code: Text | None = None
 
     @model_validator(mode="after")
@@ -609,3 +610,156 @@ class ServiceLookupRecord(Record):
         if (self.status == "COMPLETED") != (self.completed_at is not None):
             raise ValueError("COMPLETED lookup requires completion time")
         return self
+
+
+class GeocodeFact(Record):
+    """Immutable trusted location lookup. An unresolved address has no coordinates."""
+
+    id: Text
+    issue_id: Text
+    signal_id: Text
+    outcome: Literal["MATCH", "NO_MATCH", "UNAVAILABLE"]
+    location: LocationRecord | None = None
+    source_mode: Text
+    looked_up_at: Timestamp
+    provenance: Provenance
+    source_issue_revision: Nonnegative
+    fact_version: Positive = 1
+    error_code: Text | None = None
+    created_at: Timestamp
+
+    @model_validator(mode="after")
+    def location_matches_outcome(self):
+        if (self.outcome == "MATCH") != (self.location is not None):
+            raise ValueError("matched geocode requires coordinates and other outcomes cannot claim them")
+        return self
+
+
+class ClassificationFact(Record):
+    """Evidence-grounded interpretation, never a policy or pricing authority."""
+
+    id: Text
+    issue_id: Text
+    signal_id: Text
+    category: Text
+    visible_objects: tuple[Text, ...] = ()
+    hazards: tuple[Text, ...] = ()
+    primary_target: Text | None = None
+    full_cleanup_scope: Text | None = None
+    marked_work_area: Text | None = None
+    large_object_count: Nonnegative | None = None
+    supporting_evidence_ids: tuple[Text, ...] = ()
+    unknowns: tuple[Text, ...] = ()
+    source_issue_revision: Nonnegative
+    fact_version: Positive = 1
+    provenance: Provenance
+    proposed_by: ActorContext
+    metadata: ModelRunMetadata | None = None
+    created_at: Timestamp
+
+
+class JurisdictionFact(Record):
+    """Trusted routing interpretation; this is the sole B4 responsibility fact."""
+
+    id: Text
+    issue_id: Text
+    classification_fact_id: Text
+    responsibility: Literal["district", "city", "private", "unknown"]
+    supporting_fact_ids: tuple[Text, ...] = ()
+    unknowns: tuple[Text, ...] = ()
+    source_issue_revision: Nonnegative
+    fact_version: Positive = 1
+    provenance: Provenance
+    proposed_by: ActorContext
+    metadata: ModelRunMetadata | None = None
+    created_at: Timestamp
+
+
+class IntakePhotoFindings(Record):
+    """Visible intake observations only; separate from completion verification findings."""
+
+    visible_objects: tuple[Text, ...] = ()
+    visible_hazards: tuple[Text, ...] = ()
+    location_clues: tuple[Text, ...] = ()
+    unknowns: tuple[Text, ...] = ()
+    observations: tuple[Text, ...] = ()
+
+
+class IntakeInspectionRecord(Record):
+    id: Text
+    signal_id: Text
+    evidence_id: Text
+    evidence_sha256: Digest
+    cache_key: Digest
+    outcome: Literal["SUCCESS", "ERROR"]
+    preprocessing_version: Text
+    schema_version: Text
+    prompt_version: Text
+    request_version: Text
+    configuration_version: Text
+    metadata: ModelRunMetadata | None = None
+    findings: IntakePhotoFindings | None = None
+    error_code: Text | None = None
+    created_at: Timestamp
+    cached_from_id: Text | None = None
+    claim_id: Text | None = None
+    cache_eligible: bool = False
+    profile: Text | None = None
+    model_id: Text | None = None
+    region: Text | None = None
+
+    @model_validator(mode="after")
+    def complete_outcome(self):
+        if self.outcome == "SUCCESS" and (self.findings is None or self.error_code is not None):
+            raise ValueError("successful intake inspection requires findings and no error")
+        if self.outcome == "ERROR" and (self.findings is not None or self.error_code is None):
+            raise ValueError("failed intake inspection requires a bounded error and no findings")
+        return self
+
+
+class IntakeInspectionBasis(Record):
+    cache_key: Digest
+    model_id: Text
+    region: Text
+    profile: Text | None = None
+    preprocessing_version: Text
+    schema_version: Text
+    prompt_version: Text
+    request_version: Text
+    configuration_version: Text
+
+
+class IntakeInspectionClaim(Record):
+    id: Text
+    actor: ActorContext
+    operation: Text
+    idempotency_key: Text
+    request_sha256: Digest
+    signal_id: Text
+    evidence_id: Text
+    evidence_sha256: Digest
+    cache_key: Digest
+    basis: IntakeInspectionBasis
+    status: Literal["RUNNING", "FINISHED", "ABANDONED"] = "RUNNING"
+    started_at: Timestamp
+    expires_at: Timestamp
+    finished_at: Timestamp | None = None
+
+
+class HazardSource(Record):
+    hazard: Text
+    classification_fact_id: Text | None = None
+    intake_inspection_id: Text | None = None
+
+
+class CurrentIssueFacts(Record):
+    """Current immutable B4 facts B5 must re-read under its dispatch transaction."""
+
+    issue_id: Text
+    issue_revision: Nonnegative
+    classification: ClassificationFact | None = None
+    jurisdiction: JurisdictionFact | None = None
+    geocode: GeocodeFact | None = None
+    intake_inspections: tuple[IntakeInspectionRecord, ...] = ()
+    unresolved_hazards: tuple[Text, ...] = ()
+    hazard_sources: tuple[HazardSource, ...] = ()

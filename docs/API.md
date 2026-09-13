@@ -1,10 +1,11 @@
 # Steward API identity boundary
 
-The local API implements the labeled demo persona boundary, health/session reads, and authenticated signal intake.
+The local API implements the labeled demo persona boundary, authenticated signal intake, and
+service-only investigation facts and decisions.
 It is a sandbox with publicly selectable seeded identities, **not verified identity**.
 Anyone using the selector can choose another demo persona. Do not submit private
 information. Resource permissions still apply to the selected actor on every request.
-The generic starter `/ask` route is removed. Investigation, dispatch, proof, settlement and full case/timeline reads belong to later build cards. Persona selection and receipt-first intake do not run a model.
+The generic starter `/ask` route is removed. Dispatch, proof, settlement and full case/timeline reads belong to later build cards. Persona selection and receipt-first intake do not run a model.
 
 ## Local setup
 
@@ -48,12 +49,51 @@ Deployment, persistent secrets on the selected host, and TLS remain hosting gate
 
 ## Shipped endpoints
 
+Investigation mutations enforce the configured service role and saved issue/plan/signal/
+evidence scope, including replay. Source linking, classification, jurisdiction, decision
+proposals and investigation actions require `X-Steward-Expected-Revision` (the issue
+revision); missing headers fail validation. Fact versions are allocated under the writer
+lock in one per-issue order across geocode/classification/jurisdiction. Source issue
+revisions remain the input revisions, separate from the resulting issue revisions returned
+in receipts. Identical keys return saved results after later state/configuration changes;
+changed caller inputs conflict. Adapter outputs are frozen at the first execution.
+
+`CurrentIssueFacts` is an internal typed producer for later plan/context consumers. It
+publishes `unresolved_hazards` and `hazard_sources` (classification fact or successful intake
+inspection IDs); benign reclassification cannot clear an earlier known hazard. Current
+jurisdiction must reference the current classification and current supporting facts.
+Investigation actions cannot reopen terminal issues or overwrite an active job workflow.
+Direct service decisions have an `INVESTIGATION_REQUESTED` cause distinct from their
+`INVESTIGATION_DECIDED` result; runtime metadata remains absent unless actually supplied
+through a validated saved invocation.
+
+Intake inspection uses a short durable claim, no database lock during inference, and an
+immutable result/event/request receipt. Simultaneous requests for the same cache basis
+receive HTTP 503 `ERROR / INSPECTION_IN_PROGRESS` without waiting or starting another call;
+this temporary response is not a committed final receipt. Success cache reuse creates a
+requesting signal/evidence record with `cached_from_id`; original inference usage stays on
+the source record. Cache identity covers stored bytes and full model/profile/region,
+prompt/request/schema/preprocessing/configuration versions. Errors receive HTTP 503 with
+their persisted event IDs; replay retains that error, while a new key may attempt recovery.
+A 120-second expired claim is recorded as `INSPECTION_INTERRUPTED` with unknown usage. A
+late result is retained for attribution but fenced from the receipt and success cache.
+No transport error creates an operator action or fabricated visual findings. Inspection
+does not run automatically during upload. Candidate reads filter eligible scoped records
+before the 20-result bound and return `truncated` when further matches exist.
+
 | Endpoint | Behavior |
 |---|---|
 | GET `/health` | Minimal `ToolResult` with `{ok:true}`; no model call or database probe |
 | GET `/api/demo/session` | Safe human persona catalog, sandbox notice and selected actor or null |
 | POST `/api/demo/persona` | Strict `{persona_id: string}` selects one configured human, signs cookie |
 | POST `/api/signals` | Authenticated multipart resident intake; returns only the saved receipt ID and pending acknowledgment |
+| GET `/api/signals/related`, GET `/api/issues/similar` | Service-only bounded candidate summaries from stored IDs; no raw image bytes or references |
+| POST `/api/issues` | Service-only creation from one stored unlinked physical-observation signal and concise rationale |
+| POST `/api/issues/{id}/geocode`, `/service-records/search` | Service-only trusted seeded adapter facts keyed to a stored linked signal |
+| POST `/api/issues/{id}/sources` | Service-only explicit link of one stored signal to a case, with a saved match rationale |
+| POST `/api/issues/{id}/classification`, `/jurisdiction`, `/decisions` | Service-only saved proposals and gate-validated decision intents; decision intent alone does not mutate lifecycle state |
+| POST `/api/issues/{id}/investigation-action`, `/official-dispute` | Service-only, revision-checked application of an eligible saved investigation decision |
+| POST `/api/signals/{id}/intake-inspection` | Service-only configured image inspection of stored evidence; exact-version results are cached |
 
 `POST /api/signals` requires the same human Origin/custom-header and idempotency protections as
 other browser mutations. It accepts required nonblank `description` and `location`, optional timezone-aware `observed_at`,

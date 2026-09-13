@@ -11,6 +11,7 @@ from collections.abc import Callable
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Literal
 from urllib.parse import urlsplit
 from uuid import uuid4
 
@@ -32,9 +33,22 @@ from .actors import (
     DemoSessionView,
     configured_personas,
 )
+from .adapters import SeededAdapters
 from .config import ApiSettings
 from .images import MAX_UPLOAD_BYTES, UploadError, decode_upload, known_synthetic_fixture
 from .intake import persist_signal, resident_signal
+from .investigation import (
+    apply_investigation_decision,
+    create_issue_from_signal,
+    decide,
+    inspect_intake_photo,
+    link_signal_to_issue,
+    record_geocode,
+    record_service_lookup,
+    save_classification,
+    save_jurisdiction,
+    stable_id,
+)
 from .models import utc_time
 from .policy import load_policy
 from .store import IdempotencyConflict, RevisionConflict, Store
@@ -42,6 +56,75 @@ from .store import IdempotencyConflict, RevisionConflict, Store
 
 class PersonaRequest(c.Record):
     persona_id: c.OpaqueId
+
+
+class IssueCreateRequest(c.Record):
+    signal_id: c.OpaqueId
+    match_rationale: c.Text
+
+
+class StoredSignalRequest(c.Record):
+    signal_id: c.OpaqueId
+
+
+class LinkSignalRequest(StoredSignalRequest):
+    match_rationale: c.Text
+
+
+class ClassificationProposalRequest(c.Record):
+    signal_id: c.OpaqueId
+    category: c.Text
+    visible_objects: tuple[c.Text, ...] = ()
+    hazards: tuple[c.Text, ...] = ()
+    primary_target: c.Text | None = None
+    full_cleanup_scope: c.Text | None = None
+    marked_work_area: c.Text | None = None
+    large_object_count: c.Nonnegative | None = None
+    supporting_evidence_ids: tuple[c.OpaqueId, ...] = ()
+    unknowns: tuple[c.Text, ...] = ()
+
+
+class JurisdictionProposalRequest(c.Record):
+    classification_fact_id: c.OpaqueId
+    responsibility: Literal["district", "city", "private", "unknown"]
+    supporting_fact_ids: tuple[c.OpaqueId, ...] = ()
+    unknowns: tuple[c.Text, ...] = ()
+
+
+class DecisionProposalRequest(c.Record):
+    decision_type: c.DecisionType
+    summary: c.Text
+    evidence_ids: tuple[c.OpaqueId, ...] = ()
+
+
+class InvestigationActionRequest(c.Record):
+    decision_id: c.OpaqueId
+
+
+class CandidateSignalView(c.Record):
+    id: c.Text
+    source_role: c.Text
+    source_author_id: c.Text | None
+    text: c.Text
+    observed_at: c.Timestamp | None
+    image_evidence_ids: tuple[c.Text, ...] = ()
+
+
+class CandidateSignalsView(c.Record):
+    candidates: tuple[CandidateSignalView, ...]
+    truncated: bool = False
+
+
+class SimilarIssueView(c.Record):
+    id: c.Text
+    status: c.IssueStatus
+    location: c.Text
+    evidence_score: c.Nonnegative
+
+
+class SimilarIssuesView(c.Record):
+    candidates: tuple[SimilarIssueView, ...]
+    truncated: bool = False
 
 
 class HealthView(c.Record):
@@ -249,6 +332,29 @@ def idempotency_key(request: Request) -> str:
     return key
 
 
+def expected_revision(request: Request) -> int | None:
+    value = _header(request, "x-steward-expected-revision")
+    if value is None:
+        return None
+    if not value.isdigit():
+        raise AccessError(400, "EXPECTED_REVISION_INVALID")
+    return int(value)
+
+
+async def parse_json_request(request: Request, model):
+    if (_header(request, "content-type") or "").split(";", 1)[0].strip() != "application/json":
+        raise AccessError(415, "JSON_REQUIRED")
+    raw = bytearray()
+    async for chunk in request.stream():
+        raw.extend(chunk)
+        if len(raw) > 16 * 1024:
+            raise AccessError(413, "REQUEST_TOO_LARGE")
+    try:
+        return model.model_validate_json(bytes(raw))
+    except ValueError:
+        raise AccessError(422, "VALIDATION_ERROR") from None
+
+
 def resolve_actor(request: Request, *, optional: bool = False) -> c.ActorContext | None:
     """Authority comes exclusively from the configured human cookie or service token."""
     authorization = _header(request, "authorization")
@@ -282,14 +388,14 @@ def require_action(request: Request, action: Action) -> c.ActorContext:
 
 
 def mutation_context(request: Request, action: Action, *,
-                     expected_revision: int | None = None) -> c.MutationContext:
+                     expected_revision: int | None = None, operation: str | None = None) -> c.MutationContext:
     """Bind role and actor server-side; domain operations still persist receipts/gates.
 
     Transport request IDs remain on request.state, separate from persisted invocation IDs.
     The operation/revision arguments come from the route, not an ActorContext body.
     """
     actor = require_action(request, action)
-    return c.MutationContext(actor=actor, operation=action.value,
+    return c.MutationContext(actor=actor, operation=operation or action.value,
         idempotency_key=idempotency_key(request), expected_revision=expected_revision)
 
 
@@ -313,7 +419,7 @@ def request_store(request: Request):
 
 
 def create_app(settings: ApiSettings | None = None,
-               *, store_factory: Callable = Store) -> FastAPI:
+               *, store_factory: Callable = Store, adapters=None, intake_inspector=None) -> FastAPI:
     settings = settings or ApiSettings.from_env()
     personas = _validate_setup(settings)
     app = FastAPI(title="Steward demo sandbox", description=(
@@ -321,6 +427,8 @@ def create_app(settings: ApiSettings | None = None,
         "The only domain operation currently exposed is authenticated signal intake."), responses=ERROR_RESPONSES)
     app.state.api_settings = settings
     app.state.store_factory = store_factory
+    app.state.adapters = adapters or SeededAdapters()
+    app.state.intake_inspector = intake_inspector
     app.state.sessions = DemoSessions(settings.session_secret, personas)
     app.state.cookie_name = "steward-demo-local" if settings.local_http else "__Host-steward-demo"
     app.state.allowed_origins = frozenset((settings.origin, *settings.development_origins))
@@ -421,6 +529,8 @@ def create_app(settings: ApiSettings | None = None,
                 raise AccessError(413, "REQUEST_TOO_LARGE")
         try:
             body = PersonaRequest.model_validate_json(bytes(raw))
+        except IdempotencyConflict:
+            raise
         except ValueError:
             raise AccessError(422, "VALIDATION_ERROR") from None
         actor, cookie = app.state.sessions.select(body.persona_id)
@@ -502,5 +612,285 @@ def create_app(settings: ApiSettings | None = None,
         return result_response(c.ToolResult(outcome="OK", data=IntakeReceiptView(
             receipt_id=saved.signal_id, signal_id=saved.signal_id, received_at=saved.received_at,
         )), status=202)
+
+    @app.get("/api/signals/related", response_model=c.ToolResult[CandidateSignalsView])
+    def related_signals(request: Request, signal_id: str):
+        actor = require_action(request, Action.INVESTIGATE)
+        boundary = AccessBoundary(actor, settings.district_id)
+        with request_store(request) as store:
+            boundary.signal(store, signal_id)
+            candidates = []
+            for item in store.related_signals(signal_id):
+                try:
+                    boundary.signal(store, item.id)
+                    evidence_ids = tuple(e.id for e in store.evidence_for_entity(signal_id=item.id))
+                    for evidence_id in evidence_ids:
+                        boundary.evidence(store, evidence_id)
+                except AccessError:
+                    continue
+                candidates.append(CandidateSignalView(id=item.id, source_role=item.effective_source_role,
+                    source_author_id=item.source_author_id, text=item.raw_text, observed_at=item.observed_at,
+                    image_evidence_ids=evidence_ids))
+                if len(candidates) > 20:
+                    break
+            return c.ToolResult(outcome="OK", data=CandidateSignalsView(
+                candidates=tuple(candidates[:20]), truncated=len(candidates) > 20))
+
+    @app.get("/api/issues/similar", response_model=c.ToolResult[SimilarIssuesView])
+    def similar_issues(request: Request, signal_id: str):
+        actor = require_action(request, Action.INVESTIGATE)
+        boundary = AccessBoundary(actor, settings.district_id)
+        with request_store(request) as store:
+            boundary.signal(store, signal_id)
+            candidates = []
+            for item in store.similar_issue_records(signal_id):
+                try:
+                    boundary.issue(store, item.id)
+                except AccessError:
+                    continue
+                candidates.append(SimilarIssueView(id=item.id, status=item.status,
+                    location=item.location, evidence_score=item.evidence_score))
+                if len(candidates) > 20:
+                    break
+            return c.ToolResult(outcome="OK", data=SimilarIssuesView(
+                candidates=tuple(candidates[:20]), truncated=len(candidates) > 20))
+
+    @app.post("/api/issues", response_model=c.ToolResult[c.EntityResult], status_code=201)
+    async def create_issue(request: Request):
+        context = mutation_context(request, Action.INVESTIGATE, expected_revision=expected_revision(request),
+            operation="create_issue_from_signal")
+        body = await parse_json_request(request, IssueCreateRequest)
+        try:
+            def operation():
+                with request_store(request) as store:
+                    boundary = AccessBoundary(context.actor, settings.district_id)
+                    if "issue_id" in request.path_params:
+                        boundary.issue(store, request.path_params["issue_id"])
+                    return create_issue_from_signal(store, signal_id=body.signal_id,
+                        rationale=body.match_rationale, context=context)
+            receipt = await to_thread(operation)
+        except IdempotencyConflict:
+            raise
+        except ValueError:
+            raise AccessError(422, "VALIDATION_ERROR") from None
+        return result_response(receipt.result, status=201)
+
+    @app.post("/api/issues/{issue_id}/geocode", response_model=c.ToolResult[c.EntityResult])
+    async def geocode_issue(request: Request, issue_id: str):
+        context = mutation_context(request, Action.INVESTIGATE, expected_revision=expected_revision(request),
+            operation="record_geocode")
+        body = await parse_json_request(request, StoredSignalRequest)
+        try:
+            def operation():
+                with request_store(request) as store:
+                    boundary = AccessBoundary(context.actor, settings.district_id)
+                    if "issue_id" in request.path_params:
+                        boundary.issue(store, request.path_params["issue_id"])
+                    _fact, receipt = record_geocode(store, issue_id=issue_id, signal_id=body.signal_id,
+                        result=lambda: app.state.adapters.geocode(boundary.signal(store, body.signal_id)), context=context)
+                    return receipt.result
+            result = await to_thread(operation)
+        except RevisionConflict:
+            raise
+        except IdempotencyConflict:
+            raise
+        except (KeyError, ValueError):
+            raise AccessError(422, "VALIDATION_ERROR") from None
+        return result_response(result)
+
+    @app.post("/api/issues/{issue_id}/sources", response_model=c.ToolResult[c.EntityResult])
+    async def link_candidate_signal(request: Request, issue_id: str):
+        context = mutation_context(request, Action.INVESTIGATE, expected_revision=expected_revision(request),
+            operation="link_signal")
+        body = await parse_json_request(request, LinkSignalRequest)
+        try:
+            def operation():
+                with request_store(request) as store:
+                    boundary = AccessBoundary(context.actor, settings.district_id)
+                    if "issue_id" in request.path_params:
+                        boundary.issue(store, request.path_params["issue_id"])
+                    receipt = link_signal_to_issue(store, issue_id=issue_id, signal_id=body.signal_id,
+                        rationale=body.match_rationale, context=context)
+                    return receipt.result
+            result = await to_thread(operation)
+        except RevisionConflict:
+            raise
+        except IdempotencyConflict:
+            raise
+        except (KeyError, ValueError):
+            raise AccessError(422, "VALIDATION_ERROR") from None
+        return result_response(result)
+
+    @app.post("/api/issues/{issue_id}/service-records/search", response_model=c.ToolResult[c.EntityResult])
+    async def lookup_service_record(request: Request, issue_id: str):
+        context = mutation_context(request, Action.INVESTIGATE, expected_revision=expected_revision(request),
+            operation="record_service_lookup")
+        body = await parse_json_request(request, StoredSignalRequest)
+        try:
+            def operation():
+                with request_store(request) as store:
+                    boundary = AccessBoundary(context.actor, settings.district_id)
+                    if "issue_id" in request.path_params:
+                        boundary.issue(store, request.path_params["issue_id"])
+                    _record, receipt = record_service_lookup(store, issue_id=issue_id, signal_id=body.signal_id,
+                        result=lambda: app.state.adapters.service_record(boundary.signal(store, body.signal_id)), context=context)
+                    return receipt.result
+            result = await to_thread(operation)
+        except RevisionConflict:
+            raise
+        except IdempotencyConflict:
+            raise
+        except (KeyError, ValueError):
+            raise AccessError(422, "VALIDATION_ERROR") from None
+        return result_response(result)
+
+    @app.post("/api/issues/{issue_id}/classification", response_model=c.ToolResult[c.EntityResult])
+    async def classify_issue(request: Request, issue_id: str):
+        context = mutation_context(request, Action.INVESTIGATE, expected_revision=expected_revision(request),
+            operation="save_classification")
+        body = await parse_json_request(request, ClassificationProposalRequest)
+        try:
+            def operation():
+                with request_store(request) as store:
+                    boundary = AccessBoundary(context.actor, settings.district_id)
+                    if "issue_id" in request.path_params:
+                        boundary.issue(store, request.path_params["issue_id"])
+                    issue = store.get_issue_record(issue_id)
+                    source = boundary.signal(store, body.signal_id)
+                    fact = c.ClassificationFact(id=stable_id("classification", issue_id, context.idempotency_key),
+                        issue_id=issue_id, signal_id=body.signal_id, category=body.category,
+                        visible_objects=body.visible_objects, hazards=body.hazards, primary_target=body.primary_target,
+                        full_cleanup_scope=body.full_cleanup_scope, marked_work_area=body.marked_work_area,
+                        large_object_count=body.large_object_count,
+                        supporting_evidence_ids=body.supporting_evidence_ids, unknowns=body.unknowns,
+                        source_issue_revision=issue.state_revision, provenance=source.provenance, proposed_by=context.actor,
+                        created_at=datetime.now(UTC))
+                    _saved, receipt = save_classification(store, fact, context=context)
+                    return receipt.result
+            result = await to_thread(operation)
+        except RevisionConflict:
+            raise
+        except IdempotencyConflict:
+            raise
+        except (KeyError, ValueError):
+            raise AccessError(422, "VALIDATION_ERROR") from None
+        return result_response(result)
+
+    @app.post("/api/issues/{issue_id}/jurisdiction", response_model=c.ToolResult[c.EntityResult])
+    async def determine_jurisdiction(request: Request, issue_id: str):
+        context = mutation_context(request, Action.INVESTIGATE, expected_revision=expected_revision(request),
+            operation="save_jurisdiction")
+        body = await parse_json_request(request, JurisdictionProposalRequest)
+        try:
+            def operation():
+                with request_store(request) as store:
+                    boundary = AccessBoundary(context.actor, settings.district_id)
+                    if "issue_id" in request.path_params:
+                        boundary.issue(store, request.path_params["issue_id"])
+                    issue = store.get_issue_record(issue_id)
+                    classification = store.get_classification_fact(body.classification_fact_id)
+                    fact = c.JurisdictionFact(id=stable_id("jurisdiction", issue_id, context.idempotency_key),
+                        issue_id=issue_id, classification_fact_id=body.classification_fact_id,
+                        responsibility=body.responsibility, supporting_fact_ids=body.supporting_fact_ids,
+                        unknowns=body.unknowns, source_issue_revision=issue.state_revision,
+                        provenance=classification.provenance, proposed_by=context.actor, created_at=datetime.now(UTC))
+                    _saved, receipt = save_jurisdiction(store, fact, context=context)
+                    return receipt.result
+            result = await to_thread(operation)
+        except RevisionConflict:
+            raise
+        except IdempotencyConflict:
+            raise
+        except (KeyError, ValueError):
+            raise AccessError(422, "VALIDATION_ERROR") from None
+        return result_response(result)
+
+    @app.post("/api/issues/{issue_id}/decisions", response_model=c.ToolResult[c.EntityResult])
+    async def decide_issue(request: Request, issue_id: str):
+        context = mutation_context(request, Action.INVESTIGATE, expected_revision=expected_revision(request),
+            operation="decide")
+        body = await parse_json_request(request, DecisionProposalRequest)
+        try:
+            def operation():
+                with request_store(request) as store:
+                    boundary = AccessBoundary(context.actor, settings.district_id)
+                    if "issue_id" in request.path_params:
+                        boundary.issue(store, request.path_params["issue_id"])
+                    decide(store, issue_id=issue_id, proposed_type=body.decision_type,
+                        summary=body.summary, evidence_ids=body.evidence_ids, context=context)
+                    return store.request_for_operation(context).result
+            result = await to_thread(operation)
+        except RevisionConflict:
+            raise
+        except IdempotencyConflict:
+            raise
+        except (KeyError, ValueError):
+            raise AccessError(422, "VALIDATION_ERROR") from None
+        return result_response(result)
+
+    @app.post("/api/issues/{issue_id}/investigation-action", response_model=c.ToolResult[c.EntityResult])
+    async def apply_decision(request: Request, issue_id: str):
+        context = mutation_context(request, Action.APPLY_INVESTIGATION_DECISION,
+            expected_revision=expected_revision(request), operation="apply_investigation_decision")
+        body = await parse_json_request(request, InvestigationActionRequest)
+        try:
+            def operation():
+                with request_store(request) as store:
+                    boundary = AccessBoundary(context.actor, settings.district_id)
+                    if "issue_id" in request.path_params:
+                        boundary.issue(store, request.path_params["issue_id"])
+                    receipt = apply_investigation_decision(store, issue_id=issue_id,
+                        decision_id=body.decision_id, context=context)
+                    return receipt.result
+            result = await to_thread(operation)
+        except RevisionConflict:
+            raise
+        except IdempotencyConflict:
+            raise
+        except (KeyError, ValueError):
+            raise AccessError(422, "VALIDATION_ERROR") from None
+        return result_response(result)
+
+    @app.post("/api/issues/{issue_id}/official-dispute", response_model=c.ToolResult[c.EntityResult])
+    async def dispute_official_status(request: Request, issue_id: str):
+        context = mutation_context(request, Action.APPLY_INVESTIGATION_DECISION,
+            expected_revision=expected_revision(request), operation="official_dispute")
+        body = await parse_json_request(request, InvestigationActionRequest)
+        try:
+            def operation():
+                with request_store(request) as store:
+                    boundary = AccessBoundary(context.actor, settings.district_id)
+                    if "issue_id" in request.path_params:
+                        boundary.issue(store, request.path_params["issue_id"])
+                    decision = store.get_decision(body.decision_id)
+                    if decision.issue_id != issue_id or decision.decision_type != "DISPUTE_OFFICIAL_STATUS":
+                        raise ValueError("official dispute requires its saved decision")
+                    receipt = apply_investigation_decision(store, issue_id=issue_id,
+                        decision_id=body.decision_id, context=context)
+                    return receipt.result
+            result = await to_thread(operation)
+        except RevisionConflict:
+            raise
+        except IdempotencyConflict:
+            raise
+        except (KeyError, ValueError):
+            raise AccessError(422, "VALIDATION_ERROR") from None
+        return result_response(result)
+
+    @app.post("/api/signals/{signal_id}/intake-inspection", response_model=c.ToolResult[c.EntityResult])
+    async def inspect_intake(request: Request, signal_id: str):
+        context = mutation_context(request, Action.INSPECT, operation="inspect_intake_photo")
+        try:
+            def operation():
+                with request_store(request) as store:
+                    boundary = AccessBoundary(context.actor, settings.district_id)
+                    if "issue_id" in request.path_params:
+                        boundary.issue(store, request.path_params["issue_id"])
+                    return inspect_intake_photo(store, signal_id=signal_id, image_root=settings.image_root,
+                        inspector=app.state.intake_inspector, context=context)
+            result = await to_thread(operation)
+            return result_response(result, status=503 if result.outcome == "ERROR" else None)
+        except KeyError:
+            raise AccessError(404, "RESOURCE_NOT_FOUND") from None
 
     return app

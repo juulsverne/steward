@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 4
 
 SCHEMA_1 = """
 CREATE TABLE issues (
@@ -133,6 +133,20 @@ TABLES = {
         signal_id TEXT NOT NULL REFERENCES signals(id), UNIQUE(issue_id,signal_id)""",
 }
 
+FACT_TABLES = {
+    "geocode_facts": """id TEXT PRIMARY KEY, issue_id TEXT NOT NULL REFERENCES issues(id),
+        signal_id TEXT NOT NULL REFERENCES signals(id), fact_version INTEGER NOT NULL,
+        UNIQUE(issue_id,signal_id,fact_version)""",
+    "classification_facts": """id TEXT PRIMARY KEY, issue_id TEXT NOT NULL REFERENCES issues(id),
+        signal_id TEXT NOT NULL REFERENCES signals(id), fact_version INTEGER NOT NULL,
+        UNIQUE(issue_id,signal_id,fact_version)""",
+    "jurisdiction_facts": """id TEXT PRIMARY KEY, issue_id TEXT NOT NULL REFERENCES issues(id),
+        classification_fact_id TEXT NOT NULL REFERENCES classification_facts(id),
+        fact_version INTEGER NOT NULL, UNIQUE(issue_id,classification_fact_id,fact_version)""",
+    "intake_inspections": """id TEXT PRIMARY KEY, signal_id TEXT NOT NULL REFERENCES signals(id),
+        evidence_id TEXT NOT NULL REFERENCES evidence(id), cache_key TEXT NOT NULL UNIQUE""",
+}
+
 
 def execute_ddl(db: sqlite3.Connection, script: str) -> None:
     """Unlike executescript, never implicitly commit the caller's migration."""
@@ -206,12 +220,48 @@ def _upgrade_two(db: sqlite3.Connection) -> None:
     _seed_receipts(db)
 
 
+def _upgrade_three(db: sqlite3.Connection) -> None:
+    for table, columns in FACT_TABLES.items():
+        db.execute(f"CREATE TABLE {table} (record_json TEXT NOT NULL, {columns})")
+        _immutable(db, table)
+    db.execute("CREATE INDEX geocode_facts_issue ON geocode_facts(issue_id,id)")
+    db.execute("CREATE INDEX classification_facts_issue ON classification_facts(issue_id,id)")
+    db.execute("CREATE INDEX jurisdiction_facts_issue ON jurisdiction_facts(issue_id,id)")
+    db.execute("CREATE INDEX intake_inspections_signal ON intake_inspections(signal_id,id)")
+
+
 def _seed_receipts(db: sqlite3.Connection) -> None:
     db.execute("CREATE TABLE IF NOT EXISTS seed_receipts (id TEXT PRIMARY KEY, record_json TEXT NOT NULL)")
     for operation in ("UPDATE", "DELETE"):
         db.execute("CREATE TRIGGER IF NOT EXISTS seed_receipts_no_" + operation.lower()
                    + " BEFORE " + operation + " ON seed_receipts BEGIN SELECT RAISE(ABORT,"
                    + " 'seed_receipts are append-only'); END")
+
+
+def _upgrade_four(db: sqlite3.Connection) -> None:
+    # Preserve schema-3 attempts verbatim; only qualified new successes may cache.
+    db.execute("DROP TRIGGER intake_inspections_no_update")
+    db.execute("DROP TRIGGER intake_inspections_no_delete")
+    db.execute("ALTER TABLE intake_inspections RENAME TO intake_inspections_v3")
+    db.execute("CREATE TABLE intake_inspections (record_json TEXT NOT NULL, id TEXT PRIMARY KEY, "
+               "signal_id TEXT NOT NULL REFERENCES signals(id), evidence_id TEXT NOT NULL "
+               "REFERENCES evidence(id), cache_key TEXT NOT NULL)")
+    db.execute("INSERT INTO intake_inspections SELECT * FROM intake_inspections_v3")
+    db.execute("DROP TABLE intake_inspections_v3")
+    _immutable(db, "intake_inspections")
+    db.execute("CREATE INDEX intake_inspections_signal ON intake_inspections(signal_id,id)")
+    db.execute("CREATE INDEX intake_inspections_cache ON intake_inspections(cache_key)")
+    db.execute("""CREATE TABLE intake_inspection_claims (
+        record_json TEXT NOT NULL, id TEXT PRIMARY KEY,
+        operation TEXT NOT NULL, idempotency_key TEXT NOT NULL, request_sha256 TEXT NOT NULL,
+        signal_id TEXT NOT NULL REFERENCES signals(id), evidence_id TEXT NOT NULL REFERENCES evidence(id),
+        cache_key TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('RUNNING','FINISHED','ABANDONED')),
+        started_at TEXT NOT NULL, expires_at TEXT NOT NULL, finished_at TEXT)
+    """)
+    db.execute("CREATE UNIQUE INDEX intake_running_cache ON intake_inspection_claims(cache_key) "
+               "WHERE status='RUNNING'")
+    db.execute("CREATE UNIQUE INDEX intake_claim_request ON intake_inspection_claims "
+               "(json_extract(record_json,'$.actor.actor_id'),operation,idempotency_key)")
 
 
 def migrate(db: sqlite3.Connection) -> None:
@@ -221,7 +271,7 @@ def migrate(db: sqlite3.Connection) -> None:
     with db:
         db.execute("BEGIN IMMEDIATE")
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version not in (0, 1, SCHEMA_VERSION):
+        if version not in (0, 1, 2, 3, SCHEMA_VERSION):
             raise ValueError(f"unsupported database schema {version}")
         if version == 0:
             existing = db.execute("SELECT name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'")
@@ -230,11 +280,15 @@ def migrate(db: sqlite3.Connection) -> None:
             execute_ddl(db, SCHEMA_1)
         if version < 2:
             _upgrade_two(db)
+        if version < 3:
+            _upgrade_three(db)
+        if version < 4:
+            _upgrade_four(db)
         _seed_receipts(db)
         if db.execute("PRAGMA foreign_key_check").fetchone():
             raise ValueError("database schema contains foreign key violations")
         required = {"issues", "signals", "issue_sources", "events", "signal_receipts",
-                    "seed_receipts", *TABLES}
+                    "seed_receipts", "intake_inspection_claims", *TABLES, *FACT_TABLES}
         actual = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         if not required <= actual:
             raise ValueError("incomplete database schema")
