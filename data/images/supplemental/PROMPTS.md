@@ -1,0 +1,29 @@
+# Prepared synthetic fixture prompts
+
+Executed-production note, September 13, 2026: all six built-in image_gen calls below have now completed. The preparation statement below is retained as original pre-execution provenance; it is not current status. All six staged normalized assets passed independent visual review. No Bedrock model qualification or workflow evaluation has run. Exact prompt bodies are unchanged.
+
+Preparation only: none of these calls has run. Use the built-in image_gen tool after the B3 gate releases the owning fixture work. The lead re-inspected original before.jpg and after.jpg: 1024x768, worn brown three-seat couch, three tied black bags, tree at left, parked dark SUV, black iron fence and brick apartments at right. Preserve the original assets. Retain generated source files, these exact prompts, normalization versions/hashes and independent visual review; keep scenario answers out of runtime model inputs.
+
+## persistence-later
+
+Use case: photorealistic-natural. Asset type: explicitly synthetic maintenance evaluation photograph. Input image 1 is the scene and object reference: existing data/images/before.jpg. Create a new photograph of the same worn brown three-seat couch, the same three tied black rubbish bags, and the same sidewalk work area from a visibly different camera position several steps toward the curb, looking diagonally toward the couch. Keep the couch and bags physically present and unchanged. Preserve the large tree, black iron fence, brick apartment buildings and sidewalk geometry as recognizable landmarks. Change the viewpoint and lighting to a brighter following-day morning with different shadows; this must be a newly rendered view rather than a crop or re-encoding. Natural handheld documentary photograph, landscape 4:3 composition, no text overlays, labels, logos, people or watermarks. No cleanup or new hazards. Synthetic capture time is stored separately; do not render a date or claim a real event.
+
+## ambiguous-before
+
+Use case: precise-object-edit. Asset type: explicitly synthetic uncertainty test photograph. Input image 1 is the edit target and scene reference: existing data/images/before.jpg. Show this same street from a nearby viewpoint, but place the opaque side panel of a large unbranded delivery van in the foreground between the camera and the entire couch-and-bag work area. The panel must hide all couch-identifying arms, cushions, back and every glimpse of the objects behind it. Keep enough of the upper tree trunk, background brick buildings and black fence visible to recognize the street. The picture must not establish whether a couch is present or absent behind the vehicle. Natural landscape 4:3 documentary photography. No transparency, cutaway, text, branding, people, revealing reflections or watermarks.
+
+## mixed-hazard
+
+Use case: precise-object-edit. Asset type: explicitly synthetic visible-hazard test photograph. Input image 1 is the edit target and scene reference: existing data/images/before.jpg. Preserve the worn brown couch and three black bags on the sidewalk, tree, iron fence and brick apartments. Widen the composition enough to show damaged electrical utility equipment on a pole near the curb, with a thick loose electrical conductor visibly descending from that equipment into the couch-and-bag work area and lying across the sidewalk. The visible connection to damaged electrical hardware must make it recognizable as a fallen electrical wire rather than a garden hose. Do not show people, injury, readable warnings or agency labels. Natural landscape 4:3 documentary photograph with realistic texture and lighting. No text overlays, logos or watermarks. The image does not establish jurisdiction or whether the wire is energized.
+
+## holdout-before
+
+Use case: photorealistic-natural. Asset type: explicitly synthetic unseen maintenance evaluation photograph. Create a natural landscape 4:3 handheld documentary photograph of a worn blue two-seat couch and four dumped cardboard boxes obstructing a neighborhood sidewalk. This is a different scene from the brown-couch fixtures. Use a different red brick wall, a slim bus-stop post with an unmarked rectangular sign, a low planting bed and distinctive pavement joints as clear stable landmarks. The couch and all four boxes sit within one visibly defined foreground work area and are completely visible. Daylight, realistic worn fabric and cardboard texture, no people, readable text, agency branding, scores, labels or watermarks. Leave enough surrounding context to compare the same scene after cleanup.
+
+## holdout-partial
+
+Use case: precise-object-edit. Asset type: explicitly synthetic partial-cleanup evaluation photograph. Input image 1 is the accepted generated holdout-before image. Remove only the blue two-seat couch and realistically reveal the pavement beneath it. Keep all four dumped cardboard boxes in their original positions, still obstructing the foreground sidewalk work area. Preserve camera position, perspective, brick wall, bus-stop post, planting bed, pavement joints, daylight and every unrelated object. Natural landscape 4:3 documentary photograph, no new hazards or objects, people, text, labels, scores or watermarks.
+
+## holdout-complete
+
+Use case: precise-object-edit. Asset type: explicitly synthetic complete-cleanup evaluation photograph. Input image 1 is the accepted generated holdout-before image. Remove the blue two-seat couch and all four dumped cardboard boxes and their loose debris, realistically revealing the same continuous pavement. The entire original foreground work area must be unobstructed and clear. Preserve camera position, perspective, brick wall, bus-stop post, planting bed, pavement joints, daylight and every unrelated object. Natural landscape 4:3 documentary photograph, no new hazards or objects, people, text, labels, scores or watermarks.

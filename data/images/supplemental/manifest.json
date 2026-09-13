@@ -1,0 +1,78 @@
+{
+  "generation_model_id": null,
+  "generator": "built-in image_gen",
+  "images": {
+    "ambiguous-before": {
+      "bytes": 124312,
+      "dhash": "4d4d15512ded1a4c",
+      "dimensions": [
+        1024,
+        768
+      ],
+      "file": "ambiguous-before.jpg",
+      "sha256": "c34d5b1b2ee828e545be50b9cd492a9690b504546890242ecf3374bdd2bd1592",
+      "source_sha256": "c05c1bf6429d35fcd6994fd1480b06c92c4e1588c3f955a1908acf22787d6968"
+    },
+    "holdout-before": {
+      "bytes": 208347,
+      "dhash": "d69a9aa01190c40e",
+      "dimensions": [
+        1024,
+        768
+      ],
+      "file": "holdout-before.jpg",
+      "sha256": "c47662fa65de5c357be3ff1db6719f088dda8279cb05afef798572de9c1a13be",
+      "source_sha256": "66e798238989770a1a294feb07addb3cd748ddd43faba60b7dff4557a18bb3a1"
+    },
+    "holdout-complete": {
+      "bytes": 238643,
+      "dhash": "d69acaa081024743",
+      "dimensions": [
+        1024,
+        768
+      ],
+      "file": "holdout-complete.jpg",
+      "sha256": "6e7c5aa85152b379095e72a39d0803cef176d53fd1297a1154d54781bc0b1bc5",
+      "source_sha256": "ec1ed83bc4d4e07e53d8374f97cc9fa6b63fb74aad1d84b91e764e4f229a0c70"
+    },
+    "holdout-partial": {
+      "bytes": 211511,
+      "dhash": "d69aca8009081c43",
+      "dimensions": [
+        1024,
+        768
+      ],
+      "file": "holdout-partial.jpg",
+      "sha256": "8a7c4eb2b39f3503222c0497b425e0c2f94c3c3ebef5e9bebc986ffa6c4da7a0",
+      "source_sha256": "0cec0236017beb99d6a232db4dc9b90d00e0ebab630ae67b908b5f887ab7709e"
+    },
+    "mixed-hazard": {
+      "bytes": 227776,
+      "dhash": "2d2d25ad8fe76804",
+      "dimensions": [
+        1024,
+        768
+      ],
+      "file": "mixed-hazard.jpg",
+      "sha256": "03e6691d3905e67e9273b19c2ddb23897ecb85718d0d7443813635a9d83247d9",
+      "source_sha256": "1d9708ef0475aacbdc863477c97a7c9ad0186f70941375b5aa33aeb94137e439"
+    },
+    "persistence-later": {
+      "bytes": 241586,
+      "dhash": "d3d763579ec0d92c",
+      "dimensions": [
+        1024,
+        768
+      ],
+      "file": "persistence-later.jpg",
+      "sha256": "cae8a7e6b04965b50761162773b1feaf111f2a025fee64f8b51301bf4e011bf2",
+      "source_sha256": "c53593b7b62a42a9093cba62f54978696df104c907985bf264ac6a885df2635b"
+    }
+  },
+  "label": "Generated evaluation fixtures; not photographs of real incidents",
+  "model_evaluation": "not_run",
+  "normalization_profile": "51e8da2-rgb-jpeg85-max1024-final-byte-dhash",
+  "provenance": "synthetic",
+  "visual_review": "PASS; six assets, independent visual review, September 13 2026",
+  "catalog_version": "supplemental-v1"
+}

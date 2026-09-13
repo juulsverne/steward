@@ -186,6 +186,22 @@ def test_known_original_and_normalized_fixture_uploads_remain_synthetic(client, 
         assert store.get_signal(ordinary.json()["data"]["signal_id"]).provenance == "live"
 
 
+def test_supplemental_fixture_keeps_synthetic_signal_evidence_and_event(client, config):
+    raw = Path("data/images/supplemental/persistence-later.jpg").read_bytes()
+    response = client.post("/api/signals", files={"description": (None, "fixture report"),
+        "location": (None, "1530 S Michigan Ave"),
+        "image": ("photo.jpg", raw, "image/jpeg")},
+        headers={**INTENT, "Idempotency-Key": "supplemental-upload"})
+    assert response.status_code == 202, response.text
+    signal_id = response.json()["data"]["signal_id"]
+    with Store(config.store_path) as store:
+        assert store.get_signal(signal_id).provenance == "synthetic"
+        assert store.evidence_for_entity(signal_id=signal_id)[0].provenance == "synthetic"
+        receipt = store.get_signal_receipt(signal_id)
+        event = store.get_event(receipt.event_id)
+        assert event.signal_id == signal_id and event.payload.provenance == "synthetic"
+
+
 def test_future_observation_and_pathlike_filename_are_sanitized_validation_errors(client, config):
     future = client.post("/api/signals", files={"description": (None, "x"),
         "location": (None, "y"), "observed_at": (None, "2999-01-01T00:00:00Z"),

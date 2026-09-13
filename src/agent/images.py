@@ -147,32 +147,55 @@ class ImageStorage:
 
 def known_synthetic_fixture(raw: bytes, normalized: NormalizedImage,
                             manifest_path: str | Path = Path("data/images/manifest.json")) -> bool:
-    """Recognize only reviewed fixture bytes, before or after our fixed normalization profile."""
+    """Recognize exact reviewed bytes in the original and fixed supplemental catalogs.
+
+    The server selects catalogs; upload fields never select them or assert provenance.
+    Each entry must still match its published file before even its source hash is trusted.
+    """
+    primary = Path(manifest_path)
+    raw_hash = hashlib.sha256(raw).hexdigest()
+    return any(_matches_synthetic_catalog(catalog, raw_hash, normalized.image_sha256)
+               for catalog in (primary, primary.parent / "supplemental" / "manifest.json"))
+
+
+def _matches_synthetic_catalog(manifest_path: Path, raw_hash: str, normalized_hash: str) -> bool:
     try:
-        manifest_path = Path(manifest_path)
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        root = manifest_path.parent.resolve()
-        raw_hash = hashlib.sha256(raw).hexdigest()
-        for entry in manifest.get("images", {}).values():
-            if not isinstance(entry, dict):
-                continue
-            if entry.get("sha256") == raw_hash:
-                return True
-            filename = entry.get("file")
-            if not isinstance(filename, str) or Path(filename).name != filename:
-                continue
+    except (OSError, ValueError):
+        return False
+    if not isinstance(manifest, dict) or manifest.get("provenance") != "synthetic":
+        return False
+    entries = manifest.get("images")
+    if not isinstance(entries, dict):
+        return False
+    root = manifest_path.parent.resolve()
+    for entry in entries.values():
+        if not isinstance(entry, dict) or entry.get("provenance", "synthetic") != "synthetic":
+            continue
+        expected_hash = entry.get("sha256")
+        filename = entry.get("file")
+        if (not isinstance(expected_hash, str) or not re.fullmatch(r"[0-9a-f]{64}", expected_hash)
+                or not isinstance(filename, str) or Path(filename).name != filename):
+            continue
+        try:
             candidate = (root / filename).resolve()
             if candidate.parent != root or not candidate.is_file():
                 continue
             candidate_bytes = candidate.read_bytes()
+            if hashlib.sha256(candidate_bytes).hexdigest() != expected_hash:
+                continue
+            if raw_hash in (expected_hash, entry.get("source_sha256")):
+                return True
             candidate_type = "image/png" if candidate.suffix.lower() == ".png" else "image/jpeg"
             candidate_normal = decode_upload(candidate_bytes, candidate_type)
             if (raw_hash == candidate_normal.image_sha256
-                    or candidate_normal.image_sha256 == normalized.image_sha256):
+                    or candidate_normal.image_sha256 == normalized_hash):
                 return True
-    except (OSError, ValueError, json.JSONDecodeError):
-        return False
+        except (OSError, ValueError):
+            continue
     return False
+
+
 IMAGE_ROLES = {
     "before": "couch and dumped bags on the sidewalk at the work area",
     "middle": "couch removed; dumped bags and debris remain in the work area",
