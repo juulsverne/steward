@@ -13,6 +13,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "boto3", extra = ["crt"] },
+    { name = "pillow" },
     { name = "python-dotenv" },
     { name = "rich" },
     { name = "strands-agents" },
@@ -40,6 +41,7 @@ requires-dist = [
     { name = "bedrock-agentcore-starter-toolkit", marker = "extra == 'agentcore'" },
     { name = "boto3", extras = ["crt"], specifier = ">=1.35.0" },
     { name = "fastapi", marker = "extra == 'web'", specifier = ">=0.115.0" },
+    { name = "pillow", specifier = ">=10.0.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24.0" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
