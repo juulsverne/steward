@@ -1,4 +1,4 @@
-"""Steward HTTP identity boundary. Domain operation routers belong to later cards."""
+"""Steward HTTP identity boundary and the narrow authenticated intake operation."""
 
 from __future__ import annotations
 
@@ -6,8 +6,10 @@ import ipaddress
 import re
 import secrets
 import sqlite3
+from asyncio import to_thread
 from collections.abc import Callable
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 from uuid import uuid4
@@ -15,7 +17,9 @@ from uuid import uuid4
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.datastructures import FormData, UploadFile
 from starlette.exceptions import HTTPException
+from starlette.formparsers import MultiPartException, MultiPartParser
 
 from . import contracts as c
 from .actors import (
@@ -29,6 +33,9 @@ from .actors import (
     configured_personas,
 )
 from .config import ApiSettings
+from .images import MAX_UPLOAD_BYTES, UploadError, decode_upload, known_synthetic_fixture
+from .intake import persist_signal, resident_signal
+from .models import utc_time
 from .policy import load_policy
 from .store import IdempotencyConflict, RevisionConflict, Store
 
@@ -39,6 +46,16 @@ class PersonaRequest(c.Record):
 
 class HealthView(c.Record):
     ok: bool
+
+
+class IntakeReceiptView(c.Record):
+    """Safe acknowledgment: receipt identity is the saved signal identity."""
+
+    receipt_id: c.Text
+    signal_id: c.Text
+    received_at: c.Timestamp
+    accepted: bool = True
+    processing: str = "PENDING"
 
 
 class ValidationDetail(c.Record):
@@ -53,6 +70,65 @@ class ValidationView(c.Record):
 ERROR_RESPONSES = {status: {"model": c.ToolResult[ValidationView]} for status in (
     400, 401, 403, 404, 405, 409, 413, 415, 422, 429, 500, 503,
 )}
+MAX_MULTIPART_OVERHEAD = 64 * 1024
+
+
+class IntakeMultiPartParser(MultiPartParser):
+    """One file and bounded streamed bytes before Starlette can spool an unbounded upload."""
+
+    def __init__(self, headers, stream):
+        super().__init__(headers, stream, max_files=1, max_fields=4,
+                         max_part_size=MAX_MULTIPART_OVERHEAD)
+        self._file_bytes: dict[int, int] = {}
+        self._multipart_complete = False
+
+    def on_headers_finished(self) -> None:
+        super().on_headers_finished()
+        file = self._current_part.file
+        if file is None:
+            return
+        filename = file.filename or ""
+        if (not filename or "/" in filename or "\\" in filename or filename.startswith("~")
+                or re.match(r"^[A-Za-z]:", filename)):
+            raise MultiPartException("invalid upload filename")
+        self._file_bytes[id(file)] = 0
+
+    def on_part_data(self, data: bytes, start: int, end: int) -> None:
+        file = self._current_part.file
+        if file is not None:
+            next_size = self._file_bytes[id(file)] + end - start
+            if next_size > MAX_UPLOAD_BYTES:
+                raise MultiPartException("file exceeded 10 MiB")
+            self._file_bytes[id(file)] = next_size
+        super().on_part_data(data, start, end)
+
+    def on_end(self) -> None:
+        self._multipart_complete = True
+        super().on_end()
+
+    async def parse(self) -> FormData:
+        form = await super().parse()
+        if not self._multipart_complete:
+            # Starlette only puts completed file parts in FormData.  A truncated
+            # body must not leave its allocated spools open or become an image-less
+            # signal after the parser returns successfully.
+            for file in self._files_to_close_on_error:
+                file.close()
+            raise MultiPartException("incomplete multipart body")
+        return form
+
+
+async def parse_intake_form(request: Request) -> FormData:
+    """Bound total request bytes independently of Content-Length and close files on parser error."""
+    async def limited_stream():
+        total = 0
+        async for chunk in request.stream():
+            total += len(chunk)
+            if total > MAX_UPLOAD_BYTES + MAX_MULTIPART_OVERHEAD:
+                raise MultiPartException("multipart request exceeded upload limit")
+            yield chunk
+
+    return await IntakeMultiPartParser(request.headers, limited_stream()).parse()
 
 
 def result_response(result: c.ToolResult, *, status: int | None = None) -> JSONResponse:
@@ -242,7 +318,7 @@ def create_app(settings: ApiSettings | None = None,
     personas = _validate_setup(settings)
     app = FastAPI(title="Steward demo sandbox", description=(
         "Seeded persona simulation, not verified identity. No private information. "
-        "Domain operation routes are not yet implemented."), responses=ERROR_RESPONSES)
+        "The only domain operation currently exposed is authenticated signal intake."), responses=ERROR_RESPONSES)
     app.state.api_settings = settings
     app.state.store_factory = store_factory
     app.state.sessions = DemoSessions(settings.session_secret, personas)
@@ -304,6 +380,11 @@ def create_app(settings: ApiSettings | None = None,
     async def integrity_error(request, error):
         return error_response(AccessError(409, "STATE_CONFLICT"), app.state.cookie_name)
 
+    @app.exception_handler(UploadError)
+    async def upload_error(request, error):
+        return result_response(c.ToolResult(outcome="ERROR", reason_code="INVALID_IMAGE"),
+                               status=error.status)
+
     @app.get("/health", response_model=c.ToolResult[HealthView])
     def health():
         return c.ToolResult[HealthView](outcome="OK", data=HealthView(ok=True))
@@ -348,5 +429,78 @@ def create_app(settings: ApiSettings | None = None,
         response.set_cookie(app.state.cookie_name, cookie, max_age=SESSION_MAX_AGE, path="/",
                             secure=not settings.local_http, httponly=True, samesite="strict")
         return response
+
+    @app.post("/api/signals", response_model=c.ToolResult[IntakeReceiptView], status_code=202,
+              openapi_extra={"parameters": [{"name": "Idempotency-Key", "in": "header",
+                  "required": True, "schema": {"type": "string"}}]})
+    async def submit_signal(request: Request):
+        # Bind authentication and browser intent before FastAPI/multipart touches upload bytes.
+        actor = resolve_actor(request)
+        action = Action.SUBMIT_SIGNAL
+        AccessBoundary(actor, settings.district_id).require(action)
+        context = c.MutationContext(actor=actor, operation=action.value,
+            idempotency_key=idempotency_key(request))
+        content_type = (_header(request, "content-type") or "").split(";", 1)[0].strip().lower()
+        if content_type != "multipart/form-data":
+            raise AccessError(415, "MULTIPART_REQUIRED")
+        content_length = _header(request, "content-length")
+        if content_length and (not content_length.isdigit() or int(content_length) > MAX_UPLOAD_BYTES + 65536):
+            raise AccessError(413, "REQUEST_TOO_LARGE")
+        try:
+            form = await parse_intake_form(request)
+        except MultiPartException as error:
+            status = 422 if str(error) in {"invalid upload filename", "incomplete multipart body"} else 413
+            raise AccessError(status, "VALIDATION_ERROR" if status == 422 else "REQUEST_TOO_LARGE") from None
+        try:
+            allowed = {"description", "location", "observed_at", "image"}
+            if any(key not in allowed or len(form.getlist(key)) != 1 for key in form):
+                raise AccessError(422, "VALIDATION_ERROR")
+            description, location = form.get("description"), form.get("location")
+            if (not isinstance(description, str) or not description.strip()
+                    or not isinstance(location, str) or not location.strip()):
+                raise AccessError(422, "VALIDATION_ERROR")
+            observed_raw = form.get("observed_at")
+            try:
+                observed_at = None if observed_raw in (None, "") else utc_time(observed_raw)
+            except ValueError:
+                raise AccessError(422, "VALIDATION_ERROR") from None
+            if observed_at is not None and observed_at > datetime.now(UTC):
+                raise AccessError(422, "VALIDATION_ERROR")
+            image_part = form.get("image")
+            if image_part is not None and not isinstance(image_part, UploadFile):
+                raise AccessError(422, "VALIDATION_ERROR")
+            raw_image = None
+            image_type = None
+            if image_part is not None:
+                raw_image = await image_part.read()
+                image_type = image_part.content_type
+        finally:
+            await form.close()
+
+        def persist():
+            normalized = decode_upload(raw_image, image_type) if raw_image is not None else None
+            provenance = ("synthetic" if raw_image is not None
+                          and known_synthetic_fixture(raw_image, normalized) else "live")
+            # Reuse the original durable receipt time when this deterministic signal is retried.
+            provisional = resident_signal(actor=actor, idempotency_key=context.idempotency_key,
+                description=description.strip(), location=location.strip(), received_at=datetime.now(UTC),
+                observed_at=observed_at, image=normalized, provenance=provenance)
+            with app.state.store_factory(settings.store_path) as store:
+                try:
+                    received_at = store.get_signal(provisional.id).received_at
+                except KeyError:
+                    received_at = provisional.received_at
+                signal = resident_signal(actor=actor, idempotency_key=context.idempotency_key,
+                    description=description.strip(), location=location.strip(), received_at=received_at,
+                    observed_at=observed_at, image=normalized, provenance=provenance)
+                return persist_signal(store, signal=signal, context=context, image=normalized,
+                    image_root=settings.image_root, provenance=provenance)
+
+        receipt = await to_thread(persist)
+        saved = receipt.result.data
+        assert isinstance(saved, c.SignalReceipt)
+        return result_response(c.ToolResult(outcome="OK", data=IntakeReceiptView(
+            receipt_id=saved.signal_id, signal_id=saved.signal_id, received_at=saved.received_at,
+        )), status=202)
 
     return app

@@ -1,11 +1,10 @@
 # Steward API identity boundary
 
-The local API implements the labeled demo persona boundary, health, and session reads.
+The local API implements the labeled demo persona boundary, health/session reads, and authenticated signal intake.
 It is a sandbox with publicly selectable seeded identities, **not verified identity**.
 Anyone using the selector can choose another demo persona. Do not submit private
 information. Resource permissions still apply to the selected actor on every request.
-The generic starter `/ask` route is removed. Business operations and full case/timeline
-read routes belong to later build cards; no model runs during persona selection.
+The generic starter `/ask` route is removed. Investigation, dispatch, proof, settlement and full case/timeline reads belong to later build cards. Persona selection and receipt-first intake do not run a model.
 
 ## Local setup
 
@@ -26,6 +25,8 @@ configuration file exists, preserve it and arrange an explicit private update ra
 than overwriting it. No setup command in this card generates credentials for you.
 Protect this configuration with the owning user's filesystem permissions. The API
 never creates, overwrites or regenerates secrets or `.env` files.
+
+Create the labeled demo dataset with the [named seed/reset commands](../data/README.md) before starting the API. The seed is a 65-point CANDIDATE; no monitoring decision or full workflow is implied.
 
 Start with `uv run --no-sync uvicorn agent.server:app --host 127.0.0.1 --port 8000 --no-proxy-headers`.
 Web settings are validated at app creation; normal CLI/offline imports and existing
@@ -52,8 +53,23 @@ Deployment, persistent secrets on the selected host, and TLS remain hosting gate
 | GET `/health` | Minimal `ToolResult` with `{ok:true}`; no model call or database probe |
 | GET `/api/demo/session` | Safe human persona catalog, sandbox notice and selected actor or null |
 | POST `/api/demo/persona` | Strict `{persona_id: string}` selects one configured human, signs cookie |
+| POST `/api/signals` | Authenticated multipart resident intake; returns only the saved receipt ID and pending acknowledgment |
 
-The POST requires `Content-Type: application/json`, an exact allowed `Origin`,
+`POST /api/signals` requires the same human Origin/custom-header and idempotency protections as
+other browser mutations. It accepts required nonblank `description` and `location`, optional timezone-aware `observed_at`,
+and one optional JPEG/PNG `image`. The raw image cap is 10 MiB. The server validates the decoded
+single-frame bytes, removes metadata while normalizing to JPEG, derives the persisted digest and
+perceptual fingerprint, and writes the private object before atomically committing its evidence
+association, signal receipt, and pending invocation. Client filenames, image paths, hashes,
+provenance, source author/role, issue state, score, and receipt time are ignored or rejected.
+
+The response is `202` only after that durable commit. Its `receipt_id` deliberately equals the
+stable `signal_id`; it includes `received_at`, `accepted: true`, and `processing: "PENDING"`.
+It does not expose storage references, image hashes, actor history, issue linkage, or invocation
+metadata. An identical actor/key/payload retry returns this same response; a changed payload
+conflicts. Unknown locations are retained as reported text and receive no geocode fact.
+
+`POST /api/demo/persona` requires `Content-Type: application/json`, an exact allowed `Origin`,
 `X-Steward-Request: 1`, and an `Idempotency-Key` of 1–128 characters matching
 `[A-Za-z0-9][A-Za-z0-9._:-]*`. Its body is limited to 4096 bytes. It accepts no authority
 overrides or service persona. Selection changes only a credential: no case record,
@@ -115,7 +131,7 @@ use B1's typed `ToolResult`; error bodies do not echo submitted values, SQL, tra
 
 | HTTP | Outcome |
 |---|---|
-| 200 (201/202 when explicitly committed/documented by later routes) | OK |
+| 200 (201/202 where explicitly committed and documented) | OK |
 | 200 | NEEDS_REVIEW |
 | 401 / 403 / 409 | DENIED: credential / permission / revision, key or state conflict |
 | 404 | NOT_FOUND, including out-of-scope records |

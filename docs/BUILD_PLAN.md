@@ -392,10 +392,10 @@ Integration order is B0, M0's model contract, then B1 through B13. M0 qualificat
 
 **Files:** create `src/agent/intake.py`, `src/agent/seed.py`, `tests/test_intake.py`, `tests/test_seed.py`; extend `api.py`, `store.py`, `images.py`, `config.py`, `data/README.md`.
 
-- [ ] Add `POST /api/signals`: description/location required, image/observation time optional. Assign receipt ID/time before processing. Preserve stable source identity, unknown times and unresolved addresses.
-- [ ] Validate JPEG/PNG bytes, normalize with existing helpers, calculate hashes server-side, and retain provenance. Begin with a documented 10 MiB limit; reject malformed/oversize files, supplied filesystem paths and traversal filenames.
-- [ ] Seed district/policy/providers/addresses and controlled inputs. Stage the independent second report for the real intake step. All three input adapters create Signals; official records never become extra resident witnesses or recursively trigger lookups.
-- [ ] Add `python -m agent.seed --db PATH`, refusing an existing destination unless explicit `--reset` targets that named demo store. Validate resolved path, close connections, preserve separate run artifacts, and provide no anonymous public reset. Run `uv run --no-sync pytest tests/test_intake.py tests/test_seed.py -q`.
+- [x] Add `POST /api/signals`: description/location required, image/observation time optional. Assign receipt ID/time before processing. Preserve stable source identity, unknown times and unresolved addresses.
+- [x] Validate JPEG/PNG bytes, normalize with existing helpers, calculate hashes server-side, and retain provenance. Begin with a documented 10 MiB limit; reject malformed/oversize files, supplied filesystem paths and traversal filenames.
+- [x] Seed district/policy/providers/addresses and controlled inputs. Stage the independent second report for the real intake step. All three input adapters create Signals; official records never become extra resident witnesses or recursively trigger lookups.
+- [x] Add `python -m agent.seed --db PATH`, refusing an existing destination unless explicit `--reset` targets that named demo store. Validate resolved path, close connections, preserve separate run artifacts, and provide no anonymous public reset. Run `uv run --no-sync pytest tests/test_intake.py tests/test_seed.py -q`.
 
 **Inspect when done:** unknown addresses still get receipts but no geocode points/dispatch. Reimporting a feed creates no new witnesses. Reset restores the labeled starting dataset.
 
@@ -1169,11 +1169,11 @@ uv run --no-sync python -m agent.vision_spike --images data/images --repeats 3
 
 After B2, the server entry point starts Steward's validated sandbox session/health API; `/ask` is removed. Set up persistent private configuration using [API.md](API.md), then run `uv run --no-sync uvicorn agent.server:app --host 127.0.0.1 --port 8000 --no-proxy-headers`. Business operations and the full demo remain later gates. `uv sync --locked --extra dev --extra web` is the local dependency setup; the clean-install proof is still R1. Hosted-agent setup adds AgentCore dependencies only when needed.
 
-### Commands the unfinished tasks must add
+### Available and planned commands
 
-| Planned command | Created by | Meaning |
+| Command | Created by | Meaning |
 |---|---|---|
-| `python -m agent.seed --db PATH [--reset]` | B3 | Set up/reset an explicitly named demo store |
+| `python -m agent.seed --db PATH [--reset]` | B3 — available | Set up/reset an explicitly named marked demo store; see [fixture setup](../data/README.md) |
 | `python -m agent.demo --base-url URL --out PATH` | B13 | Drive actor events and record actual acceptance results |
 | `npm --prefix frontend run build` | P1 | Build screens served by FastAPI |
 | `npm --prefix frontend run typecheck` | P1 | Check all frontend TypeScript without relying on browser execution |
@@ -1181,7 +1181,7 @@ After B2, the server entry point starts Steward's validated sandbox session/heal
 | `python -m agent.evaluate --arm baseline --out PATH` | O3 | Run fair one-request selected-model comparison |
 | Reproducible AWS package/deploy/inspect commands | H1–H5 | Use the selected topology and installed supported tooling |
 
-Invoke planned Python modules with `uv run --no-sync` after their tasks add them. Do not present planned commands as successful runs.
+Invoke Python modules with `uv run --no-sync`. Only the seed command above is available at the B3 checkpoint; other entries remain planned until their owning cards add and verify them. Do not present planned commands as successful runs.
 
 ### Current execution receipts — September 13
 
@@ -1193,6 +1193,7 @@ Implementation started on the isolated `codex/steward-build` branch from `161948
 | M0 | Role-settings slice complete. Builder: Terra high; independent reviewer: Astra high, one fix round | Added offline routing/fallback/metadata and CLI-banner checks. Full suite 134 passed before review; 20 relevant tests and scoped Ruff passed after the two reviewed fixes. Sonnet stays default; domain and full-workflow qualification remain open until B4/B7/B11–B13/P8 |
 | B1 | Complete for internal storage contracts. Builder: Astra high; independent reviewer: Astra high, no fix round | Schema-1-to-2 preservation/rollback, durable receipt plus pending invocation, typed relational case graph, immutable proof/audit, retry conflicts and concurrent revisions verified. Required focused suite 40 passed in 2.50 s; full offline suite 162 passed in 3.45 s; Ruff and diff checks clean. One configured district per Store; B2/B3 own authentication and byte storage, later cards own mutation policy and live workflow proof |
 | B2 | Complete for sandbox identity and permission primitives. Builder: Astra high; independent reviewer: Astra high, one fix round | Signed human personas, separate service credential, Origin/Host protections, safe projections/errors and same-thread Store lifecycle. Full suite 210 passed before review; post-fix guarded auth suite 53 passed in 2.98 s and scoped Ruff clean; reviewer reran five regressions successfully. Fixed retained-signal evidence scope bypass. Real business routes remain later work; this is publicly selectable demo identity |
+| B3 | Complete for intake, private photo storage and named reset. Builder: Terra high; independent reviewer: Astra high, two fix rounds | Atomic signal/evidence/receipt/pending work; immutable publication and retry races; original/normalized synthetic labels; streamed JPEG/PNG bounds and truncated-upload cleanup; legacy receipt replay; read-only reset refusal. Full suite 235 passed before the final parser/fingerprint corrections; 92 relevant tests and scoped Ruff passed afterward, and reviewer reran six affected regressions in 1.88 s. Actual fresh/refusal/reset CLI exercised. Seed is a 65-point CANDIDATE with three providers and 50,000 cents, with the second report staged; B4 owns the explicit MONITOR decision and current lookup facts. Original images/manifest preserved; no new model qualification |
 | H1 | Recommendation independently reviewed by Astra high; owner decision pending | [Concrete EC2/EBS/S3 proposal and cost ceiling](HOSTING_DECISION.md) preserve local SQLite and October 8 access. No hosted service selected, provisioned or verified; real spending ceiling and deployment authorization remain open |
 
 On Windows, this build uses `uv sync --locked --extra dev --extra web --cache-dir .steward/uv-cache` and `uv run --no-sync --cache-dir .steward/uv-cache` for checks. A scoped cache avoids the existing global-cache issue without modifying it. Merely changing cwd while using another checkout's editable environment does not isolate imports; use the build environment or verify the source path explicitly.

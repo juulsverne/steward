@@ -152,9 +152,11 @@ _ACTION_ROLES = {
 
 
 class ReceiptView(c.Record):
+    receipt_id: c.Text
     signal_id: c.Text
     received_at: c.Timestamp
     accepted: Literal[True] = True
+    processing: Literal["PENDING"] = "PENDING"
 
 
 class IssueView(c.Record):
@@ -227,7 +229,8 @@ class AccessBoundary:
         if self.actor.actor_type != "service" and owner != self.actor.actor_id:
             raise AccessError(404, "RESOURCE_NOT_FOUND")
         record = store.get_signal_receipt(signal_id)
-        return ReceiptView(signal_id=record.signal_id, received_at=record.received_at)
+        return ReceiptView(receipt_id=record.signal_id, signal_id=record.signal_id,
+                           received_at=record.received_at)
 
     def _issue(self, store: Store, issue_id: str) -> c.IssueRecord:
         self.require_district()

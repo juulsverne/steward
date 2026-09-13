@@ -285,7 +285,9 @@ def test_resident_receipts_use_saved_submitter_and_reveal_no_other_history(harne
         select(client)
         own = client.get("/test/receipt/signal-1")
         assert own.status_code == 200
-        assert set(own.json()["data"]) == {"signal_id", "received_at", "accepted"}
+        assert set(own.json()["data"]) == {
+            "receipt_id", "signal_id", "received_at", "accepted", "processing",
+        }
         other = client.get("/test/receipt/signal-2")
         missing = client.get("/test/receipt/absent")
         assert other.status_code == missing.status_code == 404
@@ -436,7 +438,7 @@ def test_actual_server_exposes_only_sandbox_routes_with_explicit_setup(config, m
     with TestClient(server.app, base_url=ORIGIN) as client:
         assert client.post("/ask", json={"prompt": "bypass"}).status_code == 404
         paths = client.get("/openapi.json").json()["paths"]
-        assert set(paths) == {"/health", "/api/demo/session", "/api/demo/persona"}
+        assert set(paths) == {"/health", "/api/demo/session", "/api/demo/persona", "/api/signals"}
         schema = paths["/api/demo/persona"]["post"]["requestBody"]["content"]
         assert schema["application/json"]["schema"]["additionalProperties"] is False
         assert "persona_id" in schema["application/json"]["schema"]["properties"]

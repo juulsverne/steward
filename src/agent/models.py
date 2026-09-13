@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 PROVENANCE = {"seeded", "live", "synthetic"}
+SOURCE_ROLES = {"resident_observation", "community_observation", "official_record"}
 
 
 def nonempty(value: str, field: str) -> None:
@@ -35,6 +36,10 @@ class Signal:
     observed_at: datetime | None = None
     image_sha256: str | None = None
     repost_of: str | None = None
+    # ``None`` deliberately serializes as absent so schema-1 fixture payloads retain their
+    # original bytes and IDs. Trusted adapters set an explicit role for new records.
+    source_role: str | None = None
+    image_dhash: str | None = None
 
     def __post_init__(self) -> None:
         for name in ("id", "source", "raw_text", "reported_location"):
@@ -44,6 +49,10 @@ class Signal:
                 nonempty(getattr(self, name), name)
         if self.provenance not in PROVENANCE:
             raise ValueError("unknown provenance")
+        if self.source_role is not None and self.source_role not in SOURCE_ROLES:
+            raise ValueError("unknown source role")
+        if self.source_role == "official_record" and self.image_sha256 is not None:
+            raise ValueError("official records cannot claim physical image evidence")
         if self.repost_of == self.id:
             raise ValueError("a signal cannot repost itself")
         if self.image_sha256 is not None and (
@@ -51,6 +60,9 @@ class Signal:
             or not re.fullmatch(r"[0-9a-f]{64}", self.image_sha256)
         ):
             raise ValueError("image_sha256 must be a lowercase SHA256 digest")
+        if self.image_dhash is not None and (not isinstance(self.image_dhash, str)
+                or not re.fullmatch(r"[0-9a-f]+", self.image_dhash)):
+            raise ValueError("image_dhash must be a lowercase hexadecimal fingerprint")
         object.__setattr__(self, "received_at", utc_time(self.received_at))
         if self.observed_at is not None:
             object.__setattr__(self, "observed_at", utc_time(self.observed_at))
@@ -61,11 +73,20 @@ class Signal:
         data = asdict(self)
         data["received_at"] = self.received_at.isoformat()
         data["observed_at"] = self.observed_at.isoformat() if self.observed_at else None
+        if self.source_role is None:
+            data.pop("source_role")
+        if self.image_dhash is None:
+            data.pop("image_dhash")
         return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Signal:
         return cls(**data)
+
+    @property
+    def effective_source_role(self) -> str:
+        """Legacy observations remain observations; only server adapters add explicit roles."""
+        return self.source_role or "resident_observation"
 
 
 @dataclass(frozen=True)

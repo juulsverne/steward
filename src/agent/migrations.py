@@ -203,6 +203,15 @@ def _upgrade_two(db: sqlite3.Connection) -> None:
                "WHERE job_id IS NULL AND status IN ('PENDING','DECIDED')")
     db.execute("CREATE UNIQUE INDEX reservation_terminal_ledger ON ledger(reservation_id) "
                "WHERE kind IN ('CONSUME','RELEASE')")
+    _seed_receipts(db)
+
+
+def _seed_receipts(db: sqlite3.Connection) -> None:
+    db.execute("CREATE TABLE IF NOT EXISTS seed_receipts (id TEXT PRIMARY KEY, record_json TEXT NOT NULL)")
+    for operation in ("UPDATE", "DELETE"):
+        db.execute("CREATE TRIGGER IF NOT EXISTS seed_receipts_no_" + operation.lower()
+                   + " BEFORE " + operation + " ON seed_receipts BEGIN SELECT RAISE(ABORT,"
+                   + " 'seed_receipts are append-only'); END")
 
 
 def migrate(db: sqlite3.Connection) -> None:
@@ -221,9 +230,11 @@ def migrate(db: sqlite3.Connection) -> None:
             execute_ddl(db, SCHEMA_1)
         if version < 2:
             _upgrade_two(db)
+        _seed_receipts(db)
         if db.execute("PRAGMA foreign_key_check").fetchone():
             raise ValueError("database schema contains foreign key violations")
-        required = {"issues", "signals", "issue_sources", "events", "signal_receipts", *TABLES}
+        required = {"issues", "signals", "issue_sources", "events", "signal_receipts",
+                    "seed_receipts", *TABLES}
         actual = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         if not required <= actual:
             raise ValueError("incomplete database schema")

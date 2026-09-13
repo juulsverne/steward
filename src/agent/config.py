@@ -66,6 +66,7 @@ class ApiSettings:
     origin: str
     session_secret: str = field(repr=False)
     service_token: str = field(repr=False)
+    image_root: Path = Path(".steward/images")
     local_http: bool = False
     district_id: str = "south_loop_demo"
     policy_path: Path = Path("data/policy.yaml")
@@ -79,6 +80,7 @@ class ApiSettings:
             raise ValueError("STEWARD_LOCAL_HTTP must be true or false")
         return cls(
             store_path=Path(os.getenv("STEWARD_STORE_PATH", ".steward/steward.sqlite3")),
+            image_root=Path(os.getenv("STEWARD_IMAGE_ROOT", ".steward/images")),
             origin=os.getenv("STEWARD_ORIGIN", ""),
             session_secret=os.getenv("STEWARD_SESSION_SECRET", ""),
             service_token=os.getenv("STEWARD_SERVICE_TOKEN", ""),

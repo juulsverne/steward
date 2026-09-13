@@ -304,6 +304,23 @@ class Store:
             raise KeyError(signal_id)
         return c.SignalReceipt.model_validate_json(row[0])
 
+    def seed_receipt(self) -> c.SeedReceipt:
+        row = self.db.execute("SELECT record_json FROM seed_receipts ORDER BY id LIMIT 1").fetchone()
+        if row is None:
+            raise KeyError("seed receipt")
+        return c.SeedReceipt.model_validate_json(row[0])
+
+    def save_seed_receipt(self, receipt: c.SeedReceipt) -> None:
+        receipt = c.SeedReceipt.model_validate_json(receipt.model_dump_json())
+        with self.transaction():
+            row = self.db.execute("SELECT record_json FROM seed_receipts WHERE id=?", (receipt.id,)).fetchone()
+            if row is not None:
+                if row[0] != receipt.model_dump_json():
+                    raise IdempotencyConflict("seed receipt payload conflict")
+                return
+            self.db.execute("INSERT INTO seed_receipts(id,record_json) VALUES (?,?)",
+                            (receipt.id, receipt.model_dump_json()))
+
     def issue_for_signal(self, signal_id: str) -> c.IssueRecord | None:
         """Current canonical link, distinct from the immutable intake receipt snapshot."""
         self.get_signal(signal_id)
@@ -352,13 +369,16 @@ class Store:
             return receipt
 
     def receive_signal(self, signal: Signal, *, context: c.MutationContext,
-                       invocation: c.PendingInvocationSpec) -> c.RequestReceipt:
+                       invocation: c.PendingInvocationSpec,
+                       evidence: c.SignalEvidenceBundle | None = None) -> c.RequestReceipt:
         """Signal, receipt event, pending invocation and retry result commit together."""
         if invocation.trigger_type != "SIGNAL_RECEIVED":
             raise ValueError("signal intake requires SIGNAL_RECEIVED trigger")
         # The server-assigned receipt time and new invocation ID are not request content.
         request = signal.to_dict()
         request.pop("received_at")
+        # The historical request shape deliberately excludes generated receipt/evidence fields.
+        # Signal image digests remain part of ``request`` and distinguish client image content.
         fingerprint = request_fingerprint({"signal": request, "expected_revision":
             context.expected_revision, "actor": context.actor.model_dump(mode="json")})
         with self.transaction() as tx:
@@ -366,6 +386,11 @@ class Store:
             if previous is not None:
                 return previous
             self._insert_signal(signal)
+            if evidence is not None:
+                if evidence.association.signal_id != signal.id:
+                    raise ValueError("signal evidence bundle belongs to a different signal")
+                tx.insert_evidence(evidence.evidence)
+                tx.associate_evidence(evidence.association)
             try:
                 receipt = self.get_signal_receipt(signal.id)
                 event = self.get_event(receipt.event_id)

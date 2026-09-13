@@ -1,9 +1,9 @@
-# Foundation fixtures
+# Demo inputs and fixture setup
 
 All entries are invented demo data. No real resident identity, district authority, municipal record, image inspection, or dispatch is established here.
 
-- `signals.json` contains two independent seeded authors and original sample reports. The first image digest is the SHA-256 of `images/before.jpg`, a synthetic image. The five assets, exact prompts and provenance are in [images/PROVENANCE.md](images/PROVENANCE.md); [images/manifest.json](images/manifest.json) contains their fingerprints. These are not real incident photos. Live vision validation passed the twelve-case fixture check; submission rights review remains open.
-- `policy.yaml` uses JSON-compatible YAML so the standard-library loader needs no extra dependency. The foundation command validates it against the implemented scoring rules; it is not a dynamic policy editor. The v3 manifest now includes the planned $500 demo budget, category lists, rectangular service area, rate cards and proof thresholds. Pure policy checks exist, but the jobs/ledger/API are not implemented yet. Geocode precision is at most 30 meters, a demo parameter; the harness seeds a 10 meter accuracy fact and performs no geocoding or geographic-authority check.
+- `signals.json` contains two independent seeded authors and original sample reports. The first image digest is the SHA-256 of `images/before.jpg`, a synthetic image. The five assets, exact prompts and provenance are in [images/PROVENANCE.md](images/PROVENANCE.md); [images/manifest.json](images/manifest.json) contains their fingerprints. These are not real incident photos. The B3 seed command imports the reviewed `before.jpg` bytes unchanged only after verifying this manifest; arbitrary uploads are decoded and normalized to metadata-free JPEG, then receive a new stored-byte digest. Live vision validation passed the twelve-case fixture check; submission rights review remains open.
+- `policy.yaml` uses JSON-compatible YAML so the standard-library loader needs no extra dependency. The foundation command validates it against the implemented scoring rules; it is not a dynamic policy editor. The v3 policy supplies the $500 demo allocation, category lists, rectangular service area, rate cards and proof thresholds. B3 seeds 50,000 cents and approved-provider records; durable internal records and authenticated intake exist, while dispatch/settlement operations remain later build cards. Geocode precision is at most 30 meters, a demo parameter; setup seeds a 10 meter accuracy fact and performs no live geocoding or geographic-authority check.
 - `service_records.json` holds the one seeded COMPLETED Chicago 311-style record. It is a labeled fixture, not a live lookup. Per the PRD service-record rule it credits no evidence points until two independent observations newer than its completion time confirm the dispute; the harness records it after the first signal (score stays 65, conflict `pending`) and confirms the dispute after the second (85 → 100).
 - Source-author IDs are canonical demo identities across channels. Unknown identity adds no independent-source points. Same author, normalized exact text, identical image digest, or shared repost lineage groups observations conservatively. This does not solve identity fraud, paraphrased copies, perceptual-image reuse, or semantic issue matching.
 - Observation and receipt timestamps are separate, timezone-aware seeded values. The harness directly supplies the issue linkage. It does not claim model-selected matching or an intentional wait.
@@ -11,4 +11,20 @@ All entries are invented demo data. No real resident identity, district authorit
 - `vendors.json` contains three fictional approved-provider records with seeded availability, insurance flags, equipment and ranking facts; these are not real verified businesses. `addresses.json` provides ten seeded coordinates, not a geocoding service. `feed.json` labels its three posts as a simulated opt-in channel.
 - `images/consistency.json` holds explicitly seeded job/check-in coordinates and UTC observation times for the spike. The inputs are consistency checks, not real GPS or capture-time attestation. A synthetic scene is associated with the demo anchor address, not presented as a photograph of it.
 
-Run from the repository root: `uv run python -m agent.foundation --db .steward/foundation.sqlite3`. Existing destination files are refused; choose a fresh filename to repeat. The database contains actual stored inputs, components and append-only events. Full demo reset/seed belongs to the event/API slice.
+From the repository root, create the named local demo store:
+
+```powershell
+uv run --no-sync python -m agent.seed --db .steward/steward.sqlite3
+```
+
+This saves the first labeled feed signal and photo, a 65-point `CANDIDATE`, the uncredited completed-record fixture, three fictional providers and a 50,000-cent allocation. The second resident report remains staged in `signals.json`. A pending processing invocation is saved; setup does not run an agent or save a MONITOR decision. B4 owns that investigation behavior.
+
+An existing destination is refused. With the local API stopped, explicitly reset that same marked demo store:
+
+```powershell
+uv run --no-sync python -m agent.seed --db .steward/steward.sqlite3 --reset
+```
+
+Reset checks the marker read-only before replacing the named file, rejects unmarked targets and symlink paths, and leaves separate run artifacts and private configuration alone. `STEWARD_DEMO_ROOT` can restrict the allowed destination root. Seed image objects live in `images` beside the database; if choosing a different directory, set the API's `STEWARD_IMAGE_ROOT` to that same private image directory. No public reset endpoint exists. Known original and normalized fixture uploads retain their synthetic label.
+
+The earlier component harness remains available as `uv run --no-sync python -m agent.foundation --db .steward/foundation.sqlite3`. It refuses an existing destination and demonstrates supplied linkage/scoring, not the complete agent workflow. See [API setup](../docs/API.md) for local credentials and startup.

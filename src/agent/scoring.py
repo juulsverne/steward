@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import timedelta
 
+from .images import REUSE_MAX_DISTANCE, hamming
 from .models import EvidenceScore, ServiceRecord, Signal
 
 DISPUTE_MIN_INDEPENDENT_SOURCES = 2
@@ -43,7 +44,8 @@ def _source_groups(signals: Sequence[Signal]) -> dict[str, list[Signal]]:
             join(key, f"signal:{signal.repost_of}")
     groups: dict[str, list[Signal]] = {}
     for signal in signals:
-        if signal.source_author_id is not None:
+        if (signal.effective_source_role != "official_record"
+                and signal.source_author_id is not None):
             groups.setdefault(root(f"signal:{signal.id}"), []).append(signal)
     return groups
 
@@ -92,11 +94,22 @@ def persistence_points(signals: Sequence[Signal]) -> int:
         for earlier in fresh:
             for later in fresh:
                 if (
-                    later.observed_at - earlier.observed_at >= PERSISTENCE_MIN_GAP
+                    earlier.source_author_id == later.source_author_id
+                    and later.observed_at - earlier.observed_at >= PERSISTENCE_MIN_GAP
                     and later.image_sha256 != earlier.image_sha256
+                    and _fresh_lineage(earlier, later)
                 ):
                     return 10
     return 0
+
+
+def _fresh_lineage(earlier: Signal, later: Signal) -> bool:
+    """Server-derived perceptual fingerprints prevent a re-encoded prior photo scoring fresh."""
+    # B4 must backfill/recompute historical lineage before it can award persistence.
+    # Missing fingerprints are unknown freshness, never evidence of a new observation.
+    if earlier.image_dhash is None or later.image_dhash is None:
+        return False
+    return hamming(earlier.image_dhash, later.image_dhash) > REUSE_MAX_DISTANCE
 
 
 def score_evidence(
@@ -112,7 +125,8 @@ def score_evidence(
     ):
         raise ValueError("matching_service_record must be a ServiceRecord or None")
     return EvidenceScore({
-        "image": 30 if any(s.image_sha256 is not None for s in signals) else 0,
+        "image": 30 if any(s.effective_source_role != "official_record" and s.image_sha256 is not None
+                             for s in signals) else 0,
         "independent_sources": min(independent_source_count(signals), 2) * 20,
         "precise_geocode": 15 if precise_geocode else 0,
         "service_match": service_record_points(matching_service_record),

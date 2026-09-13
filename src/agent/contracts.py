@@ -255,6 +255,21 @@ class EvidenceAssociation(Record):
         return self
 
 
+class SignalEvidenceBundle(Record):
+    """Typed optional insert owned by the same intake transaction as its signal receipt."""
+
+    evidence: EvidenceRecord
+    association: EvidenceAssociation
+
+    @model_validator(mode="after")
+    def signal_owner(self):
+        if self.association.role != "signal" or self.association.signal_id is None:
+            raise ValueError("signal evidence bundle requires a signal association")
+        if self.association.evidence_id != self.evidence.id:
+            raise ValueError("signal evidence association must match evidence")
+        return self
+
+
 class SubmissionRecord(Record):
     id: Text
     issue_id: Text
@@ -458,6 +473,16 @@ class SignalReceipt(Record):
     issue_id: Text | None = None
     event_id: Positive
     invocation_id: Text | None = None
+
+
+class SeedReceipt(Record):
+    id: Text
+    seed_version: Text
+    policy_version: Text
+    fixture_manifest_sha256: Digest
+    baseline_signal_id: Text
+    staged_signal_id: Text
+    created_at: Timestamp
 
 
 class EntityResult(Record):

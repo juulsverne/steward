@@ -12,6 +12,9 @@ COMPLETED_AT = datetime(2026, 9, 11, 20, 41, tzinfo=UTC)
 
 def signal(signal_id="s1", author="resident-1", text="A couch blocks the sidewalk.",
            observed=OBSERVED, **kwargs):
+    if kwargs.get("image_sha256") is not None and "image_dhash" not in kwargs:
+        # Existing scoring fixtures model trusted stored-image fingerprints.
+        kwargs["image_dhash"] = kwargs["image_sha256"][:16]
     return Signal(
         id=signal_id,
         source="demo_feed",
