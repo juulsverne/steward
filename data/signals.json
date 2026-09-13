@@ -8,7 +8,7 @@
     "received_at": "2026-09-12T14:00:00Z",
     "observed_at": "2026-09-12T13:55:00Z",
     "provenance": "seeded",
-    "image_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    "image_sha256": "4161ac8daf72fbe435af3b6bf182fddd937ae36bfe2d995baf1e5b57e3811e25"
   },
   {
     "id": "demo-couch-resident-2",

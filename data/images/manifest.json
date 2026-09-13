@@ -1,0 +1,45 @@
+{
+  "images": {
+    "after": {
+      "bytes": 197945,
+      "dhash": "4d4d5b1d4ec7b9ec",
+      "file": "after.jpg",
+      "intended_condition": "couch and bags removed; work area clear",
+      "sha256": "4a01c533371de32b61bf7a0511a93e5e7ed5b2e09c9918fc4ac6f2d2ad2d7d8f"
+    },
+    "before": {
+      "bytes": 200215,
+      "dhash": "4d4d5a1b07d4814c",
+      "file": "before.jpg",
+      "intended_condition": "couch and dumped bags on the sidewalk at the work area",
+      "sha256": "4161ac8daf72fbe435af3b6bf182fddd937ae36bfe2d995baf1e5b57e3811e25"
+    },
+    "middle": {
+      "bytes": 208389,
+      "dhash": "4d4d5a1c4e87894c",
+      "file": "middle.jpg",
+      "intended_condition": "couch removed; dumped bags and debris remain in the work area",
+      "sha256": "29563523d66b98761fed5311fdc0ce06efb91a8ad5a264443bbe1ae72ea6431a"
+    },
+    "reused": {
+      "bytes": 103118,
+      "dhash": "4d4d5b1d4ec7b9cc",
+      "dhash_distance_to_after": 1,
+      "file": "reused.jpg",
+      "intended_condition": "re-encoded copy of after.jpg; must be caught by dhash despite a new sha256",
+      "reuse_of": "after",
+      "sha256": "b4b3fbb06c04fee3acaceab775be3194e33fac1b0bb11bdf457c55e95f56bd03"
+    },
+    "unrelated": {
+      "bytes": 237033,
+      "dhash": "323253590d0f4720",
+      "file": "unrelated.jpg",
+      "intended_condition": "a different sidewalk scene; must fail same_scene",
+      "sha256": "6b6f1b768176d6df1d2cc67d95485a6ca1d690cd1982334195b172b4f3dd233c"
+    }
+  },
+  "info_dhash_distance_before_to_after": 14,
+  "label": "Generated demo images; not photographs of a real condition",
+  "provenance": "synthetic",
+  "reuse_max_distance": 6
+}

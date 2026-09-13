@@ -277,7 +277,7 @@ Replays never masquerade as live inference. Public assets carry provenance and u
 | Item | Position | Blocks |
 |---|---|---|
 | Vision spike | Run before/middle/after/unrelated/reused pairs three times each against real Bedrock output; any false automatic acceptance blocks unattended verification for that case | Automatic 100-point verification claim |
-| App Runner and AgentCore specifics | Container build, service token, Runtime entrypoint, Observability wiring, Gateway OpenAPI target; decide during tier 3 and record the actual commands | Tier 3 |
+| App Runner and AgentCore specifics | Hosting durability conflict recorded in [DOCUMENT_REVIEW.md](DOCUMENT_REVIEW.md): App Runner local files cannot be the durable SQLite owner. Resolve persistence/hosting before deployment, then container build, service token, Runtime entrypoint, Observability, Gateway; record actual commands | Tier 3 |
 | Tier-4 flags | Live 311, Amazon Location, plain-Sonnet evaluation arm; only after tier 3 | Nothing required |
 
 Routine parameters are decided in the build documentation with evidence. No open item permits changing thresholds, scope, or labels silently.

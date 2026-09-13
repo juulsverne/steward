@@ -7,7 +7,8 @@ import json
 from pathlib import Path
 
 from .models import Signal
-from .store import POLICY_VERSION, PRECISE_GEOCODE_MAX_M, Store
+from .policy import load_policy
+from .store import Store
 
 
 def main() -> int:
@@ -15,16 +16,10 @@ def main() -> int:
     parser.add_argument("--db", type=Path, default=Path(".steward/foundation.sqlite3"))
     parser.add_argument("--data", type=Path, default=Path("data"))
     args = parser.parse_args()
-    policy = json.loads((args.data / "policy.yaml").read_text(encoding="utf-8"))
-    if policy != {
-        "version": POLICY_VERSION, "district": "south_loop_demo", "provenance": "seeded",
-        "actionable_min_score": 70, "precise_geocode_max_m": PRECISE_GEOCODE_MAX_M,
-        "image_points": 30, "independent_source_points": 20, "independent_source_cap": 2,
-        "precise_geocode_points": 15, "service_match_points": 15,
-        "dispute_min_independent_sources": 2, "persistence_points": 10,
-        "persistence_min_hours": 24,
-    }:
-        parser.error("policy fixture differs from implemented foundation policy")
+    try:
+        load_policy(args.data / "policy.yaml")
+    except ValueError as exc:
+        parser.error(str(exc))
     signals = [Signal.from_dict(row) for row in json.loads(
         (args.data / "signals.json").read_text(encoding="utf-8")
     )]

@@ -1,0 +1,12 @@
+[
+  {"address": "1530 S Michigan Ave", "lat": 41.86102, "lon": -87.62406, "accuracy_m": 10, "provenance": "seeded"},
+  {"address": "1300 S Michigan Ave", "lat": 41.86540, "lon": -87.62410, "accuracy_m": 10, "provenance": "seeded"},
+  {"address": "1225 S Michigan Ave", "lat": 41.86650, "lon": -87.62410, "accuracy_m": 10, "provenance": "seeded"},
+  {"address": "1800 S Michigan Ave", "lat": 41.85700, "lon": -87.62410, "accuracy_m": 10, "provenance": "seeded"},
+  {"address": "1400 S Wabash Ave", "lat": 41.86320, "lon": -87.62600, "accuracy_m": 10, "provenance": "seeded"},
+  {"address": "1150 S Wabash Ave", "lat": 41.86770, "lon": -87.62590, "accuracy_m": 10, "provenance": "seeded"},
+  {"address": "1400 S State St", "lat": 41.86320, "lon": -87.62740, "accuracy_m": 10, "provenance": "seeded"},
+  {"address": "1900 S State St", "lat": 41.85580, "lon": -87.62740, "accuracy_m": 10, "provenance": "seeded"},
+  {"address": "1600 S Indiana Ave", "lat": 41.85960, "lon": -87.62220, "accuracy_m": 10, "provenance": "seeded"},
+  {"address": "1700 S Prairie Ave", "lat": 41.85830, "lon": -87.62040, "accuracy_m": 10, "provenance": "seeded"}
+]

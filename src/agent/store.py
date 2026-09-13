@@ -14,7 +14,7 @@ from typing import Any, Self
 from .models import PROVENANCE, ServiceRecord, Signal, nonempty
 from .scoring import dispute_supported, score_evidence
 
-POLICY_VERSION = "south-loop-foundation-v2"
+POLICY_VERSION = "south-loop-v3"
 PRECISE_GEOCODE_MAX_M = 30
 SCHEMA_VERSION = 1
 

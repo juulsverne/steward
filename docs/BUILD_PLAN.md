@@ -25,19 +25,23 @@ This checkpoint used the existing local Python 3.13 environment. It is not a cle
 
 ## Tier 1a — Bedrock access, fixtures, vision spike
 
-- [ ] Configure AWS credentials and `.env`; confirm Bedrock Sonnet inference and a real Strands tool round trip; record model ID/region and result.
-- [ ] Implement the service-record and persistence scoring rules test-first; update the foundation harness and fixture record to carry status and completion time.
-- [ ] Extend existing package with models, SQLite schema, data fixtures, deterministic policy and scoring.
-- [ ] Seed district boundary/budget, three vendors/rates, ten demo addresses, two independent couch signals, and a completed-service fixture with honest provenance.
-- [ ] Obtain usable `before.jpg`, `middle.jpg`, `after.jpg`, `unrelated.jpg`, `reused.jpg`; retain asset rights/provenance.
-- [ ] Run the vision spike before building around its output; record findings in `docs/VISION_SPIKE.md` when run.
+- [x] Confirm actual Strands/Sonnet tool round trip using the authenticated default profile: two model cycles, successful current_time result, final reply, 2.678 s. `.env` is optional; settings may come from environment/profile defaults. Artifact `.steward/bedrock-check-20260913T071054517582Z.json`.
+- [x] Implement service-record and persistence scoring; update the harness and fixture completion time. September 13 rerun: 65/65/85/100, six events, persisted CANDIDATE issue.
+- [x] Recover image utilities from Fable's image branch; add strict verification, bounded Strands check, and single-call Sonnet inspection/spike code. Offline tests are not live gate evidence.
+- [x] Obtain usable `before.jpg`, `middle.jpg`, `after.jpg`, `unrelated.jpg`, `reused.jpg`; record synthetic provenance and exact prompts in `data/images/PROVENANCE.md`. Publication rights review remains in the submission checklist.
+- [x] Run real Bedrock vision: 12/12 expected outcomes; zero errors/false accepts. See [VISION_SPIKE.md](VISION_SPIKE.md) for actual counts, nulls, usage and limitations.
 
-Vision spike protocol: compare before→middle (target removed, debris remains), before→after (target removed, clear), before→unrelated (scene mismatch), and before→reused (reuse rejected by hash). Include GPS distance, timestamp order, pHash, model ID, prompt, raw structured outputs, and observed failures. Repeat each pairing three times as a small stability check, not a benchmark. Any false automatic acceptance blocks unattended verification for that case. Freeze fixtures only after review.
+September 13 checkpoint: Tier 1A closed with 91 offline tests, successful real Strands tool round trip, and twelve passing image inspections on `global.anthropic.claude-sonnet-4-6` / `us-west-2`. The initial expired-login failure is retained separately. After starting Tier 1B policy/fixtures, the full suite is **129 passed**, Ruff clean. See [VISION_SPIKE.md](VISION_SPIKE.md) for exact commands, fixture checks and open gates, and [DOCUMENT_REVIEW.md](DOCUMENT_REVIEW.md) for the document reconciliation.
+
+Vision spike protocol: compare before→middle (target removed, debris remains), before→after (target removed, clear, checked against prior middle), before→unrelated (scene mismatch), and before→reused (reuse checked against prior completions). Include seeded GPS distance, timestamp order, dHash, model ID, prompt, raw structured outputs, usage and failures. Repeat each pairing three times. Every expected field, prerequisite result and payment eligibility must match, including exact 90/100 positive scores. Errors, false accepts, missed full-cleanup acceptance, or incomplete runs fail. Freeze fixtures only after review; no benchmark claim.
 
 Fallback decision tonight: ambiguous or unreliable findings trigger manual inspection. Preserve real model outputs and show the limitation. A manual-only result does not satisfy the automatic 100-point demo criterion; mark that gap honestly and use the remaining time to repair it. Vision uncertainty does not authorize fake success or a new product thesis.
 
 ## Tier 1b — ugly couch works
 
+- [ ] Extend the foundation with deterministic dispatch policy, plans, jobs, proof, ledger and actor-bound event API.
+- [x] Seed district boundary, $500 demo budget, three vendors/rates, ten addresses and simulated feed; preserve the two signals/service record. These are fixtures, not persisted jobs or a ledger.
+- [x] Implement pure policy loading/validation, routing, $72 couch quote, provider eligibility/ranking, geometry, and dispatch/settlement predicates. Tested directly, including malformed facts and denied actions; mutation-boundary integration remains open.
 - [ ] Implement perception/state tools as HTTP clients of the API and agent-driven decisions.
 - [ ] Implement policy-gated provider dispatch, budget reservation, and simulated settlement.
 - [ ] Persist event/resume through crew proof and operator rework.
@@ -64,7 +68,7 @@ Fallback decision tonight: ambiguous or unreliable findings trigger manual inspe
 
 ## Tier 3 — AgentCore and hosting
 
-After tier 2 is stable: deploy the agent to AgentCore Runtime with Observability, ship the FastAPI + static frontend + SQLite container to App Runner, publish the judging URL, then add the Gateway OpenAPI target. Gateway is the first item to slip. Record the actual commands and results here. Optional blog content stays behind the stable submission gate.
+After tier 2 is stable: resolve the App Runner persistence conflict recorded in [ARCHITECTURE.md](ARCHITECTURE.md), then deploy the agent to AgentCore Runtime with Observability, host the API/frontend with a verified persistent state owner, publish the judging URL, and add the Gateway target. The target remains App Runner pending that resolution; no replacement is silently selected. Gateway is the first item to slip. Record actual commands/results. Optional blog content stays behind the stable submission gate.
 
 ## Monday — freeze, reproduce, record, submit
 

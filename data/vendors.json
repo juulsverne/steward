@@ -1,0 +1,41 @@
+[
+  {
+    "id": "south_loop_services",
+    "name": "South Loop Services",
+    "provenance": "seeded",
+    "insurance_verified": true,
+    "service_categories": ["bulky_waste", "litter"],
+    "service_area": ["south_loop_demo"],
+    "equipment": ["truck", "crew_2"],
+    "available": true,
+    "distance_km": 1.2,
+    "workload": 2,
+    "performance": 0.94
+  },
+  {
+    "id": "windy_city_maintenance",
+    "name": "Windy City Maintenance",
+    "provenance": "seeded",
+    "insurance_verified": true,
+    "service_categories": ["bulky_waste", "litter", "approved_graffiti_removal"],
+    "service_area": ["south_loop_demo"],
+    "equipment": ["truck", "crew_2", "pressure_washer"],
+    "available": true,
+    "distance_km": 3.4,
+    "workload": 1,
+    "performance": 0.9
+  },
+  {
+    "id": "lakefront_clean_team",
+    "name": "Lakefront Clean Team",
+    "provenance": "seeded",
+    "insurance_verified": true,
+    "service_categories": ["litter", "bulky_waste"],
+    "service_area": ["south_loop_demo"],
+    "equipment": ["van", "crew_2"],
+    "available": true,
+    "distance_km": 0.8,
+    "workload": 0,
+    "performance": 0.97
+  }
+]
