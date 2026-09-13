@@ -34,7 +34,9 @@ from .actors import (
     configured_personas,
 )
 from .adapters import SeededAdapters
+from .case_contracts import CaseContext
 from .config import ApiSettings
+from .context import build_context
 from .decisions import record_operational_decision
 from .http_contracts import (
     CandidateSignalsView,
@@ -560,6 +562,25 @@ def create_app(settings: ApiSettings | None = None,
     @app.get("/health", response_model=c.ToolResult[HealthView])
     def health():
         return c.ToolResult[HealthView](outcome="OK", data=HealthView(ok=True))
+
+    @app.get("/api/invocations/{invocation_id}/context", response_model=c.ToolResult[CaseContext],
+              openapi_extra={"parameters": [{"name": "X-Steward-Invocation-Id", "in": "header",
+                  "required": True, "schema": {"type": "string"}}]})
+    def read_case_context(request: Request, invocation_id: str,
+                          candidates_cursor: str | None = None, events_cursor: str | None = None):
+        actor = require_action(request, Action.READ_CONTEXT)
+        if actor.actor_type != "service" or _header(request, "x-steward-invocation-id") != invocation_id:
+            raise AccessError(403, "INVOCATION_FORBIDDEN")
+        with request_store(request) as store:
+            try:
+                invocation = store.get_invocation(invocation_id)
+                data = build_context(store, invocation.trigger_event_id, actor=actor,
+                    district_id=settings.district_id, invocation_id=invocation.id,
+                    policy_path=settings.policy_path, candidates_cursor=None if candidates_cursor == "0" else candidates_cursor,
+                    events_cursor=None if events_cursor == "0" else events_cursor)
+            except ValueError:
+                raise AccessError(422, "INVALID_CONTEXT_BASIS") from None
+            return c.ToolResult[CaseContext](outcome="OK", data=data)
 
     @app.get("/api/demo/session", response_model=c.ToolResult[DemoSessionView])
     def session(request: Request):

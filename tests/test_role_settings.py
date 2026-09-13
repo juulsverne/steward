@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import io
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from PIL import Image
 
 from agent.config import DEFAULT_MODEL_ID, Settings
@@ -17,6 +19,30 @@ def make_settings(**changes) -> Settings:
         log_level="INFO",
         **changes,
     )
+
+
+@pytest.mark.parametrize("temperature", [float("nan"), float("inf"), float("-inf"), -.01, 1.01,
+                                       True, False, None, "0.3"])
+def test_invalid_temperature_rejected_before_provider_construction(monkeypatch, temperature):
+    from agent import core
+    calls = []
+    monkeypatch.setattr(core, "settings", replace(make_settings(), temperature=temperature))
+    monkeypatch.setattr(core, "BedrockModel", lambda **kwargs: calls.append(kwargs))
+    with pytest.raises(ValueError):
+        core.build_model()
+    assert calls == []
+
+
+@pytest.mark.parametrize("temperature", [0, .3, 1.0])
+def test_normal_temperature_keeps_resolved_role_and_provider_bounds(monkeypatch, temperature):
+    from agent import core
+    calls = []
+    monkeypatch.setattr(core, "settings", replace(make_settings(text_model_id="text-override"), temperature=temperature))
+    monkeypatch.setattr(core, "BedrockModel", lambda **kwargs: calls.append(kwargs))
+    core.build_model()
+    assert calls[0]["temperature"] == temperature
+    assert calls[0]["model_id"] == "text-override"
+    assert calls[0]["boto_client_config"].retries == {"total_max_attempts": 1}
 
 
 def test_role_environment_settings_fall_back_independently(monkeypatch):
@@ -80,9 +106,8 @@ def test_terminal_banner_reports_the_resolved_text_model_role(monkeypatch):
     monkeypatch.setattr(cli, "settings", make_settings(
         text_model_id="text-model", vision_model_id="vision-model",
     ))
-    monkeypatch.setattr(cli, "build_agent", lambda: object())
-
-    assert cli.main() == 0
+    monkeypatch.delenv("STEWARD_SERVICE_TOKEN", raising=False)
+    assert cli.main(["context", "saved-invocation"]) == 2
     assert "text model: text-model" in printed[0][0][0]
 
 

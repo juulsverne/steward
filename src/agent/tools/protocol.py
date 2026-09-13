@@ -11,6 +11,7 @@ from pydantic import Field, create_model
 
 from .. import contracts as c
 from .. import http_contracts as h
+from ..case_contracts import CaseContext
 from ..http_protocol import OPERATION_IDS
 
 SCHEMA_VERSION = "steward-http-tools-v1"
@@ -133,7 +134,7 @@ class Operation:
             basis = values["basis"]
             revision = basis.get("expected_job_revision", basis.get("expected_issue_revision"))
         path = self.path.format(**values)
-        query = {key: values[key] for key in self.query}
+        query = {key: values.get(key, self.model.model_fields[key].default) for key in self.query}
         body = None
         if self.body_model:
             body = {key: values[key] for key in self.body_model.model_fields if key in values}
@@ -470,6 +471,10 @@ ROUTES = {
     **{name: op for name, op in OPERATIONS.items() if op.path},
     _COMPLETION.name: _COMPLETION,
     _ISSUE.name: _ISSUE,
+    "read_case_context": _op("read_case_context", "GET", "/api/invocations/{invocation_id}/context",
+        None, CaseContext, None, "Trusted host context refresh; not a model tool.",
+        invocation_id=ID, candidates_cursor=(c.OpaqueId, "0"), events_cursor=(c.OpaqueId, "0"),
+        query=("candidates_cursor", "events_cursor")),
 }
 
 

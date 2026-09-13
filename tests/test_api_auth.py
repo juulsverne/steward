@@ -440,6 +440,7 @@ def test_actual_server_exposes_only_sandbox_routes_with_explicit_setup(config, m
         paths = client.get("/openapi.json").json()["paths"]
         assert set(paths) == {
             "/health", "/api/demo/session", "/api/demo/persona", "/api/signals",
+            "/api/invocations/{invocation_id}/context",
             "/api/signals/related", "/api/issues/similar", "/api/issues",
             "/api/issues/{issue_id}/sources",
             "/api/issues/{issue_id}/geocode", "/api/issues/{issue_id}/service-records/search",

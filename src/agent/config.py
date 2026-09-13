@@ -23,6 +23,9 @@ class Settings:
     log_level: str
     text_model_id: str | None = None
     vision_model_id: str | None = None
+    aws_profile: str | None = None
+    max_output_tokens: int = 2048
+    provider_timeout_seconds: float = 30.0
 
     @staticmethod
     def _configured_model(value: str | None) -> str | None:
@@ -48,6 +51,9 @@ class Settings:
             log_level=os.getenv("LOG_LEVEL", "INFO"),
             text_model_id=cls._configured_model(os.getenv("BEDROCK_TEXT_MODEL_ID")),
             vision_model_id=cls._configured_model(os.getenv("BEDROCK_VISION_MODEL_ID")),
+            aws_profile=cls._configured_model(os.getenv("AWS_PROFILE")),
+            max_output_tokens=int(os.getenv("AGENT_MAX_OUTPUT_TOKENS", "2048")),
+            provider_timeout_seconds=float(os.getenv("AGENT_PROVIDER_TIMEOUT_SECONDS", "30")),
         )
 
 

@@ -840,6 +840,27 @@ class Store:
     def get_invocation(self, record_id: str) -> c.InvocationRecord:
         return self._record(c.InvocationRecord, record_id)
 
+    @contextmanager
+    def read_snapshot(self):
+        """One deferred, consistent read transaction; never acquire a writer reservation."""
+        if self.db.in_transaction:
+            raise RuntimeError("read snapshot requires an independent transaction")
+        self.db.execute("BEGIN")
+        try:
+            yield self
+        finally:
+            self.db.rollback()
+
+    def invocation_for_event(self, event_id: int) -> c.InvocationRecord:
+        row = self.db.execute("SELECT id FROM invocations WHERE trigger_event_id=?", (event_id,)).fetchone()
+        if row is None:
+            raise KeyError(event_id)
+        return self.get_invocation(row[0])
+
+    def jobs_for_issue(self, issue_id: str) -> tuple[c.JobRecord, ...]:
+        return tuple(self.get_job(row[0]) for row in self.db.execute(
+            "SELECT id FROM jobs WHERE issue_id=? ORDER BY rowid,id", (issue_id,)))
+
     def pending_invocations(self, limit: int = 20) -> list[c.InvocationRecord]:
         if type(limit) is not int or not 1 <= limit <= 100:
             raise ValueError("limit must be an integer between 1 and 100")

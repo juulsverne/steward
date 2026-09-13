@@ -1,6 +1,7 @@
 """Public HTTP operation identities shared without importing the API runtime."""
 
 OPERATION_IDS = {
+    ("GET", "/api/invocations/{invocation_id}/context"): "read_case_context",
     ("GET", "/health"): "health",
     ("GET", "/api/demo/session"): "read_demo_session",
     ("POST", "/api/demo/persona"): "select_demo_persona",

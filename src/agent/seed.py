@@ -54,8 +54,22 @@ def _seed(path: Path, data: Path) -> dict:
         persist_signal(store, signal=first, context=context, image=image,
                        image_root=path.parent / "images", provenance="synthetic")
         store.create_issue("demo-couch", "bulky_waste", "1530 S Michigan Ave")
-        store.record_geocode("demo-couch", accuracy_m=10, provenance="seeded")
-        store.link_signal("demo-couch", first.id)
+        # The original intake event remains issue-less. Linking and trusted cause
+        # binding form one transaction, exactly as the real intake transition does.
+        from .investigation import _bind_unlinked_signal_invocation
+        invocation = store.invocation_for_event(store.get_signal_receipt(first.id).event_id)
+        with store.transaction() as tx:
+            store._link_signal("demo-couch", first.id)
+            _bind_unlinked_signal_invocation(tx, store,
+                context.model_copy(update={"invocation_id": invocation.id}),
+                signal_id=first.id, issue_id="demo-couch")
+        from .adapters import SeededAdapters
+        from .investigation import record_geocode
+        record_geocode(store, issue_id="demo-couch", signal_id=first.id,
+            result=SeededAdapters(data).geocode(first),
+            context=c.MutationContext(actor=actor, operation="geocode_location",
+                idempotency_key="seed-geocode-1",
+                expected_revision=store.get_issue_record("demo-couch").state_revision))
         record = json.loads((data / "service_records.json").read_text(encoding="utf-8"))[0]
         store.record_service_match("demo-couch", record)
         vendors = json.loads((data / "vendors.json").read_text(encoding="utf-8"))

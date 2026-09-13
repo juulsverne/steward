@@ -531,3 +531,90 @@ operator's original choice and leaves `handled_at` null when rework never happen
 HANDLED history is retained. Paid jobs cannot be cancelled or refunded. Independent requests
 cannot both consume and release the same reservation. These operations and offline tests
 do not claim live agent execution or complete demo acceptance.
+
+## Invocation case context and agent construction (B11)
+
+`GET /api/invocations/{invocation_id}/context` (`read_case_context`) is a service-only
+read requiring the matching `X-Steward-Invocation-Id` and bearer credential. A resident,
+crew, operator, missing header or different invocation cannot load the packet. It uses
+one deferred SQLite read snapshot; it never repairs a cause or creates a receipt.
+Missing records return404; inconsistent saved cause/cursor returns422; unavailable
+storage returns503. The original SIGNAL_RECEIVED may remain issue-less while its
+canonical invocation and current issue are linked. Original trigger policy/revision,
+current issue/job revisions and invocation processing revision are separate fields.
+
+The dependency-light `CaseContext` exposes typed source/receipt/observation times,
+source identity/lineage, evidence IDs/hashes, current shared score and saved issue score,
+policy and role/model identities, typed geocode/classification/jurisdiction, retained
+hazard references, service lookup and applied official status, original plan/quote,
+job/check-in, proof, verification findings/checks/gates, operator choice, reservation,
+payment and safe result receipt IDs. Unknown stays null. It excludes byte locations,
+image bytes, raw SDK request/reasoning, credentials, keys and lease/fence controls.
+The `applicable_to_current_job_revision` flag is a revision relationship, not a new
+payment permission: the mutation still revalidates its complete current physical basis.
+Historical verification uses exact proof/exception/payment references after job revision
+advancement. A paid case retains accepted findings without pretending they are a fresh
+current verification or requiring another payment.
+
+`candidates` contains at most10 summaries and `events` at most20. Pass the returned
+`next_candidates_cursor` as `candidates_cursor` and/or `next_events_cursor` as
+`events_cursor` to the same authenticated endpoint. Omitted cursor or `0` starts the
+first page. Candidate row watermarks and event ID keysets exclude newly appended rows
+from subsequent pages; current display facts still reflect the new request's consistent
+snapshot. Critical trigger/proof/failed gate/choice/payment fields are outside these pages.
+Candidate summaries can include an already-linked canonical issue; they are evidence
+for matching, not permission to rebind a source. Freshness is rechecked at each mutation.
+
+`core.build_agent(session, model=None, lifecycle=None, provider_observer=None,
+deadline_at=None)` constructs a fresh sequential Agent with the session's25 domain tools,
+no default printing and no implicit Strands retry. `core.invoke_case(agent)` supplies the
+fixed saved-trigger request and enforces the whole remaining monotonic execution window.
+It returns a safe `CaseExecutionResult`, not raw model reasoning or an invented success.
+Its in-process12-cycle/40-request/120-second bounds do not implement B12 durability.
+Default text output is2048 tokens (`AGENT_MAX_OUTPUT_TOKENS`,1–8192), with finite provider
+connection/read bounds (`AGENT_PROVIDER_TIMEOUT_SECONDS`, default30, maximum120) and one
+SDK attempt. Explicit AWS_PROFILE uses that profile; absent profile retains the ambient
+provider chain. Vision model selection remains independent.
+
+Before every model cycle the trusted host uses that SAME session HTTP client to load
+fresh context and replace the single delimited evidence packet, retaining actual tool
+conversation history. The fixed read operation is not a26th model tool or generic URL
+capability. `InvocationHooks.refresh` also accepts the pagination cursors for trusted
+host use. Actual host reads/attempts are separate from requested model tools. A saved
+intent is not a stop; actual watch/route/dispatch/exception/rework/resolution effects are.
+The real offline engine test proves a low-score inspection can reach a real settlement
+denial and then an exception; later same-batch tools are suppressed only after the effect.
+
+B12 can inject `ExecutionLifecycle.authorize(ExecutionRequest)` and
+`observe(ExecutionObservation)`: both are awaited, must return True, and refusal/error
+stops new work. Model requests include the refreshed case; tool requests include the
+immutable validated Command and real tool-use reference. HTTP physical attempts still
+use the accepted prepare/begin_attempt/finish_attempt lifecycle on the owned client.
+Default lifecycle is explicitly non-durable. The separate synchronous provider observer
+receives only invocation ID, ordinal, operation and monotonic time for the public
+Botocore `before-send` event. It cannot claim that the request was physically sent,
+accepted, billed or durably acknowledged, and it cannot authorize work. Timeout or
+cancellation may detach an SDK worker; B12 must preserve uncertainty and fence late writes.
+
+The `agent` CLI is API-based: `agent submit --description TEXT --location TEXT [--image
+FILE] [--observed-at UTC_TIME] [--key KEY]` selects a configured sandbox resident and
+creates a real persisted event. Preserve the printed key for uncertain submit recovery.
+`agent context INVOCATION_ID` reads via the private environment service token;
+`agent resume INVOCATION_ID` reads the same packet but exits2 with an explicit B12-pending
+message. It does not launch a privileged free-text REPL or claim durable resume exists.
+`--origin` precedes the subcommand. Never paste the service token into chat or CLI args.
+Preflight and image spike commands remain separate from this production domain registry.
+
+The offline seed now atomically binds its original pending invocation while linking the
+baseline signal; its immutable original event stays unchanged. Existing seeded precision
+is represented using the accepted B4 geocode producer and reviewed address fixture,
+so persisted/current/context baseline scores all remain65 and the issue stays CANDIDATE.
+No model classification, dispatch, or inference is fabricated by the seed.
+
+CLI service reads bind the ambient `STEWARD_SERVICE_TOKEN` to `STEWARD_ORIGIN`
+(default `http://127.0.0.1:8000`). Configure that trusted destination privately alongside
+the token; `context` and `resume` reject a different `--origin` before constructing a
+credential-bearing client. Explicit resident `submit --origin` behavior is unchanged
+(`--origin` is a global option before the subcommand). Model temperature must be a
+finite numeric value in the inclusive range 0–1; booleans, strings, NaN, infinities and
+out-of-range values are rejected before provider construction.
