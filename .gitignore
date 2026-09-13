@@ -46,3 +46,6 @@ docs/plans/
 
 # Subagent-driven-development scratch (ledger, briefs, review packages)
 .superpowers/
+
+# Parallel implementation worktrees
+.worktrees/
