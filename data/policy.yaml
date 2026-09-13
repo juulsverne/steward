@@ -1,5 +1,5 @@
 {
-  "version": "south-loop-foundation-v1",
+  "version": "south-loop-foundation-v2",
   "district": "south_loop_demo",
   "provenance": "seeded",
   "actionable_min_score": 70,
@@ -8,5 +8,8 @@
   "independent_source_points": 20,
   "independent_source_cap": 2,
   "precise_geocode_points": 15,
-  "service_match_points": 15
+  "service_match_points": 15,
+  "dispute_min_independent_sources": 2,
+  "persistence_points": 10,
+  "persistence_min_hours": 24
 }

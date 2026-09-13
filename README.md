@@ -63,7 +63,7 @@ From the repository root, after installing the dependencies:
 uv run python -m agent.foundation --db .steward/foundation.sqlite3
 ```
 
-No AWS credentials are needed for this command. It prints **OFFLINE FOUNDATION CHECK**, stores the first report at 65 points, reopens SQLite, and adds an independent report to reach 85. The issue stays CANDIDATE: a score is not a fabricated agent decision. An existing destination is refused; use a fresh database filename to repeat.
+No AWS credentials are needed for this command. It prints **OFFLINE FOUNDATION CHECK**, stores the first report at 65 points, records the seeded COMPLETED service record as a pending conflict (still 65), reopens SQLite, adds an independent report to reach 85, and confirms the official-status dispute to reach 100. The issue stays CANDIDATE: a score is not a fabricated agent decision. An existing destination is refused; use a fresh database filename to repeat.
 
 The image digest and geocode accuracy are **seeded metadata**, not actual photo analysis or live geocoding. See [fixture provenance and limitations](data/README.md). This harness does not satisfy the sixteen-step live-agent acceptance run.
 

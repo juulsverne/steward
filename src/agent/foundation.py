@@ -21,6 +21,8 @@ def main() -> int:
         "actionable_min_score": 70, "precise_geocode_max_m": PRECISE_GEOCODE_MAX_M,
         "image_points": 30, "independent_source_points": 20, "independent_source_cap": 2,
         "precise_geocode_points": 15, "service_match_points": 15,
+        "dispute_min_independent_sources": 2, "persistence_points": 10,
+        "persistence_min_hours": 24,
     }:
         parser.error("policy fixture differs from implemented foundation policy")
     signals = [Signal.from_dict(row) for row in json.loads(
@@ -28,6 +30,9 @@ def main() -> int:
     )]
     if len(signals) != 2 or any(signal.provenance != "seeded" for signal in signals):
         parser.error("foundation check requires the two labeled seeded observations")
+    records = json.loads((args.data / "service_records.json").read_text(encoding="utf-8"))
+    if len(records) != 1 or records[0]["status"] != "COMPLETED":
+        parser.error("foundation check requires the one seeded COMPLETED service record")
     args.db.parent.mkdir(parents=True, exist_ok=True)
     try:
         # Exclusive creation prevents overwriting any existing database or other file.
@@ -42,12 +47,23 @@ def main() -> int:
         store.record_geocode(issue_id, accuracy_m=10, provenance="seeded")
         first = store.add_signal(issue_id, signals[0])
         print(json.dumps({"phase": "first_signal", "score": first["score"]}))
+        pending = store.record_service_match(issue_id, records[0])
+        print(json.dumps({
+            "phase": "completed_record_pending", "score": pending["score"],
+            "conflict": pending["service_record"]["conflict"],
+        }))
     with Store(args.db) as resumed:
         second = resumed.add_signal(issue_id, signals[1])
         print(json.dumps({"phase": "second_signal_after_reopen", "score": second["score"]}))
-        print(json.dumps({"status": second["status"], "events": resumed.events(issue_id)}))
-    if first["evidence_score"] != 65 or second["evidence_score"] != 85:
-        raise RuntimeError("foundation fixture scores differ from the expected 65/85")
+        disputed = resumed.confirm_official_dispute(issue_id)
+        print(json.dumps({
+            "phase": "dispute_confirmed", "score": disputed["score"],
+            "conflict": disputed["service_record"]["conflict"],
+        }))
+        print(json.dumps({"status": disputed["status"], "events": resumed.events(issue_id)}))
+    totals = [x["evidence_score"] for x in (first, pending, second, disputed)]
+    if totals != [65, 65, 85, 100]:
+        raise RuntimeError(f"foundation fixture scores {totals} differ from the expected 65/65/85/100")
     print(f"Persisted: {args.db.resolve()}")
     return 0
 
