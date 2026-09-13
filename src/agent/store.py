@@ -304,6 +304,13 @@ class Store:
             raise KeyError(signal_id)
         return c.SignalReceipt.model_validate_json(row[0])
 
+    def issue_for_signal(self, signal_id: str) -> c.IssueRecord | None:
+        """Current canonical link, distinct from the immutable intake receipt snapshot."""
+        self.get_signal(signal_id)
+        row = self.db.execute("SELECT issue_id FROM issue_sources WHERE signal_id=?",
+                              (signal_id,)).fetchone()
+        return self.get_issue_record(row[0]) if row is not None else None
+
     def signal_receipt_actor(self, signal_id: str) -> str:
         """Submitting actor, distinct from the signal's source-author/witness lineage."""
         row = self.db.execute("SELECT actor_id FROM signal_receipts WHERE signal_id=?",
@@ -410,6 +417,13 @@ class Store:
 
     def get_plan(self, record_id: str) -> c.PlanRecord:
         return self._record(c.PlanRecord, record_id)
+
+    def plans_for_issue(self, issue_id: str) -> list[c.PlanRecord]:
+        """Typed read for server-side district validation; no authorization by itself."""
+        self.get_issue_record(issue_id)
+        return [self.get_plan(row[0]) for row in self.db.execute(
+            "SELECT id FROM plans WHERE issue_id=? ORDER BY id", (issue_id,)
+        )]
 
     def get_vendor(self, record_id: str) -> c.VendorRecord:
         return self._record(c.VendorRecord, record_id)

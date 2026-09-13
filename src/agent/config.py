@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 from dotenv import load_dotenv
 
@@ -50,3 +52,38 @@ class Settings:
 
 
 settings = Settings.from_env()
+
+
+if TYPE_CHECKING:
+    from .actors import DemoPersona
+
+
+@dataclass(frozen=True)
+class ApiSettings:
+    """Web-only setup, validated at app creation. Never generate or write secrets."""
+
+    store_path: Path
+    origin: str
+    session_secret: str = field(repr=False)
+    service_token: str = field(repr=False)
+    local_http: bool = False
+    district_id: str = "south_loop_demo"
+    policy_path: Path = Path("data/policy.yaml")
+    development_origins: tuple[str, ...] = ()
+    personas: tuple[DemoPersona, ...] | None = None
+
+    @classmethod
+    def from_env(cls) -> ApiSettings:
+        mode = os.getenv("STEWARD_LOCAL_HTTP", "false")
+        if mode not in {"true", "false"}:
+            raise ValueError("STEWARD_LOCAL_HTTP must be true or false")
+        return cls(
+            store_path=Path(os.getenv("STEWARD_STORE_PATH", ".steward/steward.sqlite3")),
+            origin=os.getenv("STEWARD_ORIGIN", ""),
+            session_secret=os.getenv("STEWARD_SESSION_SECRET", ""),
+            service_token=os.getenv("STEWARD_SERVICE_TOKEN", ""),
+            local_http=mode == "true",
+            development_origins=tuple(filter(None, (
+                x.strip() for x in os.getenv("STEWARD_DEVELOPMENT_ORIGINS", "").split(",")
+            ))),
+        )

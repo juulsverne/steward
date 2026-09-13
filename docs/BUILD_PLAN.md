@@ -375,10 +375,10 @@ Integration order is B0, M0's model contract, then B1 through B13. M0 qualificat
 
 **Files:** create `src/agent/api.py`, `src/agent/actors.py`, `tests/test_api_auth.py`; update `server.py`, `config.py`, `.env.example`, `pyproject.toml`, `uv.lock`.
 
-- [ ] Add app factory/server configuration. `POST /api/demo/persona` selects a configured resident/operator/vendor and issues a signed demo session; it cannot select the service identity. Label this sandbox access, not real authentication.
-- [ ] Resolve actor/vendor/district server-side. Use a separate server-held bearer token for agent tools. Body fields cannot become actor authority, prices, scores or policy.
-- [ ] Add consistent result/error responses, request IDs, same-origin session protections and a Store connection per request. Disable starter `/ask` in Steward mode or isolate it from domain tools.
-- [ ] Test residents cannot read others' history; crew access only their vendor jobs; operator cannot dispatch/pay/close; service cannot forge human events. Run `uv run --no-sync pytest tests/test_api_auth.py -q`.
+- [x] Add app factory/server configuration. `POST /api/demo/persona` selects a configured resident/operator/vendor and issues a signed demo session; it cannot select the service identity. Label this sandbox access, not real authentication.
+- [x] Resolve actor/vendor/district server-side. Use a separate server-held bearer token for agent tools. Body fields cannot become actor authority, prices, scores or policy.
+- [x] Add consistent result/error responses, request IDs, same-origin session protections and one Store connection opened/used/closed inside each synchronous request worker. Remove the starter `/ask` route from Steward.
+- [x] Test residents cannot read others' history; crew access only their vendor jobs; operator cannot dispatch/pay/close; service cannot forge human events. Full suite 210 passed before review; after the reviewed evidence-scope correction, 53 guarded auth tests and scoped Ruff passed. Independent re-review passed with five additional regression executions.
 
 **Inspect when done:** forged requests fail; frontend has no service token. Persona selection remains intentional and visible but cannot bypass financial or job-ownership gates.
 
@@ -1167,7 +1167,7 @@ uv run --no-sync python -m agent.bedrock_check
 uv run --no-sync python -m agent.vision_spike --images data/images --repeats 3
 ```
 
-`uv run uvicorn agent.server:app --reload` currently starts the generic server, not the finished Steward API. `uv sync --locked --extra dev --extra web` is the intended local dependency setup; the clean-install proof is still R1. Hosted-agent setup adds the declared AgentCore dependencies only when needed.
+After B2, the server entry point starts Steward's validated sandbox session/health API; `/ask` is removed. Set up persistent private configuration using [API.md](API.md), then run `uv run --no-sync uvicorn agent.server:app --host 127.0.0.1 --port 8000 --no-proxy-headers`. Business operations and the full demo remain later gates. `uv sync --locked --extra dev --extra web` is the local dependency setup; the clean-install proof is still R1. Hosted-agent setup adds AgentCore dependencies only when needed.
 
 ### Commands the unfinished tasks must add
 
@@ -1192,9 +1192,12 @@ Implementation started on the isolated `codex/steward-build` branch from `161948
 | B0 | Complete, component baseline only. Builder: Luna medium; independent reviewer: Terra high | Locked dev/web installation in the build worktree; direct package-import path verified; 129 tests passed in 2.08 s and Ruff clean. Offline foundation remains 65/65/85/100, six events after reopen, CANDIDATE. Dated live artifacts retained; no fresh inference or complete couch criterion claimed |
 | M0 | Role-settings slice complete. Builder: Terra high; independent reviewer: Astra high, one fix round | Added offline routing/fallback/metadata and CLI-banner checks. Full suite 134 passed before review; 20 relevant tests and scoped Ruff passed after the two reviewed fixes. Sonnet stays default; domain and full-workflow qualification remain open until B4/B7/B11–B13/P8 |
 | B1 | Complete for internal storage contracts. Builder: Astra high; independent reviewer: Astra high, no fix round | Schema-1-to-2 preservation/rollback, durable receipt plus pending invocation, typed relational case graph, immutable proof/audit, retry conflicts and concurrent revisions verified. Required focused suite 40 passed in 2.50 s; full offline suite 162 passed in 3.45 s; Ruff and diff checks clean. One configured district per Store; B2/B3 own authentication and byte storage, later cards own mutation policy and live workflow proof |
+| B2 | Complete for sandbox identity and permission primitives. Builder: Astra high; independent reviewer: Astra high, one fix round | Signed human personas, separate service credential, Origin/Host protections, safe projections/errors and same-thread Store lifecycle. Full suite 210 passed before review; post-fix guarded auth suite 53 passed in 2.98 s and scoped Ruff clean; reviewer reran five regressions successfully. Fixed retained-signal evidence scope bypass. Real business routes remain later work; this is publicly selectable demo identity |
 | H1 | Recommendation independently reviewed by Astra high; owner decision pending | [Concrete EC2/EBS/S3 proposal and cost ceiling](HOSTING_DECISION.md) preserve local SQLite and October 8 access. No hosted service selected, provisioned or verified; real spending ceiling and deployment authorization remain open |
 
 On Windows, this build uses `uv sync --locked --extra dev --extra web --cache-dir .steward/uv-cache` and `uv run --no-sync --cache-dir .steward/uv-cache` for checks. A scoped cache avoids the existing global-cache issue without modifying it. Merely changing cwd while using another checkout's editable environment does not isolate imports; use the build environment or verify the source path explicitly.
+
+B2 test-harness correction: an early server-entry test reached the old `/ask` HTTP-200 stream before model construction was guarded. No inference result, request ID, usage or billing evidence was retained, so external invocation/billing is unknown. The route and agent import were removed and a fail-closed construction guard was added before final checks; subsequent fix/review checks also blocked external model/network calls. This incident is not live-agent acceptance evidence. One upstream Starlette/AnyIO test deprecation warning remains.
 
 ### Task receipt template
 

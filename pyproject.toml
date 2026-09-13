@@ -25,9 +25,11 @@ agentcore = [
 # Optional web UI / live demo (a live demo link scores higher)
 web = [
     "fastapi>=0.115.0",
+    "itsdangerous>=2.2.0",
     "uvicorn[standard]>=0.32.0",
 ]
 dev = [
+    "httpx>=0.28.0",
     "pytest>=8.0.0",
     "pytest-asyncio>=0.24.0",
     "ruff>=0.7.0",
