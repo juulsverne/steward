@@ -613,6 +613,22 @@ class DispatchAuditFacts(Record):
     hazard_sources: tuple[HazardSource, ...] = ()
 
 
+class SettlementAuditFacts(Record):
+    action: Literal["settle", "cancel", "close"]
+    plan_id: Text
+    reservation_id: Text | None = None
+    payment_id: Text | None = None
+    submission_id: Text | None = None
+    verification_id: Text | None = None
+    expected_job_revision: Nonnegative | None = None
+    actual_job_revision: Nonnegative
+    expected_issue_revision: Nonnegative | None = None
+    actual_issue_revision: Nonnegative
+    original_amount_cents: Positive
+    budget: BudgetAvailability | None = None
+    action_gate: GateRecord
+
+
 class EventFacts(Record):
     """Typed audit facts. No public free-form write-any-record payload."""
 
@@ -631,6 +647,7 @@ class EventFacts(Record):
     simulated: bool | None = None
     metadata: ModelRunMetadata | None = None
     dispatch: DispatchAuditFacts | None = None
+    settlement: SettlementAuditFacts | None = None
 
 
 class NewEvent(Record):

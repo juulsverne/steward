@@ -134,6 +134,7 @@ class Action(StrEnum):
     INSPECT = "inspect"
     SETTLE = "settle"
     CLOSE = "close"
+    CANCEL = "cancel"
     EDIT_POLICY = "edit_policy"
 
 
@@ -159,6 +160,7 @@ _ACTION_ROLES = {
     Action.INSPECT: {"service"},
     Action.SETTLE: {"service"},
     Action.CLOSE: {"service"},
+    Action.CANCEL: {"service"},
     Action.EDIT_POLICY: set(),
 }
 

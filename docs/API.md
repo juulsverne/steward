@@ -314,8 +314,8 @@ Completion escalation is service-only. `POST /api/jobs/{job_id}/exceptions` requ
 the saved `submission_id`, `verification_id`, `denial_event_id`, and `reason_code`. It
 accepts only the exact current B7 verification/proof and a persisted `settle` denial whose
 event, components, gates, unmet requirements, frozen proof basis, current checks, policy,
-and unpaid reservation all agree. This card's tests use a plainly synthetic, authentic-shaped
-settlement denial primitive; B9 owns the actual settlement endpoint.
+and unpaid reservation all agree. B8's primitive tests retain explicitly synthetic denial
+fixtures; B9 also exercises this consumer with the actual settlement endpoint described below.
 
 `POST /api/issues/{issue_id}/exceptions` uses an issue revision in the same header. It
 accepts strict `authority`, `no_vendor`, or `budget` kinds. A budget exception additionally
@@ -362,3 +362,66 @@ current policy, deterministic prerequisites and score, and original reserved jou
 supplied service invocation must match the exact saved operator choice before receipt replay
 and under the transaction. Exact committed-request replay remains historical after fresh
 identity and saved-cause authorization; it does not re-execute work or refresh an old finding.
+
+## Simulated settlement, closure and cancellation (B9)
+
+All three financial mutations are service-only and require `Idempotency-Key` and
+`X-Steward-Expected-Revision`. Human personas cannot settle, cancel or close. The usual
+server-bound actor, saved resource/cause authorization and request ID/error behavior apply.
+No caller may provide prices, scores, acceptance flags, payment IDs or financial balances.
+
+| Route | Revision header | Body | Successful effect |
+|---|---|---|---|
+| `POST /api/jobs/{job_id}/settle` | Current JOB revision | Strict JSON containing only `submission_id` | One simulated payment, one CONSUME, CONSUMED reservation, PAID job at J+1 |
+| `POST /api/jobs/{job_id}/cancel` | Current JOB revision | No body | One RELEASE, RELEASED reservation, CANCELLED job at J+1; issue remains unresolved |
+| `POST /api/issues/{issue_id}/close` | Current ISSUE revision | No body | RESOLVED issue at I+1 with accepted submission and server `resolved_at`; job and money unchanged |
+
+Close and cancel reject every nonempty body, including `{}`. Duplicate length headers are
+rejected; absent/zero length headers do not bypass inspection of the actual stream. The
+server rejects the first nonempty chunk without buffering the remainder, before mutation.
+
+`200 OK` returns an `EntityResult`: payment ID/job revision for settlement, job ID/job
+revision for cancellation, or issue ID/issue revision for closure. Saved event IDs and
+evidence IDs accompany the result. A denied business attempt returns `403 DENIED` and a
+durable audit/receipt without changing money or domain revision. Stale revisions are
+audited action denials. A changed payload under an existing key remains a `409
+IDEMPOTENCY_CONFLICT`. Invalid body/cause is rejected; inconsistent stored financial or
+proof relationships return `503 ERROR / FINANCIAL_STATE_INVALID` with transaction rollback.
+A close without a dispatched active contract returns `404` without inventing a financial audit.
+
+For a new payment, the service rechecks the exact latest proof, current successful
+interpretation and physical/cache provenance, complete request configuration, current
+policy, deterministic checks, pending exception, and original reserved journal under one
+write transaction. It does not reprice the dispatched contract. The 90-point result records
+`SETTLEMENT_DENIED`, keeps 7,200 cents reserved and zero spent, and can then support the
+separate B8 escalation/choice/rework operations. Valid accepted proof consumes 7,200 cents
+once; available/reserved/spent become 42,800/0/7,200 in the single-job example.
+
+`EventFacts.settlement` is a typed server audit holding the action, original plan/amount,
+nullable reservation/payment/proof/verification IDs, expected and observed JOB/ISSUE
+revisions, original budget snapshot and the broader action gate. `EventFacts` still retains
+the exact B7 completion components, two prerequisite/score gates and original unmet names.
+A score failure does not pretend that scene/target prerequisites failed. B8 validates the
+present real settlement audit before accepting its denial; stale or other-action refusal
+cannot substitute for a current completion-only failure. Historical budget snapshots are
+not required to equal a later balance after other valid jobs reserve funds.
+
+Closure validates the historical paid proof, frozen request and successful interpretation,
+settlement receipt/event, original contract and consumed journal. It does not re-inspect or
+compare against later default model/prompt/policy configuration. `Store.current_verification`
+remains strict and is not used for this historical paid read. A restart after payment can
+therefore close without another payment; compatible new close keys return the original
+resolution without changing its timestamp or emitting a second resolution event.
+
+Exact-key replay follows fresh actor/resource/cause authorization before current-state
+checks. A denied close remains replayable against its saved contract and proof after
+cancellation or a newer proof; a new close must bind the current proof. A supplied settlement
+invocation from an earlier proof cannot authorize or replay settlement of a later proof.
+Operational HTTP invocation binding and agent intent/tool integration remain B10–B12 work.
+
+Unpaid cancellation atomically releases the reservation and marks an open PENDING/DECIDED
+completion exception CANCELLED with the actual cancellation event/time. It preserves the
+operator's original choice and leaves `handled_at` null when rework never happened. Already
+HANDLED history is retained. Paid jobs cannot be cancelled or refunded. Independent requests
+cannot both consume and release the same reservation. These operations and offline tests
+do not claim live agent execution or complete demo acceptance.

@@ -454,6 +454,7 @@ def test_actual_server_exposes_only_sandbox_routes_with_explicit_setup(config, m
             "/api/jobs/{job_id}/exceptions", "/api/issues/{issue_id}/exceptions",
             "/api/exceptions/{exception_id}", "/api/exceptions/{exception_id}/request-completion",
             "/api/operator-decisions/{decision_id}/rework",
+            "/api/jobs/{job_id}/settle", "/api/jobs/{job_id}/cancel", "/api/issues/{issue_id}/close",
             }
         schema = paths["/api/demo/persona"]["post"]["requestBody"]["content"]
         assert schema["application/json"]["schema"]["additionalProperties"] is False

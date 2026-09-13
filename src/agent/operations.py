@@ -8,7 +8,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from . import contracts as c
-from .actors import AccessBoundary, Action
+from .actors import AccessBoundary, AccessError, Action
 from .images import ImageStorage, NormalizedImage, UploadError, hamming
 from .intake import stable_id
 from .investigation import _validated_cause
@@ -19,6 +19,7 @@ from .policy import (
     quote_cents,
     rank_vendors,
     required_equipment,
+    settlement_gate,
     vendor_eligibility,
 )
 from .store import IdempotencyConflict, RevisionConflict, Store, request_fingerprint
@@ -989,6 +990,15 @@ def _current_completion(store: Store, *, job: c.JobRecord, submission: c.Submiss
     if (verification.checks != checks or verification.components != components
             or verification.prerequisites != gates or verification.unmet != unmet):
         raise ValueError("completion evaluation does not match current trusted facts")
+    _completion_provenance(store, job, submission, verification, basis, checks, components, gates)
+    return plan, before, after
+
+
+def _completion_provenance(store: Store, job: c.JobRecord, submission: c.SubmissionRecord,
+                           verification: c.VerificationRecord, basis: c.CompletionInspectionBasis,
+                           checks: c.CompletionInspectionChecks, components: c.VerificationComponents,
+                           gates: tuple[c.GateRecord, ...]) -> None:
+    """Saved interpretation authenticity, shared by current authority and historical paid closure."""
     attempt = store.get_completion_attempt(verification.attempt_id)
     receipt = store.completion_result_receipt(verification.id)
     data = receipt.result.data
@@ -1026,7 +1036,6 @@ def _current_completion(store: Store, *, job: c.JobRecord, submission: c.Submiss
             or observation.error_code is not None or observation.findings != source.findings
             or observation.metadata != source.metadata):
         raise ValueError("completion lacks its authoritative physical source")
-    return plan, before, after
 
 
 def _completion_denial(store: Store, *, job: c.JobRecord, submission: c.SubmissionRecord,
@@ -1034,7 +1043,7 @@ def _completion_denial(store: Store, *, job: c.JobRecord, submission: c.Submissi
     """Require the exact B9-shaped settle denial; arbitrary events cannot escalate work."""
     plan, before, after = _current_completion(store, job=job, submission=submission,
                                              verification=verification, policy=policy)
-    _reserved_contract(store, job, plan, policy)
+    reservation = _reserved_contract(store, job, plan, policy)
     event = store.get_event(denial_event_id)
     receipt = store.receipt_for_event(event.id, operation=Action.SETTLE.value)
     if (receipt is None or receipt.issue_id != job.issue_id or receipt.job_id != job.id
@@ -1050,6 +1059,25 @@ def _completion_denial(store: Store, *, job: c.JobRecord, submission: c.Submissi
         raise ValueError("completion escalation requires exact settlement denial")
     if all(gate.allowed for gate in verification.prerequisites):
         raise ValueError("settlement denial is not a completion threshold failure")
+    audit = event.payload.settlement
+    if audit is not None:
+        # Older B8 primitive fixtures have no financial audit. Actual B9 results must
+        # prove this was a current completion denial, not stale/terminal/other-state refusal.
+        gate = _settlement_action_gate(policy, job, verification)
+        if (audit.action != "settle" or audit.plan_id != plan.id or audit.reservation_id != reservation.id
+                or audit.payment_id is not None or audit.submission_id != submission.id
+                or audit.verification_id != verification.id or audit.expected_job_revision != job.state_revision
+                or audit.actual_job_revision != job.state_revision or audit.expected_issue_revision is not None
+                or audit.original_amount_cents != reservation.amount_cents or audit.action_gate != gate
+                or receipt.result.unmet != gate.unmet or audit.budget is None
+                or audit.budget.budget_id != reservation.budget_id
+                or audit.budget.initial_cents != policy["budget_cents"]
+                or audit.budget.reserved_cents < reservation.amount_cents
+                or audit.budget.available_cents != audit.budget.initial_cents - audit.budget.reserved_cents - audit.budget.spent_cents
+                or not isinstance(receipt.result.data, c.EntityResult)
+                or receipt.result.data.record_id != verification.id
+                or receipt.result.data.state_revision != job.state_revision):
+            raise ValueError("settlement refusal was not an applicable completion-only denial")
     return event, plan, before, after
 
 
@@ -1445,3 +1473,307 @@ def exception_detail(store: Store, *, exception_id: str, actor: c.ActorContext,
         invocation_id=invocation.id if invocation else None,
         invocation_status=invocation.status if invocation else None, handled_at=exception.handled_at,
         cancelled_at=exception.cancelled_at, cancellation_event_id=exception.cancellation_event_id)
+
+
+def _financial_authorize(store, context, action, job, policy, submission_id=None):
+    if context.expected_revision is None:
+        raise AccessError(400, "EXPECTED_REVISION_REQUIRED")
+    try:
+        _operator_authorize(store, context, action=action, issue_id=job.issue_id,
+            job_id=job.id, submission_id=submission_id, policy=policy)
+    except ValueError:
+        raise AccessError(422, "INVALID_FINANCIAL_CAUSE") from None
+
+
+def _financial_reservation(store: Store, job: c.JobRecord) -> c.ReservationRecord:
+    reservation = store.reservation_for_job(job.id)
+    if reservation is None:
+        raise ValueError("dispatched job lacks its original reservation")
+    return reservation
+
+
+def _settlement_action_gate(policy: dict, job: c.JobRecord, verification: c.VerificationRecord | None,
+                            *, already_paid: bool = False, unmet: tuple[str, ...] = ()) -> c.GateRecord:
+    checked = settlement_gate(policy, job_status=job.status,
+        verification_total=sum(verification.components.model_dump().values()) if verification else 0,
+        prerequisites_passed=bool(verification and any(g.name == "completion_prerequisites" and g.allowed
+            for g in verification.prerequisites)),
+        unmet_checks=list(verification.unmet) if verification else [], already_paid=already_paid)
+    requirements = tuple(dict.fromkeys((*unmet, *checked.unmet)))
+    return c.GateRecord(name="settlement", allowed=not requirements, unmet=requirements)
+
+
+def _financial_event(tx, *, context, job, issue, plan, reservation, verification, submission_id,
+                     payment_id, budget, gate, event_type, record_id, revision, timestamp):
+    """Keep proof requirements exact; the separate action gate explains financial/state denials."""
+    evidence = ((verification.basis.before_evidence_id, verification.basis.after_evidence_id)
+                if verification is not None and verification.basis is not None else ())
+    audit = c.SettlementAuditFacts(action=context.operation, plan_id=plan.id,
+        reservation_id=reservation.id if reservation else None, payment_id=payment_id,
+        submission_id=submission_id, verification_id=verification.id if verification else None,
+        expected_job_revision=context.expected_revision if context.operation != Action.CLOSE else None,
+        actual_job_revision=job.state_revision,
+        expected_issue_revision=context.expected_revision if context.operation == Action.CLOSE else None,
+        actual_issue_revision=issue.state_revision, original_amount_cents=job.price_cents,
+        budget=budget, action_gate=gate)
+    return tx.append_event(c.NewEvent(issue_id=issue.id, job_id=job.id,
+        invocation_id=context.invocation_id, event_type=event_type, timestamp=timestamp,
+        actor=context.actor, state_revision=revision, policy_version=plan.policy_version,
+        payload=c.EventFacts(summary=f"Simulated {context.operation}: {'permitted' if gate.allowed else 'denied'}.",
+            outcome="OK" if gate.allowed else "DENIED", record_id=record_id, submission_id=submission_id,
+            evidence_ids=evidence, score_components=verification.components if verification else None,
+            gate_results=verification.prerequisites if verification else (),
+            unmet=verification.unmet if verification else (), simulated=True, settlement=audit)))
+
+
+def _financial_result(tx, *, context, fingerprint, job, record_id, revision, event, gate):
+    result = c.ToolResult(outcome="OK" if gate.allowed else "DENIED",
+        reason_code=None if gate.allowed else f"{context.operation.upper()}_DENIED",
+        data=c.EntityResult(record_id=record_id, state_revision=revision), unmet=gate.unmet,
+        evidence_ids=event.payload.evidence_ids, event_ids=(event.id,))
+    return _operator_receipt(tx, context=context, fingerprint=fingerprint,
+        issue_id=job.issue_id, job_id=job.id, result=result)
+
+
+def release_payment(store: Store, *, job_id: str, submission_id: str, context: c.MutationContext,
+                    policy_path: Path = DEFAULT_POLICY_PATH) -> c.RequestReceipt:
+    """Authorize the latest proof and consume its original reservation exactly once."""
+    policy = load_policy(policy_path)
+    job = store.get_job(job_id)
+    _financial_authorize(store, context, Action.SETTLE, job, policy, submission_id)
+    fingerprint = _operator_fingerprint(context, job_id=job_id, submission_id=submission_id)
+    with store.transaction() as tx:
+        job = store.get_job(job_id)
+        _financial_authorize(store, context, Action.SETTLE, job, policy, submission_id)
+        previous = tx.lookup_request(context, fingerprint)
+        if previous is not None:
+            return previous
+        issue, plan = store.get_issue_record(job.issue_id), store.get_plan(job.plan_id)
+        reservation = _financial_reservation(store, job)
+        budget = store.budget_availability(plan.district_id)
+        payment = store.payment_for_job(job.id)
+        submission = store.get_submission(submission_id)
+        verification = store.get_verification(job.current_verification_id) if job.current_verification_id else None
+        if verification is not None and verification.submission_id != submission_id:
+            verification = None
+        unmet = []
+        if context.expected_revision != job.state_revision:
+            unmet.append("stale_job_revision")
+        if submission_id != job.latest_submission_id:
+            unmet.append("not_latest_proof")
+        if issue.status != "RESOLUTION_ACTIVE":
+            unmet.append("issue_not_active")
+        if job.status in {"CANCELLED", "REJECTED"}:
+            unmet.append("job_terminal")
+        if plan.policy_version != policy["version"]:
+            unmet.append("policy_changed")
+        if store.open_completion_exception(job.id) is not None:
+            unmet.append("completion_exception_pending")
+        if verification is None:
+            unmet.append("current_verification_required")
+        if payment is None and job.status not in {"PAID", "CANCELLED", "REJECTED"} and "policy_changed" not in unmet:
+            reservation = _reserved_contract(store, job, plan, policy)
+        if not unmet and payment is None:
+            try:
+                _current_completion(store, job=job, submission=submission, verification=verification, policy=policy)
+            except RevisionConflict:
+                unmet.append("stale_completion_basis")
+        gate = _settlement_action_gate(policy, job, verification, already_paid=payment is not None, unmet=tuple(unmet))
+        now = datetime.now(UTC)
+        payment_id = str(uuid4()) if gate.allowed else payment.id if payment else None
+        result_id = payment_id if gate.allowed else verification.id if verification else job.id
+        revision = job.state_revision + int(gate.allowed)
+        event = _financial_event(tx, context=context, job=job, issue=issue, plan=plan,
+            reservation=reservation, verification=verification, submission_id=submission_id,
+            payment_id=payment_id, budget=budget, gate=gate,
+            event_type="SIMULATED_SETTLEMENT" if gate.allowed else "SETTLEMENT_DENIED",
+            record_id=verification.id if verification else None, revision=revision, timestamp=now)
+        if gate.allowed:
+            tx.insert_payment(c.PaymentRecord(id=payment_id, issue_id=issue.id, job_id=job.id,
+                reservation_id=reservation.id, submission_id=submission_id, verification_id=verification.id,
+                amount_cents=job.price_cents, idempotency_key=context.idempotency_key, created_at=now))
+            tx.append_ledger(c.LedgerEntry(id=str(uuid4()), budget_id=reservation.budget_id, job_id=job.id,
+                reservation_id=reservation.id, payment_id=payment_id, kind="CONSUME",
+                amount_cents=reservation.amount_cents, event_id=event.id, created_at=now))
+            tx.replace_reservation(reservation.model_copy(update={"status": "CONSUMED", "closed_at": now,
+                "state_revision": reservation.state_revision + 1}), reservation.state_revision)
+            tx.replace_job(job.model_copy(update={"status": "PAID", "paid_at": now,
+                "state_revision": revision}), job.state_revision)
+            store.budget_availability(reservation.budget_id)
+        return _financial_result(tx, context=context, fingerprint=fingerprint, job=job,
+            record_id=result_id, revision=revision, event=event, gate=gate)
+
+
+def _paid_contract(store: Store, job: c.JobRecord):
+    """Historical acceptance used for closure, never compared to today's model/policy defaults."""
+    payment = store.payment_for_job(job.id)
+    reservation, plan = store.reservation_for_job(job.id), store.get_plan(job.plan_id)
+    if payment is None or reservation is None or job.status != "PAID" or job.paid_at is None:
+        raise ValueError("job has no paid contract")
+    store.budget_availability(reservation.budget_id)
+    verification, submission = store.get_verification(payment.verification_id), store.get_submission(payment.submission_id)
+    if (reservation.status != "CONSUMED" or payment.reservation_id != reservation.id
+            or job.latest_submission_id != submission.id or job.current_verification_id != verification.id
+            or verification.submission_id != submission.id or verification.job_id != job.id
+            or verification.issue_id != job.issue_id or submission.job_id != job.id
+            or submission.issue_id != job.issue_id or submission.submitted_by.vendor_id != job.vendor_id
+            or verification.result_job_revision != job.state_revision - 1
+            or verification.result_job_revision != verification.job_revision + 1
+            or verification.job_revision < submission.job_revision
+            or verification.policy_version != plan.policy_version
+            or verification.basis is None or verification.checks is None or verification.attempt_id is None):
+        raise ValueError("paid proof relationships disagree")
+    basis = verification.basis
+    frozen = _physical_basis(basis)
+    before, after = store.get_evidence(submission.before_evidence_id), store.get_evidence(submission.after_evidence_id)
+    if basis != _completion_basis(job=job, submission=submission, plan=plan, before=before, after=after, frozen=frozen):
+        raise ValueError("paid proof basis disagrees with original contract")
+    checks = _completion_checks(store, job=job, submission=submission, before=before, after=after, plan=plan)
+    components, gates, unmet = _evaluate_completion(verification.findings, checks)
+    if (checks != verification.checks or components != verification.components
+            or gates != verification.prerequisites or unmet != verification.unmet or not all(g.allowed for g in gates)):
+        raise ValueError("paid proof lacks accepted evidence")
+    _completion_provenance(store, job, submission, verification, basis, checks, components, gates)
+    entries = store.ledger_for_reservation(reservation.id)
+    reserve, consume = next(e for e in entries if e.kind == "RESERVE"), next(e for e in entries if e.kind == "CONSUME")
+    dispatch = store.get_event(reserve.event_id)
+    dispatch_receipt = store.receipt_for_event(dispatch.id, operation=Action.DISPATCH.value)
+    event = store.get_event(consume.event_id)
+    receipt = store.receipt_for_event(event.id, operation=Action.SETTLE.value)
+    audit = event.payload.settlement
+    if (dispatch.event_type != "SIMULATED_DISPATCH" or dispatch_receipt is None
+            or dispatch_receipt.result.outcome != "OK" or dispatch.actor.actor_type != "service"
+            or dispatch_receipt.actor_id != dispatch.actor.actor_id
+            or dispatch.payload.dispatch is None or dispatch.payload.dispatch.reservation_id != reservation.id
+            or dispatch.payload.dispatch.plan_id != plan.id or dispatch.payload.dispatch.vendor_id != job.vendor_id
+            or event.event_type != "SIMULATED_SETTLEMENT" or event.actor.actor_type != "service"
+            or receipt is None or receipt.actor_id != event.actor.actor_id or receipt.result.outcome != "OK"
+            or receipt.job_id != job.id or receipt.issue_id != job.issue_id
+            or not isinstance(receipt.result.data, c.EntityResult) or receipt.result.data.record_id != payment.id
+            or receipt.result.data.state_revision != job.state_revision or event.state_revision != job.state_revision
+            or event.payload.record_id != verification.id or event.payload.submission_id != submission.id
+            or event.payload.score_components != components or event.payload.gate_results != gates
+            or event.payload.unmet != unmet or audit is None or audit.action != "settle"
+            or not audit.action_gate.allowed or audit.payment_id != payment.id or audit.plan_id != plan.id
+            or audit.reservation_id != reservation.id or audit.submission_id != submission.id
+            or audit.verification_id != verification.id or audit.original_amount_cents != payment.amount_cents
+            or audit.actual_job_revision != verification.result_job_revision
+            or audit.expected_job_revision != verification.result_job_revision
+            or payment.created_at != job.paid_at or event.timestamp != job.paid_at):
+        raise ValueError("paid contract lacks authentic settlement provenance")
+    return payment, reservation, plan, verification
+
+
+def close_issue(store: Store, *, issue_id: str, context: c.MutationContext,
+                policy_path: Path = DEFAULT_POLICY_PATH) -> c.RequestReceipt:
+    policy = load_policy(policy_path)
+    boundary = AccessBoundary(context.actor, policy["district"])
+    boundary.require(Action.CLOSE)
+    boundary.issue(store, issue_id)
+    original = store.request_for_operation(context)
+    if original is not None and original.issue_id != issue_id:
+        raise IdempotencyConflict("close key belongs to another issue")
+    job = store.get_job(original.job_id) if original else store.active_job_for_issue(issue_id)
+    if job is None:
+        raise AccessError(404, "DISPATCHED_CONTRACT_NOT_FOUND")
+    _financial_authorize(store, context, Action.CLOSE, job, policy)
+    fingerprint = _operator_fingerprint(context, issue_id=issue_id)
+    with store.transaction() as tx:
+        job = store.get_job(job.id)
+        _financial_authorize(store, context, Action.CLOSE, job, policy)
+        previous = tx.lookup_request(context, fingerprint)
+        if previous is not None:
+            event = store.get_event(previous.result.event_ids[0])
+            if (event.issue_id != issue_id or event.job_id != job.id or event.actor != context.actor
+                    or event.event_type not in {"ISSUE_RESOLVED", "CLOSURE_DENIED"}):
+                raise ValueError("close receipt lacks its original cause and contract")
+            _financial_authorize(store, context, Action.CLOSE, job, policy, event.payload.submission_id)
+            return previous
+        _financial_authorize(store, context, Action.CLOSE, job, policy, job.latest_submission_id)
+        issue, plan = store.get_issue_record(issue_id), store.get_plan(job.plan_id)
+        reservation, payment = _financial_reservation(store, job), store.payment_for_job(job.id)
+        budget = store.budget_availability(plan.district_id)
+        verification = None
+        unmet = []
+        if issue.state_revision != context.expected_revision:
+            unmet.append("stale_issue_revision")
+        if job.status != "PAID" or payment is None:
+            unmet.append("paid_outcome_required")
+        else:
+            payment, reservation, plan, verification = _paid_contract(store, job)
+        if store.open_completion_exception(job.id) is not None:
+            unmet.append("completion_exception_pending")
+        if issue.status not in {"RESOLUTION_ACTIVE", "RESOLVED"}:
+            unmet.append("issue_not_active")
+        if not unmet and issue.status == "RESOLVED":
+            if issue.accepted_submission_id != payment.submission_id or issue.resolved_at is None:
+                raise ValueError("resolved outcome differs from paid proof")
+            original = store.resolution_receipt(issue.id)
+            event = store.get_event(original.result.event_ids[0])
+            if (event.event_type != "ISSUE_RESOLVED" or event.payload.submission_id != payment.submission_id
+                    or event.state_revision != issue.state_revision or event.timestamp != issue.resolved_at):
+                raise ValueError("resolution lacks original event")
+            return _operator_receipt(tx, context=context, fingerprint=fingerprint, issue_id=issue.id,
+                job_id=job.id, result=original.result)
+        gate = c.GateRecord(name="closure", allowed=not unmet, unmet=tuple(unmet))
+        now, revision = datetime.now(UTC), issue.state_revision + int(gate.allowed)
+        event = _financial_event(tx, context=context, job=job, issue=issue, plan=plan, reservation=reservation,
+            verification=verification, submission_id=payment.submission_id if payment else job.latest_submission_id,
+            payment_id=payment.id if payment else None, budget=budget, gate=gate,
+            event_type="ISSUE_RESOLVED" if gate.allowed else "CLOSURE_DENIED", record_id=issue.id,
+            revision=revision, timestamp=now)
+        if gate.allowed:
+            tx.replace_issue(issue.model_copy(update={"status": "RESOLVED", "state_revision": revision,
+                "resolved_at": now, "accepted_submission_id": payment.submission_id}), issue.state_revision)
+        return _financial_result(tx, context=context, fingerprint=fingerprint, job=job,
+            record_id=issue.id, revision=revision, event=event, gate=gate)
+
+
+def cancel_job(store: Store, *, job_id: str, context: c.MutationContext,
+               policy_path: Path = DEFAULT_POLICY_PATH) -> c.RequestReceipt:
+    policy = load_policy(policy_path)
+    job = store.get_job(job_id)
+    _financial_authorize(store, context, Action.CANCEL, job, policy)
+    fingerprint = _operator_fingerprint(context, job_id=job_id)
+    with store.transaction() as tx:
+        job = store.get_job(job_id)
+        _financial_authorize(store, context, Action.CANCEL, job, policy)
+        previous = tx.lookup_request(context, fingerprint)
+        if previous is not None:
+            return previous
+        issue, plan = store.get_issue_record(job.issue_id), store.get_plan(job.plan_id)
+        reservation = _financial_reservation(store, job)
+        payment = store.payment_for_job(job.id)
+        budget = store.budget_availability(plan.district_id)
+        unmet = []
+        if context.expected_revision != job.state_revision:
+            unmet.append("stale_job_revision")
+        if payment is not None or job.status == "PAID":
+            unmet.append("already_paid")
+        if job.status in {"CANCELLED", "REJECTED"}:
+            unmet.append("job_terminal")
+        if plan.policy_version != policy["version"]:
+            unmet.append("policy_changed")
+        if not unmet:
+            reservation = _reserved_contract(store, job, plan, policy)
+        gate = c.GateRecord(name="cancellation", allowed=not unmet, unmet=tuple(unmet))
+        now, revision = datetime.now(UTC), job.state_revision + int(gate.allowed)
+        event = _financial_event(tx, context=context, job=job, issue=issue, plan=plan, reservation=reservation,
+            verification=None, submission_id=job.latest_submission_id, payment_id=payment.id if payment else None,
+            budget=budget, gate=gate, event_type="JOB_CANCELLED" if gate.allowed else "CANCELLATION_DENIED",
+            record_id=job.id, revision=revision, timestamp=now)
+        if gate.allowed:
+            tx.append_ledger(c.LedgerEntry(id=str(uuid4()), budget_id=reservation.budget_id, job_id=job.id,
+                reservation_id=reservation.id, kind="RELEASE", amount_cents=reservation.amount_cents,
+                event_id=event.id, created_at=now))
+            tx.replace_reservation(reservation.model_copy(update={"status": "RELEASED", "closed_at": now,
+                "state_revision": reservation.state_revision + 1}), reservation.state_revision)
+            tx.replace_job(job.model_copy(update={"status": "CANCELLED", "state_revision": revision}), job.state_revision)
+            exception = store.open_completion_exception(job.id)
+            if exception is not None:
+                tx.replace_exception(exception.model_copy(update={"status": "CANCELLED",
+                    "cancelled_at": now, "cancellation_event_id": event.id,
+                    "state_revision": exception.state_revision + 1}), exception.state_revision)
+            store.budget_availability(reservation.budget_id)
+        return _financial_result(tx, context=context, fingerprint=fingerprint, job=job,
+            record_id=job.id, revision=revision, event=event, gate=gate)

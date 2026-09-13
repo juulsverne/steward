@@ -498,6 +498,18 @@ class Store:
         return tuple(self.get_ledger_entry(row[0]) for row in self.db.execute(
             "SELECT id FROM ledger WHERE reservation_id=? ORDER BY id", (reservation_id,)))
 
+    def payment_for_job(self, job_id: str) -> c.PaymentRecord | None:
+        self.get_job(job_id)
+        row = self.db.execute("SELECT id FROM payments WHERE job_id=?", (job_id,)).fetchone()
+        return self.get_payment(row[0]) if row else None
+
+    def resolution_receipt(self, issue_id: str) -> c.RequestReceipt:
+        row = self.db.execute("SELECT id FROM request_receipts WHERE issue_id=? AND operation='close' "
+            "AND json_extract(record_json,'$.result.outcome')='OK' ORDER BY rowid LIMIT 1", (issue_id,)).fetchone()
+        if row is None:
+            raise KeyError(issue_id)
+        return self.get_request(row[0])
+
     def budget_availability(self, budget_id: str) -> c.BudgetAvailability:
         """Validate saved financial relationships and count each terminal movement once.
 

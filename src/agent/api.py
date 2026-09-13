@@ -56,12 +56,15 @@ from .operations import (
     VendorOptions,
     accept_job,
     build_resolution_plan,
+    cancel_job,
     check_in,
+    close_issue,
     dispatch_vendor,
     escalate_to_operator,
     exception_detail,
     inspect_completion,
     list_eligible_vendors,
+    release_payment,
     request_completion,
     request_rework,
     submit_proof,
@@ -947,6 +950,59 @@ def create_app(settings: ApiSettings | None = None,
         except (KeyError, ValueError):
             raise AccessError(422, "VALIDATION_ERROR") from None
         return result_response(result, status=200 if result.outcome == "OK" else 503 if result.outcome == "ERROR" else None)
+
+    async def financial_response(operation):
+        try:
+            result = await to_thread(operation)
+        except (IdempotencyConflict, RevisionConflict):
+            raise
+        except KeyError:
+            raise AccessError(404, "RESOURCE_NOT_FOUND") from None
+        except ValueError:
+            # Inconsistent stored finances/proof never become a fabricated business denial.
+            raise AccessError(503, "FINANCIAL_STATE_INVALID") from None
+        return result_response(result)
+
+    financial_headers = {"parameters": [{"name": name, "in": "header", "required": True,
+        "schema": {"type": "string"}} for name in ("Idempotency-Key", "X-Steward-Expected-Revision")]}
+
+    @app.post("/api/jobs/{job_id}/settle", response_model=c.ToolResult[c.EntityResult],
+        openapi_extra=financial_headers | {"requestBody": {"required": True, "content": {"application/json": {
+            "schema": InspectCompletionRequest.model_json_schema()}}}})
+    async def settle_job(request: Request, job_id: str):
+        context = mutation_context(request, Action.SETTLE, expected_revision=expected_revision(request))
+        body = await parse_json_request(request, InspectCompletionRequest)
+        def operation():
+            with request_store(request) as store:
+                return release_payment(store, job_id=job_id, submission_id=body.submission_id,
+                    context=context, policy_path=settings.policy_path).result
+        return await financial_response(operation)
+
+    async def no_financial_arguments(request):
+        content_length = _header(request, "content-length")
+        if content_length is not None and (not content_length.isdigit() or int(content_length) != 0):
+            raise AccessError(422, "VALIDATION_ERROR")
+        async for chunk in request.stream():
+            if chunk:
+                raise AccessError(422, "VALIDATION_ERROR")
+
+    @app.post("/api/jobs/{job_id}/cancel", response_model=c.ToolResult[c.EntityResult], openapi_extra=financial_headers)
+    async def cancel_unpaid_job(request: Request, job_id: str):
+        context = mutation_context(request, Action.CANCEL, expected_revision=expected_revision(request))
+        await no_financial_arguments(request)
+        def operation():
+            with request_store(request) as store:
+                return cancel_job(store, job_id=job_id, context=context, policy_path=settings.policy_path).result
+        return await financial_response(operation)
+
+    @app.post("/api/issues/{issue_id}/close", response_model=c.ToolResult[c.EntityResult], openapi_extra=financial_headers)
+    async def close_paid_issue(request: Request, issue_id: str):
+        context = mutation_context(request, Action.CLOSE, expected_revision=expected_revision(request))
+        await no_financial_arguments(request)
+        def operation():
+            with request_store(request) as store:
+                return close_issue(store, issue_id=issue_id, context=context, policy_path=settings.policy_path).result
+        return await financial_response(operation)
 
     @app.post("/api/jobs/{job_id}/exceptions", response_model=c.ToolResult[c.EntityResult], status_code=202,
               openapi_extra={"parameters": [{"name": name, "in": "header", "required": True,
