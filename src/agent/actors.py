@@ -127,6 +127,8 @@ class Action(StrEnum):
     SUBMIT_PROOF = "submit_proof"
     REQUEST_COMPLETION = "request_completion"
     DISPATCH = "dispatch"
+    BUILD_PLAN = "build_resolution_plan"
+    LIST_VENDORS = "list_eligible_vendors"
     INSPECT = "inspect"
     SETTLE = "settle"
     CLOSE = "close"
@@ -148,6 +150,8 @@ _ACTION_ROLES = {
     Action.SUBMIT_PROOF: {"crew"},
     Action.REQUEST_COMPLETION: {"operator"},
     Action.DISPATCH: {"service"},
+    Action.BUILD_PLAN: {"service"},
+    Action.LIST_VENDORS: {"service"},
     Action.INSPECT: {"service"},
     Action.SETTLE: {"service"},
     Action.CLOSE: {"service"},
@@ -194,6 +198,13 @@ class CrewJobView(c.Record):
     latest_submission_id: c.Text | None
     rework_instructions: c.Text | None
     simulated: Literal[True] = True
+    plan_id: c.Text
+    primary_target: c.Text | None = None
+    dispatch_location: c.LocationRecord | None = None
+    required_equipment: tuple[c.Text, ...] = ()
+    crew_count: c.Positive
+    reservation_id: c.Text | None = None
+    policy_version: c.Text
 
 
 class EvidenceView(c.Record):
@@ -275,12 +286,16 @@ class AccessBoundary:
         job = self.require_job(store, job_id)
         plan = store.get_plan(job.plan_id)
         issue = self._issue(store, job.issue_id)
+        reservation = store.reservation_for_job(job.id)
         return CrewJobView(id=job.id, issue_id=job.issue_id, vendor_id=job.vendor_id,
             status=job.status, state_revision=job.state_revision, location=issue.location,
             scope=plan.scope, work_area=plan.work_area, price_cents=job.price_cents,
             proof_requirements=plan.proof_requirements, accepted_at=job.accepted_at,
             checked_in_at=job.checked_in_at, submitted_at=job.submitted_at,
-            latest_submission_id=job.latest_submission_id, rework_instructions=job.rework_instructions)
+            latest_submission_id=job.latest_submission_id, rework_instructions=job.rework_instructions,
+            plan_id=plan.id, primary_target=plan.primary_target, dispatch_location=plan.dispatch_location,
+            required_equipment=plan.required_equipment, crew_count=plan.crew_count,
+            reservation_id=reservation.id if reservation else None, policy_version=plan.policy_version)
 
     def evidence(self, store: Store, evidence_id: str, *, job_id: str | None = None) -> EvidenceView:
         self.require(Action.READ_EVIDENCE)

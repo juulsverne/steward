@@ -181,3 +181,62 @@ use B1's typed `ToolResult`; error bodies do not echo submitted values, SQL, tra
 Signing uses [ItsDangerous timed signatures](https://itsdangerous.palletsprojects.com/en/stable/timed/).
 Validation errors use a sanitized typed envelope following
 [FastAPI's exception-handler boundary](https://fastapi.tiangolo.com/tutorial/handling-errors/).
+
+## Plans and simulated dispatch (B5)
+
+These routes consume the saved B4 classification, compatible jurisdiction, current
+trusted geocode and successful intake inspection provenance. They perform no inference.
+The service bearer is required for planning, vendor options and dispatch. Both POSTs
+require `Idempotency-Key` and `X-Steward-Expected-Revision`; that revision always names
+the **issue**, including on the plan-addressed dispatch route. Bodies reject extra fields.
+
+| Route | Body / response data |
+|---|---|
+| POST `/api/issues/{issue_id}/plan` | `{"classification_fact_id":"saved-id"}` → `EntityResult` naming the immutable plan, revision 0 |
+| GET `/api/plans/{plan_id}/vendors` | `VendorOptions`: complete saved plan, current `issue_revision`, eligible seeded vendor facts in distance/workload/performance/ID order |
+| POST `/api/plans/{plan_id}/dispatch` | `{"vendor_id":"south_loop_services"}` → `EntityResult` naming the POSTED job, revision 0 |
+| GET `/api/jobs/{job_id}` | `CrewJobView`: own-vendor crew, configured operator or service; scope, primary target, marked area, frozen coordinates/precision, equipment, crew count, price, proof requirements, plan/reservation IDs and job revision |
+| GET `/api/budget` | Configured operator/service only; `BudgetAvailability` with initial, reserved, spent and available integer cents |
+
+Successful POSTs return 201. A known authorized domain refusal saves a DENIED receipt
+and audit event, returns 403, and changes no financial state. A stale expected issue
+revision returns 409 with that persisted denial. Changed input under an existing key
+returns 409 `IDEMPOTENCY_CONFLICT`. Invalid/missing fields return 422; absent or
+out-of-scope resources return 404. Exact retries recheck current actor/resource scope
+and caller fingerprint, then return the original ToolResult and event IDs verbatim.
+
+`PlanBasis` records classification, jurisdiction and geocode IDs, each fact's version
+and original source issue revision, plus issue revisions before/after plan creation.
+Those fact versions are independent of issue revisions. It also retains supporting
+evidence IDs and `PlanInspectionReference` entries separating the requesting inspection
+and canonical signal from the original successful inference and finished claim. Cached
+associations reuse the original usage receipt. The service-only vendor response exposes
+these typed references; crew job projections omit internal evidence/model provenance.
+Older plans without a basis remain readable but cannot qualify for B5 dispatch.
+
+The primary verification target is separate from full cleanup scope and marked area.
+Dispatch coordinates and accuracy are frozen from the referenced trusted geocode;
+completion consumers must use that snapshot. The server derives integer cents and
+equipment from the rate card and saved interpreted quantity: one large couch is
+6000 + 1200 = 7200 cents, with truck/two crew and all standard proof requirements.
+The list supplies vendor facts for the model's choice; it does not automatically select
+or reserve a vendor. Choosing any currently eligible listed vendor is supported.
+
+Dispatch rechecks current evidence through the shared read-only scorer, compatible
+responsibility, all preserved unresolved hazards, location, plan/fact freshness, vendor,
+quote and journal under one SQLite writer transaction. It commits the POSTED job,
+RESERVED reservation, RESERVE ledger entry, `SIMULATED_DISPATCH` event, issue transition
+to RESOLUTION_ACTIVE and idempotency receipt together. Denied attempts preserve the
+actual plan/vendor, expected/current issue revisions, quote, budget snapshot, hazard
+sources, score components and policy gates in `EventFacts.dispatch` and sibling fields.
+No crew acceptance or pending runtime invocation is manufactured by dispatch.
+
+Budget accounting validates the saved relationships and counts outstanding RESERVE
+amounts plus spent CONSUME amounts once; Payment is not subtracted again. RELEASE frees
+the corresponding reservation. Inconsistent journals fail closed. The normal first
+dispatch displays total 50000, reserved 7200, spent 0 and available 42800 cents.
+
+B5 provides the HTTP operation and model-selected-vendor request seam. Generalized
+persisted agent intent and runtime orchestration remain B10/B11 work; B4's decision
+route still owns only its investigation decisions. Crew proof, verification, exceptions
+and settlement remain separate later cards.

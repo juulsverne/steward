@@ -80,8 +80,7 @@ def test_consistency_uses_observation_time_and_distance():
 def test_modified_asset_blocks_inference_before_it_runs(tmp_path):
     import shutil
 
-    for path in Path("data/images").iterdir():
-        shutil.copyfile(path, tmp_path / path.name)
+    shutil.copytree(Path("data/images"), tmp_path, dirs_exist_ok=True)
     (tmp_path / "after.jpg").write_bytes((tmp_path / "middle.jpg").read_bytes())
     with pytest.raises(ValueError, match="frozen manifest"):
         run_spike(tmp_path, repeats=1, interval_s=0, inspector=lambda *a, **k: pytest.fail())

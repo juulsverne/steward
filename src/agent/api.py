@@ -28,6 +28,7 @@ from .actors import (
     AccessBoundary,
     AccessError,
     Action,
+    CrewJobView,
     DemoPersona,
     DemoSessions,
     DemoSessionView,
@@ -50,12 +51,21 @@ from .investigation import (
     stable_id,
 )
 from .models import utc_time
+from .operations import VendorOptions, build_resolution_plan, dispatch_vendor, list_eligible_vendors
 from .policy import load_policy
 from .store import IdempotencyConflict, RevisionConflict, Store
 
 
 class PersonaRequest(c.Record):
     persona_id: c.OpaqueId
+
+
+class PlanRequest(c.Record):
+    classification_fact_id: c.OpaqueId
+
+
+class DispatchRequest(c.Record):
+    vendor_id: c.OpaqueId
 
 
 class IssueCreateRequest(c.Record):
@@ -424,7 +434,7 @@ def create_app(settings: ApiSettings | None = None,
     personas = _validate_setup(settings)
     app = FastAPI(title="Steward demo sandbox", description=(
         "Seeded persona simulation, not verified identity. No private information. "
-        "The only domain operation currently exposed is authenticated signal intake."), responses=ERROR_RESPONSES)
+        "Authenticated intake, investigation, planning and simulated dispatch."), responses=ERROR_RESPONSES)
     app.state.api_settings = settings
     app.state.store_factory = store_factory
     app.state.adapters = adapters or SeededAdapters()
@@ -674,6 +684,70 @@ def create_app(settings: ApiSettings | None = None,
         except ValueError:
             raise AccessError(422, "VALIDATION_ERROR") from None
         return result_response(receipt.result, status=201)
+
+    @app.get("/api/jobs/{job_id}", response_model=c.ToolResult[CrewJobView])
+    def read_job(request: Request, job_id: str):
+        actor = require_action(request, Action.READ_JOB)
+        with request_store(request) as store:
+            return c.ToolResult[CrewJobView](outcome="OK",
+                data=AccessBoundary(actor, settings.district_id).job(store, job_id))
+
+    @app.get("/api/budget", response_model=c.ToolResult[c.BudgetAvailability])
+    def read_budget(request: Request):
+        require_action(request, Action.READ_ISSUE)
+        with request_store(request) as store, store.transaction():
+            return c.ToolResult[c.BudgetAvailability](outcome="OK",
+                data=store.budget_availability(settings.district_id))
+
+    @app.post("/api/issues/{issue_id}/plan", response_model=c.ToolResult[c.EntityResult], status_code=201,
+              openapi_extra={"parameters": [{"name": name, "in": "header", "required": True,
+                  "schema": {"type": "string"}} for name in ("Idempotency-Key", "X-Steward-Expected-Revision")],
+                  "requestBody": {"required": True, "content": {"application/json": {
+                  "schema": PlanRequest.model_json_schema()}}}})
+    async def plan_issue(request: Request, issue_id: str):
+        context = mutation_context(request, Action.BUILD_PLAN, expected_revision=expected_revision(request))
+        body = await parse_json_request(request, PlanRequest)
+        try:
+            def operation():
+                with request_store(request) as store:
+                    return build_resolution_plan(store, issue_id=issue_id,
+                        classification_fact_id=body.classification_fact_id, context=context,
+                        policy_path=settings.policy_path).result
+            result = await to_thread(operation)
+        except (IdempotencyConflict, RevisionConflict):
+            raise
+        except ValueError:
+            raise AccessError(422, "VALIDATION_ERROR") from None
+        return result_response(result, status=201 if result.outcome == "OK" else
+                               409 if result.reason_code == "STALE_ISSUE_REVISION" else 403)
+
+    @app.get("/api/plans/{plan_id}/vendors", response_model=c.ToolResult[VendorOptions])
+    def eligible_vendors(request: Request, plan_id: str):
+        actor = require_action(request, Action.LIST_VENDORS)
+        with request_store(request) as store:
+            return result_response(list_eligible_vendors(store, plan_id=plan_id, actor=actor,
+                                                       policy_path=settings.policy_path))
+
+    @app.post("/api/plans/{plan_id}/dispatch", response_model=c.ToolResult[c.EntityResult], status_code=201,
+              openapi_extra={"parameters": [{"name": name, "in": "header", "required": True,
+                  "schema": {"type": "string"}} for name in ("Idempotency-Key", "X-Steward-Expected-Revision")],
+                  "requestBody": {"required": True, "content": {"application/json": {
+                  "schema": DispatchRequest.model_json_schema()}}}})
+    async def dispatch_plan(request: Request, plan_id: str):
+        context = mutation_context(request, Action.DISPATCH, expected_revision=expected_revision(request))
+        body = await parse_json_request(request, DispatchRequest)
+        try:
+            def operation():
+                with request_store(request) as store:
+                    return dispatch_vendor(store, plan_id=plan_id, vendor_id=body.vendor_id, context=context,
+                                           policy_path=settings.policy_path).result
+            result = await to_thread(operation)
+        except (IdempotencyConflict, RevisionConflict):
+            raise
+        except ValueError:
+            raise AccessError(422, "VALIDATION_ERROR") from None
+        return result_response(result, status=201 if result.outcome == "OK" else
+                               409 if result.reason_code == "STALE_ISSUE_REVISION" else 403)
 
     @app.post("/api/issues/{issue_id}/geocode", response_model=c.ToolResult[c.EntityResult])
     async def geocode_issue(request: Request, issue_id: str):

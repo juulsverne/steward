@@ -163,6 +163,41 @@ class ProofRequirements(Record):
     area_clear: bool = True
 
 
+class PlanFactReference(Record):
+    id: Text
+    fact_version: Positive
+    source_issue_revision: Nonnegative
+
+
+class PlanInspectionReference(Record):
+    """Requesting association and original successful inference are distinct records."""
+
+    inspection_id: Text
+    source_inspection_id: Text
+    claim_id: Text
+    signal_id: Text
+    evidence_id: Text
+    evidence_sha256: Digest
+    cache_key: Digest
+
+
+class PlanBasis(Record):
+    classification: PlanFactReference
+    jurisdiction: PlanFactReference
+    geocode: PlanFactReference
+    issue_revision_before_plan: Nonnegative
+    issue_revision_after_plan: Positive
+    evidence_ids: tuple[Text, ...]
+    inspections: tuple[PlanInspectionReference, ...]
+    provenance: Provenance
+
+    @model_validator(mode="after")
+    def revision_transition(self):
+        if self.issue_revision_after_plan != self.issue_revision_before_plan + 1:
+            raise ValueError("plan basis requires exactly one issue revision transition")
+        return self
+
+
 class PlanRecord(Record):
     id: Text
     issue_id: Text
@@ -179,6 +214,10 @@ class PlanRecord(Record):
     policy_version: Text
     state_revision: Nonnegative = 0
     created_at: Timestamp
+    # Absent only on legacy B1 rows. B5 never qualifies a legacy plan for dispatch.
+    primary_target: Text | None = None
+    dispatch_location: LocationRecord | None = None
+    basis: PlanBasis | None = None
 
 
 class VendorRecord(Record):
@@ -405,6 +444,26 @@ class LedgerEntry(Record):
         return self
 
 
+class BudgetAvailability(Record):
+    budget_id: Text
+    initial_cents: Nonnegative
+    reserved_cents: Nonnegative
+    spent_cents: Nonnegative
+    available_cents: Nonnegative
+
+
+class DispatchAuditFacts(Record):
+    plan_id: Text
+    vendor_id: Text
+    expected_issue_revision: Nonnegative
+    actual_issue_revision: Nonnegative
+    computed_quote_cents: Positive | None = None
+    budget: BudgetAvailability | None = None
+    reservation_id: Text | None = None
+    unresolved_hazards: tuple[Text, ...] = ()
+    hazard_sources: tuple[HazardSource, ...] = ()
+
+
 class EventFacts(Record):
     """Typed audit facts. No public free-form write-any-record payload."""
 
@@ -422,6 +481,7 @@ class EventFacts(Record):
     provenance: Provenance | None = None
     simulated: bool | None = None
     metadata: ModelRunMetadata | None = None
+    dispatch: DispatchAuditFacts | None = None
 
 
 class NewEvent(Record):

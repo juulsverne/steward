@@ -15,7 +15,7 @@ from uuid import uuid4
 
 from . import contracts as c
 from .migrations import SCHEMA_VERSION, migrate
-from .models import PROVENANCE, ServiceRecord, Signal, nonempty
+from .models import PROVENANCE, EvidenceScore, ServiceRecord, Signal, nonempty
 from .scoring import dispute_supported, score_evidence
 
 POLICY_VERSION = "south-loop-v3"
@@ -128,7 +128,8 @@ class Store:
         record = issue["service_record"]
         score = score_evidence(
             self._signals(issue_id),
-            precise_geocode=geocode is not None and geocode["accuracy_m"] <= PRECISE_GEOCODE_MAX_M,
+            precise_geocode=(geocode is not None and geocode.get("accuracy_m") is not None
+                             and geocode["accuracy_m"] <= PRECISE_GEOCODE_MAX_M),
             matching_service_record=ServiceRecord.from_dict(record) if record else None,
         ).to_dict()
         self.db.execute(
@@ -455,6 +456,95 @@ class Store:
 
     def get_vendor(self, record_id: str) -> c.VendorRecord:
         return self._record(c.VendorRecord, record_id)
+
+    def list_vendors(self) -> tuple[c.VendorRecord, ...]:
+        return tuple(self.get_vendor(row[0]) for row in self.db.execute("SELECT id FROM vendors ORDER BY id"))
+
+    def current_evidence_score(self, issue_id: str) -> EvidenceScore:
+        """Recompute with the shared scorer, without changing a revision or score cache.
+
+        The applied service-record conflict is authoritative for COMPLETED disputes.
+        Current typed geocode, including unresolved replacements, owns precision.
+        """
+        issue = self.get_issue(issue_id)
+        geocode = self.current_issue_facts(issue_id).geocode
+        location = geocode.location if geocode is not None else None
+        record = issue["service_record"]
+        return score_evidence(self._signals(issue_id), precise_geocode=(
+            location is not None and location.accuracy_m is not None
+            and location.accuracy_m <= PRECISE_GEOCODE_MAX_M),
+            matching_service_record=ServiceRecord.from_dict(record) if record else None)
+
+    def active_job_for_issue(self, issue_id: str) -> c.JobRecord | None:
+        self.get_issue_record(issue_id)
+        row = self.db.execute("SELECT id FROM jobs WHERE issue_id=? "
+            "AND status NOT IN ('CANCELLED','REJECTED')", (issue_id,)).fetchone()
+        return self.get_job(row[0]) if row else None
+
+    def job_for_plan(self, plan_id: str) -> c.JobRecord | None:
+        self.get_plan(plan_id)
+        row = self.db.execute("SELECT id FROM jobs WHERE plan_id=?", (plan_id,)).fetchone()
+        return self.get_job(row[0]) if row else None
+
+    def reservation_for_job(self, job_id: str) -> c.ReservationRecord | None:
+        self.get_job(job_id)
+        row = self.db.execute("SELECT id FROM reservations WHERE job_id=?", (job_id,)).fetchone()
+        return self.get_reservation(row[0]) if row else None
+
+    def budget_availability(self, budget_id: str) -> c.BudgetAvailability:
+        """Validate saved financial relationships and count each terminal movement once.
+
+        Call inside the dispatch writer transaction for a spend decision. A missing or
+        inconsistent ledger fails closed; neither a Payment nor status alone spends funds.
+        """
+        budget = self.get_budget(budget_id)
+        reserved = spent = 0
+        for row in self.db.execute("SELECT id FROM reservations WHERE budget_id=?", (budget_id,)):
+            reservation = self.get_reservation(row[0])
+            job = self.get_job(reservation.job_id)
+            plan = self.get_plan(job.plan_id)
+            entries = [self.get_ledger_entry(r[0]) for r in self.db.execute(
+                "SELECT id FROM ledger WHERE reservation_id=? ORDER BY id", (reservation.id,))]
+            kinds = {entry.kind for entry in entries}
+            expected = {"RESERVE"} | ({"CONSUME"} if reservation.status == "CONSUMED" else
+                                     {"RELEASE"} if reservation.status == "RELEASED" else set())
+            if (kinds != expected or len(entries) != len(expected)
+                    or reservation.issue_id != job.issue_id or plan.issue_id != job.issue_id
+                    or plan.district_id != budget.id or plan.policy_version != budget.policy_version
+                    or plan.quote_cents != job.price_cents or job.price_cents != reservation.amount_cents
+                    or (reservation.status == "RESERVED" and job.status in {"CANCELLED", "REJECTED", "PAID"})
+                    or (reservation.status == "CONSUMED" and job.status != "PAID")
+                    or (reservation.status == "RELEASED" and job.status not in {"CANCELLED", "REJECTED"})
+                    or (reservation.status == "RESERVED") != (reservation.closed_at is None)):
+                raise ValueError("inconsistent reservation lifecycle")
+            for entry in entries:
+                event = self.get_event(entry.event_id)
+                if (entry.budget_id != budget.id or entry.job_id != job.id
+                        or entry.amount_cents != reservation.amount_cents
+                        or event.job_id != job.id or event.issue_id != job.issue_id
+                        or event.policy_version != budget.policy_version or event.payload.outcome != "OK"):
+                    raise ValueError("inconsistent ledger relationships")
+            payments = [self.get_payment(r[0]) for r in self.db.execute(
+                "SELECT id FROM payments WHERE reservation_id=? OR job_id=?", (reservation.id, job.id))]
+            if reservation.status == "CONSUMED":
+                consume = next(entry for entry in entries if entry.kind == "CONSUME")
+                if len(payments) != 1:
+                    raise ValueError("consumption requires exactly one payment")
+                payment = payments[0]
+                if (consume.payment_id != payment.id or payment.reservation_id != reservation.id
+                        or payment.job_id != job.id or payment.issue_id != job.issue_id
+                        or payment.amount_cents != reservation.amount_cents):
+                    raise ValueError("inconsistent payment relationships")
+                spent += consume.amount_cents
+            elif payments:
+                raise ValueError("unconsumed reservation has payment")
+            elif reservation.status == "RESERVED":
+                reserved += reservation.amount_cents
+        available = budget.initial_cents - reserved - spent
+        if available < 0:
+            raise ValueError("budget is overcommitted")
+        return c.BudgetAvailability(budget_id=budget.id, initial_cents=budget.initial_cents,
+            reserved_cents=reserved, spent_cents=spent, available_cents=available)
 
     def get_job(self, record_id: str) -> c.JobRecord:
         return self._record(c.JobRecord, record_id)
