@@ -31,4 +31,3 @@ Edit this synthetic demo photograph. Remove the entire brown couch, all three bl
 ### unrelated
 
 Create one photorealistic synthetic demo photograph, landscape 4:3. Phone camera at eye level of a city pedestrian plaza with a bike rack and modern bus shelter, glass office tower behind, broad pale stone pavement, bright sunny afternoon. No couch, no trash, no people, no text overlays or readable signs. Different from a residential brick-building sidewalk: this is an unrelated scene used as a negative verification fixture.
-
