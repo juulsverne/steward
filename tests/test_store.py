@@ -73,17 +73,63 @@ def test_failed_audit_write_rolls_back_signal_and_score(tmp_path):
             assert conn.execute("SELECT count(*) FROM signals").fetchone()[0] == 0
 
 
-def test_completed_service_record_adds_points_but_never_closes(tmp_path):
+COMPLETED = {
+    "id": "demo-service-1", "status": "COMPLETED", "provenance": "seeded",
+    "completed_at": "2026-09-11T20:41:00Z",
+}
+
+
+def test_completed_record_is_a_pending_conflict_until_two_newer_observations(tmp_path):
     with setup_store(tmp_path / "state.sqlite3") as store:
         store.add_signal("couch", report())
-        result = store.record_service_match("couch", {
-            "id": "demo-service-1", "status": "COMPLETED", "provenance": "seeded",
-            "completed_at": "2026-09-11T20:41:00Z",
-        })
-        assert result["evidence_score"] == 80
-        assert result["status"] == "CANDIDATE"
+        result = store.record_service_match("couch", COMPLETED)
+        assert result["evidence_score"] == 65
+        assert result["service_record"]["conflict"] == "pending"
+        assert result["service_record"]["completed_at"] == "2026-09-11T20:41:00+00:00"
+        assert store.events("couch")[-1]["event_type"] == "SERVICE_MATCH_RECORDED"
+        with pytest.raises(ValueError, match="not supported"):
+            store.confirm_official_dispute("couch")
+        corroborated = store.add_signal("couch", report("s2", "resident-2", "Sofa and bags remain"))
+        assert corroborated["evidence_score"] == 85
+        disputed = store.confirm_official_dispute("couch")
+        assert disputed["evidence_score"] == 100
+        assert disputed["service_record"]["conflict"] == "disputed"
+        assert disputed["status"] == "CANDIDATE"
         events = store.events("couch")
-        store.record_service_match("couch", result["service_record"])
+        assert events[-1]["event_type"] == "OFFICIAL_STATUS_DISPUTED"
+        assert events[-1]["payload"]["score"]["total"] == 100
+        assert store.confirm_official_dispute("couch") == disputed
+        assert store.record_service_match("couch", COMPLETED) == disputed
+        assert store.events("couch") == events
+
+
+def test_open_record_corroborates_and_cannot_be_disputed(tmp_path):
+    with setup_store(tmp_path / "state.sqlite3") as store:
+        store.add_signal("couch", report())
+        result = store.record_service_match(
+            "couch", {**COMPLETED, "status": "OPEN", "completed_at": None}
+        )
+        assert result["evidence_score"] == 80
+        assert result["service_record"]["conflict"] == "none"
+        with pytest.raises(ValueError, match="no completed"):
+            store.confirm_official_dispute("couch")
+
+
+@pytest.mark.parametrize("record", [
+    {**COMPLETED, "status": "DONE"},
+    {**COMPLETED, "completed_at": None},
+    {**COMPLETED, "provenance": "maybe"},
+    {**COMPLETED, "conflict": "disputed"},
+    {k: v for k, v in COMPLETED.items() if k != "provenance"},
+])
+def test_invalid_service_records_do_not_mutate(tmp_path, record):
+    with setup_store(tmp_path / "state.sqlite3") as store:
+        store.add_signal("couch", report())
+        before = store.get_issue("couch")
+        events = store.events("couch")
+        with pytest.raises(ValueError):
+            store.record_service_match("couch", record)
+        assert store.get_issue("couch") == before
         assert store.events("couch") == events
 
 

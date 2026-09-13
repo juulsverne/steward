@@ -6,14 +6,15 @@ import json
 import math
 import sqlite3
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Self
 
-from .models import PROVENANCE, Signal, nonempty, utc_time
-from .scoring import score_evidence
+from .models import PROVENANCE, ServiceRecord, Signal, nonempty
+from .scoring import dispute_supported, score_evidence
 
-POLICY_VERSION = "south-loop-foundation-v1"
+POLICY_VERSION = "south-loop-foundation-v2"
 PRECISE_GEOCODE_MAX_M = 30
 SCHEMA_VERSION = 1
 
@@ -118,18 +119,21 @@ class Store:
             result = self.get_issue(issue_id)
         return result
 
-    def _refresh_score(self, issue_id: str) -> dict:
-        issue = self.get_issue(issue_id)
+    def _signals(self, issue_id: str) -> list[Signal]:
         rows = self.db.execute(
             "SELECT s.payload FROM signals s JOIN issue_sources x ON x.signal_id = s.id "
             "WHERE x.issue_id = ? ORDER BY s.id", (issue_id,),
         ).fetchall()
-        signals = [Signal.from_dict(json.loads(row["payload"])) for row in rows]
+        return [Signal.from_dict(json.loads(row["payload"])) for row in rows]
+
+    def _refresh_score(self, issue_id: str) -> dict:
+        issue = self.get_issue(issue_id)
         geocode = issue["geocode"]
+        record = issue["service_record"]
         score = score_evidence(
-            signals,
+            self._signals(issue_id),
             precise_geocode=geocode is not None and geocode["accuracy_m"] <= PRECISE_GEOCODE_MAX_M,
-            matching_service_record=issue["service_record"] is not None,
+            matching_service_record=ServiceRecord.from_dict(record) if record else None,
         ).to_dict()
         self.db.execute(
             "UPDATE issues SET evidence_score = ?, score_json = ? WHERE id = ?",
@@ -185,25 +189,55 @@ class Store:
         return result
 
     def record_service_match(self, issue_id: str, record: dict) -> dict:
-        """Record a supplied matching-record fact, not a lookup or a physical dispute."""
+        """Record a supplied matching-record fact, not a lookup or a physical dispute.
+
+        A COMPLETED record starts as a pending conflict and credits no points until
+        ``confirm_official_dispute`` finds two independent newer observations.
+        """
         if set(record) != {"id", "status", "provenance", "completed_at"}:
             raise ValueError("service record requires id, status, provenance, completed_at")
-        nonempty(record["id"], "record.id")
-        nonempty(record["status"], "record.status")
-        if record["provenance"] not in PROVENANCE:
-            raise ValueError("service record needs explicit provenance")
-        record = dict(record)
-        if record["completed_at"] is not None:
-            record["completed_at"] = utc_time(record["completed_at"]).isoformat()
+        parsed = ServiceRecord(
+            **record, conflict="pending" if record["status"] == "COMPLETED" else "none"
+        )
         with self._write():
             issue = self._require_open(issue_id)
-            if issue["service_record"] != record:
+            current = issue["service_record"]
+            same_fact = current is not None and all(
+                current[key] == parsed.to_dict()[key] for key in record
+            )
+            if not same_fact:
                 self.db.execute(
                     "UPDATE issues SET service_record_json = ? WHERE id = ?",
-                    (encoded(record), issue_id),
+                    (encoded(parsed.to_dict()), issue_id),
                 )
                 self._event(issue_id, "SERVICE_MATCH_RECORDED", {
-                    "record": record, "score": self._refresh_score(issue_id),
+                    "record": parsed.to_dict(), "score": self._refresh_score(issue_id),
+                })
+            result = self.get_issue(issue_id)
+        return result
+
+    def confirm_official_dispute(self, issue_id: str) -> dict:
+        """Deterministic gate: two independent observations newer than the completed record."""
+        with self._write():
+            issue = self._require_open(issue_id)
+            current = issue["service_record"]
+            if current is None or current["status"] != "COMPLETED":
+                raise ValueError("no completed service record to dispute")
+            record = ServiceRecord.from_dict(current)
+            if record.conflict != "disputed":
+                if not dispute_supported(self._signals(issue_id), record):
+                    raise ValueError(
+                        "dispute not supported: need two independent observations "
+                        "newer than the official completion"
+                    )
+                disputed = replace(record, conflict="disputed").to_dict()
+                self.db.execute(
+                    "UPDATE issues SET service_record_json = ? WHERE id = ?",
+                    (encoded(disputed), issue_id),
+                )
+                self._event(issue_id, "OFFICIAL_STATUS_DISPUTED", {
+                    "record": disputed, "score": self._refresh_score(issue_id),
+                    "evidence_ids": issue["signal_ids"],
                 })
             result = self.get_issue(issue_id)
         return result
