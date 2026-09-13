@@ -1,0 +1,12 @@
+{
+  "version": "south-loop-foundation-v1",
+  "district": "south_loop_demo",
+  "provenance": "seeded",
+  "actionable_min_score": 70,
+  "precise_geocode_max_m": 30,
+  "image_points": 30,
+  "independent_source_points": 20,
+  "independent_source_cap": 2,
+  "precise_geocode_points": 15,
+  "service_match_points": 15
+}
