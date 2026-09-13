@@ -51,3 +51,22 @@ This is a hosting-contract conflict, not a reason to redesign the local couch. K
 2. Verified live Bedrock and four pairings × three after AWS login; all twelve expected outcomes passed and the earlier login failure remains retained.
 3. Started Tier 1B-i with tested pure policy and seeded fixtures. Next: transactional state/API, then Strands HTTP tools and event invocation. Review actor binding, denial events, proof races, dependency declarations and resume contracts before executing those remaining draft tasks.
 4. Pass sixteen steps through the API before surfaces; pass UI flow before hosting. Resolve the hosting durability conflict at the hosting gate.
+
+## End-to-end build-guide review — September 13
+
+Reviewed checkout `dd6c61e` and replaced the short tier checklist in [BUILD_PLAN.md](BUILD_PLAN.md) with a complete guide for learning and handoff. Each task explains what is built, why, its dependencies/connections, implementation files, construction steps and inspectable completion evidence. The guide includes plain-language AWS service roles, data/workflow/build graphs, trigger-specific context, all presentation/hosting/optional/release work, and PRD/demo coverage tables. Historical checkpoints and decisions are retained.
+
+Fresh verification: `uv run --no-sync pytest -q` returned **129 passed in 2.15s**; `uv run --no-sync ruff check .` returned **All checks passed**. The installed environment required access outside the restricted shell. Source inspection confirms `core.py` still has the starter prompt/registry, `server.py` only the starter health/ask routes, and `store.py` only the schema-1 foundation. The retained September 13 preflight and vision artifacts have passed results; they were inspected, not rerun. This review did not change application code, call Bedrock, audit the Mac, push, or deploy.
+
+| Finding | Explicit build owner |
+|---|---|
+| Receipt must survive unresolved location/matching; current store immediately links | B1/B3/B4: unlinked signal persistence and later validated matching |
+| Jobs, actor events, evidence submissions, ledger, decisions and invocation recovery are absent | B1–B9/B12: persistent records, API permissions and transactional behavior |
+| Pure policy/vision helpers are not mutation-boundary enforcement | B5/B7/B9/B10: current-state gates on real HTTP operations |
+| Agent instructions, HTTP tools and per-trigger context are absent | B10–B12: one domain agent, context contracts, bounded event processing and traces |
+| API criteria 5/15 precede screens | B13 verifies response data; P7 separately verifies actual UI comparison and Board |
+| Private engineering notes are incomplete/stale and cannot be a public build prerequisite | Public guide carries the complete handoff and maps every PRD requirement/demo criterion |
+| PRD vision open-item wording and architecture threshold-choice wording lag verified code/docs | Guide identifies the dated 12/12 spike and locked 30 m threshold; no scope/number changes |
+| Hosted records and uploaded image bytes need durable ownership; accepted events need recoverable processing | H1 decision/proof before H2–H6 deployment integration |
+
+The local implementation is ready to continue at B1. The guide does not claim the workflow is already wired, the evaluation has run, or hosted persistence is resolved. App Runner storage documentation was rechecked and still confirms the existing conflict; no replacement architecture was silently selected.
