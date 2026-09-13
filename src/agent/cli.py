@@ -16,7 +16,9 @@ console = Console()
 def main() -> int:
     logging.basicConfig(level=settings.log_level)
 
-    console.print(f"[dim]model: {settings.model_id}  region: {settings.region}[/dim]")
+    console.print(
+        f"[dim]text model: {settings.resolved_text_model_id}  region: {settings.region}[/dim]"
+    )
     console.print("[dim]Type your request. Ctrl-C or 'exit' to quit.[/dim]\n")
 
     agent = build_agent()

@@ -57,7 +57,7 @@ def inspect_pair_result(
     if not target.strip() or not work_area.strip():
         raise ValueError("target and work area are required")
     response = (client if client is not None else build_vision_client()).converse(
-        modelId=settings.model_id, system=[{"text": SYSTEM_PROMPT}],
+        modelId=settings.resolved_vision_model_id, system=[{"text": SYSTEM_PROMPT}],
         inferenceConfig={"maxTokens": 1024, "temperature": 0},
         messages=[{"role": "user", "content": [
             {"text": "BEFORE:"}, {"image": {"format": "jpeg", "source": {"bytes": before}}},
@@ -76,7 +76,8 @@ def inspect_pair_result(
     blocks = message.get("content", [])
     uses = [block["toolUse"] for block in blocks if "toolUse" in block]
     metadata = {
-        "structured_outputs": uses, "model_id": settings.model_id, "region": settings.region,
+        "structured_outputs": uses, "model_id": settings.resolved_vision_model_id,
+        "vision_model_id": settings.resolved_vision_model_id, "region": settings.region,
         "prompt_version": PROMPT_VERSION, "usage": response.get("usage", {}),
         "metrics": response.get("metrics", {}), "stop_reason": response.get("stopReason"),
         "request_id": response.get("ResponseMetadata", {}).get("RequestId"),

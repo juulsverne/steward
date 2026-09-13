@@ -26,7 +26,7 @@ The competition proof is one couch: wait at evidence score 65; corroborate at 85
 - [Post-competition company vision](docs/VISION.md)
 - [Coding-agent instructions](AGENTS.md)
 
-Deadline: Monday, September 14, 2026 at **5 PM Pacific / 7 PM Chicago**. Internal submission target is two hours earlier. One Strands agent, evaluated Bedrock models, deterministic policy. Sonnet remains the current default; cheaper text candidates passed a basic tool screen, but the tested cheaper vision candidates failed the partial-cleanup case. Separate role configuration and domain qualification remain planned. Build order: core proof through the API, then the React surfaces and evaluation, then AgentCore Runtime with App Runner hosting, then optional flags.
+Deadline: Monday, September 14, 2026 at **5 PM Pacific / 7 PM Chicago**. Internal submission target is two hours earlier. One Strands agent, evaluated Bedrock models, deterministic policy. Sonnet remains the current default; cheaper text candidates passed a basic tool screen, but the tested cheaper vision candidates failed the partial-cleanup case. Separate role configuration is implemented; domain qualification remains open. Build order: core proof through the API, then the React surfaces and evaluation, then AgentCore Runtime with App Runner hosting, then optional flags.
 
 ## Run the existing starter
 
@@ -80,7 +80,7 @@ uv run --no-sync python -m agent.bedrock_check
 uv run --no-sync python -m agent.vision_spike --images data/images --repeats 3
 ```
 
-The preflight requires a successful tool result and final model reply. The spike requires twelve expected outcomes, including partial score 90, complete score 100, and scene/reuse rejection. It currently uses `BEDROCK_MODEL_ID` through Converse without constructing another agent. Results and failures are retained under `.steward/`; [VISION_SPIKE.md](docs/VISION_SPIKE.md) reports the Sonnet qualification, and [MODEL_SELECTION.md](docs/MODEL_SELECTION.md) records the later multi-model component screen. These commands do not dispatch, pay, or resolve an issue.
+The preflight requires a successful tool result and final model reply. The spike requires twelve expected outcomes, including partial score 90, complete score 100, and scene/reuse rejection. The preflight resolves `BEDROCK_TEXT_MODEL_ID`; the spike resolves `BEDROCK_VISION_MODEL_ID`; each falls back to `BEDROCK_MODEL_ID` and then Sonnet. Leave both role overrides blank for the default run. For candidate comparisons, use the role-explicit commands in [MODEL_SELECTION.md](docs/MODEL_SELECTION.md#7-reproduce-the-current-screen). Results and failures are retained under `.steward/`; [VISION_SPIKE.md](docs/VISION_SPIKE.md) reports the Sonnet qualification, and [MODEL_SELECTION.md](docs/MODEL_SELECTION.md) records the later multi-model component screen. These commands do not dispatch, pay, or resolve an issue.
 
 ## Project layout
 
@@ -92,7 +92,7 @@ docs/           Locked specifications, acceptance, evaluation, submission
 scripts/        Existing environment/preflight helpers
 ```
 
-Next: verify the foundation, prepare H1's early storage/cost recommendation, add M0's separate model settings and B1's complete records, then follow the backend/agent tasks through the API gate. UI, evaluation and hosting follow the recorded dependencies. [BUILD_PLAN section 12](docs/BUILD_PLAN.md#12-handoff-and-delegation-how-someone-else-builds-from-this-guide) assigns coding sub-agents, models, shared ownership and review gates. Hosted-storage implementation remains conditional on the recorded architecture decision and deployment authorization.
+Next: verify the foundation, prepare H1's early storage/cost recommendation, use M0's completed role-setting boundary and build B1's complete records, then follow the backend/agent tasks through the API gate. UI, evaluation and hosting follow the recorded dependencies. [BUILD_PLAN section 12](docs/BUILD_PLAN.md#12-handoff-and-delegation-how-someone-else-builds-from-this-guide) assigns coding sub-agents, models, shared ownership and review gates. Hosted-storage implementation remains conditional on the recorded architecture decision and deployment authorization.
 
 ## Demo boundaries and license
 

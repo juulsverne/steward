@@ -57,7 +57,7 @@ def build_check_agent():
 
     return Agent(
         model=BedrockModel(
-            model_id=settings.model_id, region_name=settings.region, temperature=0, max_tokens=256,
+            model_id=settings.resolved_text_model_id, region_name=settings.region, temperature=0, max_tokens=256,
             boto_client_config=Config(connect_timeout=10, read_timeout=60,
                                       retries={"mode": "standard", "total_max_attempts": 2}),
         ),
@@ -70,7 +70,9 @@ def run_check(*, agent_factory=None) -> dict:
 
     summary = {
         "checked_at": datetime.now(UTC).isoformat(), "mode": "live",
-        "model_id": settings.model_id, "region": settings.region, "prompt": PROMPT,
+        "model_id": settings.resolved_text_model_id,
+        "text_model_id": settings.resolved_text_model_id,
+        "region": settings.region, "prompt": PROMPT,
         "passed": False, "tools_called": [], "messages": [],
     }
     started = time.perf_counter()

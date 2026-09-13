@@ -4,7 +4,15 @@ Reviewed September 13, 2026. The owner has changed the earlier “Sonnet for eve
 
 This document owns the model-selection protocol referenced by the [PRD](PRD.md), [architecture](ARCHITECTURE.md), [build guide](BUILD_PLAN.md) and [evaluation](EVALUATION.md). It does not relax the couch, authority, payment or release requirements.
 
-**Current result:** eight models completed the existing basic tool check. Five also received the same four photo comparisons. Only Sonnet matched all four expected photo outcomes. Three cheaper models incorrectly accepted partial cleanup. We therefore have credible cheaper text candidates, but no demonstrated cheaper replacement for the current photo inspector. The application default remains Sonnet; separate model settings and the complete text-workflow evaluation are still to build.
+**Current result:** eight models completed the existing basic tool check. Five also received the same four photo comparisons. Only Sonnet matched all four expected photo outcomes. Three cheaper models incorrectly accepted partial cleanup. We therefore have credible cheaper text candidates, but no demonstrated cheaper replacement for the current photo inspector. The application default remains Sonnet; the separate model-setting boundary is implemented, while complete text-workflow evaluation remains open.
+
+**M0 implementation receipt, September 13:** `BEDROCK_TEXT_MODEL_ID` and
+`BEDROCK_VISION_MODEL_ID` now independently fall back to `BEDROCK_MODEL_ID`, including
+blank settings. The Strands agent and bounded tool preflight resolve the text role; the
+trusted inspector and frozen vision spike resolve the image role. Their logs/artifacts
+record the resolved role/model ID. Offline routing and fallback tests pass. This is a
+configuration boundary, not a model promotion: Sonnet remains the default, and text
+domain qualification, end-to-end API criteria, and full evaluation remain open.
 
 ## 1. What we are paying a model to do
 
@@ -105,12 +113,12 @@ A separate image request adds value because it has a distinct input and contract
 
 ## 5. What builders must implement, and when
 
-These are planned changes, not features already present. [M0 in the build guide](BUILD_PLAN.md#m0-select-models-by-job--initial-screen-complete-integration-and-qualification-open) coordinates them.
+The M0 configuration boundary in the first two rows is implemented; the remaining evaluation and deployment work stays planned. [M0 in the build guide](BUILD_PLAN.md#m0-select-models-by-job--initial-screen-complete-integration-and-qualification-open) coordinates the gates.
 
 | Deliverable | How to build it | Dependencies and completion evidence |
 |---|---|---|
-| Independent model settings | Extend `config.py` with planned `BEDROCK_TEXT_MODEL_ID` and `BEDROCK_VISION_MODEL_ID`. Each falls back to existing `BEDROCK_MODEL_ID` for compatibility. Keep the default Sonnet until promotion is supported by evidence. Log the resolved ID, region and profile | Before B11/B7 integration; tests prove different IDs reach the correct clients and old single-model configuration still works |
-| Correct call ownership | `core.py` builds one text-model agent. `vision.py` uses the image ID. B4 intake inspection and B7 completion inspection load persisted images through trusted API services. `vision_spike.py` logs the actual image ID; `bedrock_check.py` logs the actual text ID | B4/B7/B10/B11; no hidden second workflow, no model-controlled inspection facts, local/hosted parity |
+| Independent model settings | `config.py` resolves `BEDROCK_TEXT_MODEL_ID` and `BEDROCK_VISION_MODEL_ID`, each falling back to `BEDROCK_MODEL_ID` for compatibility. Sonnet remains the default until promotion is supported by evidence. Role artifacts/logs record the resolved ID and region | M0 component boundary complete; tests prove different IDs reach the correct clients and old single-model configuration still works. Profile receipts remain for B11/B7/H3 |
+| Correct call ownership | `core.py` builds one text-model agent and the terminal banner names its resolved text model. `vision.py` uses the image ID. `vision_spike.py` logs the actual image ID; `bedrock_check.py` logs the actual text ID | M0 component boundary complete. B4 intake inspection and B7 completion inspection still load persisted images through trusted API services; B10/B11 establish local/hosted parity |
 | Small text quality cases | Freeze descriptions, related-issue candidates, official-record contradictions, missing addresses, hazards and next-action expectations before inference. Include copied witnesses and mixed couch/electrical hazards | Can author alongside B4. Grade structured proposals; do not award credit just because a downstream gate stopped a bad request |
 | Role qualification | First use the small cases to reject unsuitable candidates. For image promotion run all four pairings × three repeats; then run the intake cases and existing negative tests. Publish every failure | B4/B7 before using a replacement in acceptance; unknowns cannot turn into “true,” partial must remain 90, complete 100, scene/reuse negatives denied |
 | Workflow qualification | Run all sixteen API criteria for the proposed text+image pair; then the twenty-two frozen evaluation scenarios with the same configuration. Preserve both baseline and candidate outputs | B13 and P8 respectively. No cheaper configuration is called fully qualified until both gates pass |
@@ -137,14 +145,15 @@ Hosting, durable storage, CloudWatch, data transfer and optional service calls a
 
 Use the existing package environment and valid local AWS credentials. These commands send the synthetic fixture to Bedrock and incur inference charges. They do not change `.env` or the application default. Use a new artifact prefix for each run so failed outputs are never overwritten.
 
-PowerShell example, changing only the candidate and output prefix:
+PowerShell example for an image-capable candidate, changing only the candidate and output prefix. Set each role explicitly so a lingering `.env` or process override cannot run a different model:
 
 ```powershell
-$env:BEDROCK_MODEL_ID = 'us.amazon.nova-lite-v1:0'
+$env:BEDROCK_TEXT_MODEL_ID = 'us.amazon.nova-lite-v1:0'
 uv run --no-sync python -m agent.bedrock_check --out .steward/my-nova-lite-tools.json
+$env:BEDROCK_VISION_MODEL_ID = 'us.amazon.nova-lite-v1:0'
 uv run --no-sync python -m agent.vision_spike --repeats 1 --interval 1 --out .steward/my-nova-lite-screen.json
 ```
 
-Run only the first command for the three text-only candidates. Use `--repeats 3` and a new output path for full vision qualification. The one-repeat vision command's nonzero exit is expected; inspect the per-pair expectations rather than changing the checker to call a screen a pass. After separate role settings are implemented, set/log the appropriate role variable as well; a lingering role override must not make a comparison silently test the wrong model.
+For each text-only candidate, set only `BEDROCK_TEXT_MODEL_ID` and run only the preflight command; never run the vision spike for it. Use `--repeats 3` and a new output path for full vision qualification. The one-repeat vision command's nonzero exit is expected; inspect the per-pair expectations rather than changing the checker to call a screen a pass. Artifacts record the resolved role ID, but commands must still set the intended role explicitly.
 
 The public artifact records the code/lock hashes used by this screen. The complete Steward evaluation command remains planned under P8; a generic time-tool success cannot substitute for it.

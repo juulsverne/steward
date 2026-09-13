@@ -100,7 +100,9 @@ def run_spike(images: Path, *, repeats: int = 3, interval_s: float = 7,
             raise ValueError(f"image differs from frozen manifest: {role}")
     results = {
         "ran_at": datetime.now(UTC).isoformat(), "mode": "live" if inspector is None else "test",
-        "model_id": settings.model_id, "region": settings.region, "repeats": repeats,
+        "model_id": settings.resolved_vision_model_id,
+        "vision_model_id": settings.resolved_vision_model_id,
+        "region": settings.region, "repeats": repeats,
         "temperature": 0, "max_tokens": 1024, "system_prompt": SYSTEM_PROMPT,
         "prompt_version": PROMPT_VERSION, "target": TARGET, "work_area": WORK_AREA,
         "images": hashes, "consistency_inputs": metadata, "pairings": {}, "passed": False,

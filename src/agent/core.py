@@ -34,7 +34,7 @@ Operating principles:
 def build_model() -> BedrockModel:
     """Bedrock model provider, configured from the environment."""
     return BedrockModel(
-        model_id=settings.model_id,
+        model_id=settings.resolved_text_model_id,
         region_name=settings.region,
         temperature=settings.temperature,
     )
@@ -57,5 +57,6 @@ def build_agent(*, callback_handler=..., system_prompt: str | None = None) -> Ag
     if callback_handler is not ...:
         kwargs["callback_handler"] = callback_handler
 
-    logger.debug("Building agent with %d tools on %s", len(TOOLS), settings.model_id)
+    logger.debug("Building agent with %d tools on text model %s", len(TOOLS),
+                 settings.resolved_text_model_id)
     return Agent(**kwargs)
