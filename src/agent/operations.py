@@ -1,10 +1,13 @@
 """Policy-owning B5 operations. No model, adapter, crew action or payment runs here."""
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
 from . import contracts as c
 from .actors import AccessBoundary, Action
+from .images import ImageStorage, NormalizedImage, UploadError
+from .intake import stable_id
 from .investigation import _validated_cause
 from .policy import (
     DEFAULT_POLICY_PATH,
@@ -15,13 +18,26 @@ from .policy import (
     required_equipment,
     vendor_eligibility,
 )
-from .store import Store, request_fingerprint
+from .store import IdempotencyConflict, RevisionConflict, Store, request_fingerprint
 
 
 class VendorOptions(c.Record):
     plan: c.PlanRecord
     issue_revision: c.Nonnegative
     vendors: tuple[c.VendorRecord, ...]
+
+
+@dataclass(frozen=True)
+class ProofImages:
+    """Already decoded, normalized private images. These are never HTTP contracts."""
+
+    before: NormalizedImage | None
+    after: NormalizedImage
+    before_observed_at: datetime | None
+    after_observed_at: datetime | None
+    before_provenance: c.Provenance | None
+    after_provenance: c.Provenance
+    before_observed_supplied: bool = False
 
 
 def _authorize(store, context, policy, action, issue_id):
@@ -38,6 +54,187 @@ def _authorize(store, context, policy, action, issue_id):
 def _fingerprint(context, **body):
     return request_fingerprint(body | {"actor": context.actor.model_dump(mode="json"),
         "expected_revision": context.expected_revision, "invocation_id": context.invocation_id})
+
+
+def _crew_authorize(store: Store, context: c.MutationContext, action: Action, job_id: str) -> c.JobRecord:
+    if context.operation != action.value:
+        raise ValueError("operation does not match mutation")
+    if context.expected_revision is None:
+        raise ValueError("expected job revision is required")
+    boundary = AccessBoundary(context.actor, "south_loop_demo")
+    boundary.require(action)
+    return boundary.require_job(store, job_id)
+
+
+def _crew_fingerprint(context: c.MutationContext, *, job_id: str, **body) -> str:
+    return request_fingerprint(body | {"job_id": job_id, "actor": context.actor.model_dump(mode="json"),
+        "expected_revision": context.expected_revision})
+
+
+def _crew_receipt(tx, context: c.MutationContext, fingerprint: str, job: c.JobRecord, *,
+                  record_id: str, event: c.EventRecord, evidence_ids=()) -> c.RequestReceipt:
+    receipt = c.RequestReceipt(id=str(uuid4()), operation=context.operation, actor_id=context.actor.actor_id,
+        idempotency_key=context.idempotency_key, request_sha256=fingerprint, issue_id=job.issue_id,
+        job_id=job.id, created_at=datetime.now(UTC), result=c.ToolResult[c.EntityResult](outcome="OK",
+            data=c.EntityResult(record_id=record_id, state_revision=job.state_revision),
+            evidence_ids=tuple(evidence_ids), event_ids=(event.id,)))
+    tx.save_request(receipt)
+    return receipt
+
+
+def _crew_event(tx, *, job: c.JobRecord, context: c.MutationContext, event_type: str,
+                record_id: str, summary: str, evidence_ids=(), submission_id: str | None = None) -> c.EventRecord:
+    plan = tx.store.get_plan(job.plan_id)
+    return tx.append_event(c.NewEvent(issue_id=job.issue_id, job_id=job.id, event_type=event_type,
+        timestamp=datetime.now(UTC), actor=context.actor, state_revision=job.state_revision,
+        policy_version=plan.policy_version, payload=c.EventFacts(summary=summary, outcome="OK",
+            record_id=record_id, submission_id=submission_id, evidence_ids=tuple(evidence_ids), simulated=True)))
+
+
+def accept_job(store: Store, *, job_id: str, context: c.MutationContext) -> c.RequestReceipt:
+    _crew_authorize(store, context, Action.ACCEPT_JOB, job_id)
+    fingerprint = _crew_fingerprint(context, job_id=job_id)
+    with store.transaction() as tx:
+        _crew_authorize(store, context, Action.ACCEPT_JOB, job_id)
+        previous = tx.lookup_request(context, fingerprint)
+        if previous is not None:
+            return previous
+        job = tx.require_job(job_id, context.expected_revision)
+        if job.status != "POSTED":
+            raise RevisionConflict("job is not awaiting crew acceptance")
+        job = job.model_copy(update={"status": "ASSIGNED", "accepted_at": datetime.now(UTC),
+                                     "state_revision": job.state_revision + 1})
+        tx.replace_job(job, context.expected_revision)
+        event = _crew_event(tx, job=job, context=context, event_type="CREW_ACCEPTED", record_id=job.id,
+                            summary="Crew accepted assigned job")
+        return _crew_receipt(tx, context, fingerprint, job, record_id=job.id, event=event)
+
+
+def check_in(store: Store, *, job_id: str, location: c.LocationRecord,
+             claimed_at: datetime | None, context: c.MutationContext) -> c.RequestReceipt:
+    _crew_authorize(store, context, Action.CHECK_IN, job_id)
+    fingerprint = _crew_fingerprint(context, job_id=job_id, location=location.model_dump(mode="json"),
+                                    claimed_at=claimed_at.isoformat() if claimed_at else None)
+    with store.transaction() as tx:
+        _crew_authorize(store, context, Action.CHECK_IN, job_id)
+        previous = tx.lookup_request(context, fingerprint)
+        if previous is not None:
+            return previous
+        job = tx.require_job(job_id, context.expected_revision)
+        if job.status != "ASSIGNED":
+            raise RevisionConflict("job is not awaiting check-in")
+        received_at = datetime.now(UTC)
+        if claimed_at is not None and claimed_at > received_at:
+            raise ValueError("claimed check-in cannot be in the future")
+        job = job.model_copy(update={"status": "CHECKED_IN", "checkin_location": location,
+                                     "checkin_claimed_at": claimed_at, "checked_in_at": received_at,
+                                     "state_revision": job.state_revision + 1})
+        tx.replace_job(job, context.expected_revision)
+        event = _crew_event(tx, job=job, context=context, event_type="CREW_CHECKED_IN", record_id=job.id,
+                            summary="Crew checked in")
+        return _crew_receipt(tx, context, fingerprint, job, record_id=job.id, event=event)
+
+
+def _proof_evidence(*, job: c.JobRecord, image: NormalizedImage, role: str, observed_at: datetime | None,
+                    provenance: c.Provenance, received_at: datetime, context: c.MutationContext) -> tuple[c.EvidenceRecord, c.EvidenceAssociation]:
+    evidence_id = stable_id(f"proof-{role}-evidence", context.actor.actor_id,
+                            f"{job.id}:{context.idempotency_key}")
+    record = c.EvidenceRecord(id=evidence_id,
+        image_ref=stable_id(f"proof-{role}-image", context.actor.actor_id,
+                            f"{job.id}:{context.idempotency_key}"),
+        image_sha256=image.image_sha256, content_type="image/jpeg", size_bytes=image.size_bytes,
+        provenance=provenance, received_at=received_at, observed_at=observed_at,
+        perceptual_hash=image.image_dhash)
+    association = c.EvidenceAssociation(id=stable_id(f"proof-{role}-association", context.actor.actor_id,
+        f"{job.id}:{context.idempotency_key}"), evidence_id=record.id,
+        role="before" if role == "before" else "completion", issue_id=job.issue_id, job_id=job.id,
+        created_at=received_at)
+    return record, association
+
+
+def _write_proof_images(images: ProofImages, *, job_id: str, context: c.MutationContext, image_root) -> None:
+    storage = ImageStorage(image_root)
+    for role, image in (("before", images.before), ("after", images.after)):
+        if image is None:
+            continue
+        ref = stable_id(f"proof-{role}-image", context.actor.actor_id, f"{job_id}:{context.idempotency_key}")
+        try:
+            storage.put(ref, image)
+        except UploadError as error:
+            if error.status == 409:
+                raise IdempotencyConflict("proof image reference content conflict") from error
+            raise
+
+
+def submit_proof(store: Store, *, job_id: str, images: ProofImages,
+                 context: c.MutationContext, image_root) -> c.RequestReceipt:
+    """Commit proof state only after private normalized bytes exist; no inference runs here."""
+    _crew_authorize(store, context, Action.SUBMIT_PROOF, job_id)
+    if images.before_observed_at and images.before_observed_at > datetime.now(UTC):
+        raise ValueError("before capture cannot be in the future")
+    if images.after_observed_at and images.after_observed_at > datetime.now(UTC):
+        raise ValueError("after capture cannot be in the future")
+    fingerprint = _crew_fingerprint(context, job_id=job_id,
+        before_sha256=images.before.image_sha256 if images.before else None,
+        after_sha256=images.after.image_sha256,
+        before_observed_at=images.before_observed_at.isoformat() if images.before_observed_at else None,
+        after_observed_at=images.after_observed_at.isoformat() if images.after_observed_at else None,
+        before_observed_supplied=images.before_observed_supplied)
+    _write_proof_images(images, job_id=job_id, context=context, image_root=image_root)
+    with store.transaction() as tx:
+        _crew_authorize(store, context, Action.SUBMIT_PROOF, job_id)
+        previous = tx.lookup_request(context, fingerprint)
+        if previous is not None:
+            return previous
+        job = tx.require_job(job_id, context.expected_revision)
+        if store.open_completion_exception(job.id) is not None:
+            raise RevisionConflict("completion exception is awaiting operator action")
+        first = job.status == "CHECKED_IN"
+        if first and images.before is None:
+            raise ValueError("first proof requires before evidence")
+        if not first and job.status != "REWORK_REQUIRED":
+            raise RevisionConflict("job is not ready for proof")
+        if not first and (images.before is not None or images.before_observed_supplied):
+            raise ValueError("rework cannot replace original before evidence")
+        received_at = datetime.now(UTC)
+        if images.after_observed_at and images.after_observed_at > received_at:
+            raise ValueError("after capture cannot be in the future")
+        if images.before_observed_at and images.before_observed_at > received_at:
+            raise ValueError("before capture cannot be in the future")
+        if first:
+            assert images.before is not None
+            before, before_link = _proof_evidence(job=job, image=images.before, role="before",
+                observed_at=images.before_observed_at, provenance=images.before_provenance or "live", received_at=received_at,
+                context=context)
+            tx.insert_evidence(before)
+            tx.associate_evidence(before_link)
+            before_id = before.id
+        else:
+            if job.latest_submission_id is None:
+                raise ValueError("rework has no original proof")
+            before_id = store.get_submission(job.latest_submission_id).before_evidence_id
+        after, after_link = _proof_evidence(job=job, image=images.after, role="after",
+            observed_at=images.after_observed_at, provenance=images.after_provenance, received_at=received_at,
+            context=context)
+        tx.insert_evidence(after)
+        tx.associate_evidence(after_link)
+        next_revision = job.state_revision + 1
+        submission = c.SubmissionRecord(id=stable_id("submission", context.actor.actor_id,
+            f"{job.id}:{context.idempotency_key}"), issue_id=job.issue_id, job_id=job.id,
+            before_evidence_id=before_id, after_evidence_id=after.id, submitted_by=context.actor,
+            submitted_at=received_at, job_revision=next_revision)
+        tx.insert_submission(submission)
+        job = job.model_copy(update={"status": "PROOF_SUBMITTED", "submitted_at": received_at,
+            "latest_submission_id": submission.id, "current_verification_id": None,
+            "state_revision": next_revision})
+        tx.replace_job(job, context.expected_revision)
+        evidence_ids = (before_id, after.id)
+        event = _crew_event(tx, job=job, context=context, event_type="PROOF_SUBMITTED",
+            record_id=submission.id, submission_id=submission.id, summary="Proof received", evidence_ids=evidence_ids)
+        tx.insert_pending_invocation(c.PendingInvocationSpec(id=stable_id("invocation", submission.id, submission.id),
+            trigger_type="PROOF_SUBMITTED", policy_version=tx.store.get_plan(job.plan_id).policy_version), event)
+        return _crew_receipt(tx, context, fingerprint, job, record_id=submission.id, event=event,
+                             evidence_ids=evidence_ids)
 
 
 def _reference(fact):

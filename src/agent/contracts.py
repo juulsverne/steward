@@ -245,11 +245,14 @@ class JobRecord(Record):
     state_revision: Nonnegative = 0
     created_at: Timestamp
     checkin_location: LocationRecord | None = None
+    checkin_claimed_at: Timestamp | None = None
     checked_in_at: Timestamp | None = None
     accepted_at: Timestamp | None = None
     submitted_at: Timestamp | None = None
     paid_at: Timestamp | None = None
     latest_submission_id: Text | None = None
+    # The B7 inspector owns assigning this pointer; a newer crew proof clears it.
+    current_verification_id: Text | None = None
     rework_instructions: Text | None = None
     simulated: Literal[True] = True
 

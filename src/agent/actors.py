@@ -193,6 +193,7 @@ class CrewJobView(c.Record):
     price_cents: c.Positive
     proof_requirements: c.ProofRequirements
     accepted_at: c.Timestamp | None
+    checkin_claimed_at: c.Timestamp | None = None
     checked_in_at: c.Timestamp | None
     submitted_at: c.Timestamp | None
     latest_submission_id: c.Text | None
@@ -291,7 +292,7 @@ class AccessBoundary:
             status=job.status, state_revision=job.state_revision, location=issue.location,
             scope=plan.scope, work_area=plan.work_area, price_cents=job.price_cents,
             proof_requirements=plan.proof_requirements, accepted_at=job.accepted_at,
-            checked_in_at=job.checked_in_at, submitted_at=job.submitted_at,
+            checkin_claimed_at=job.checkin_claimed_at, checked_in_at=job.checked_in_at, submitted_at=job.submitted_at,
             latest_submission_id=job.latest_submission_id, rework_instructions=job.rework_instructions,
             plan_id=plan.id, primary_target=plan.primary_target, dispatch_location=plan.dispatch_location,
             required_equipment=plan.required_equipment, crew_count=plan.crew_count,

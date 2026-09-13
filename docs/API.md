@@ -231,6 +231,29 @@ actual plan/vendor, expected/current issue revisions, quote, budget snapshot, ha
 sources, score components and policy gates in `EventFacts.dispatch` and sibling fields.
 No crew acceptance or pending runtime invocation is manufactured by dispatch.
 
+## Crew acceptance and proof (B6)
+
+Crew browser routes require the existing authenticated cookie, `Origin`,
+`X-Steward-Request`, `Idempotency-Key`, and `X-Steward-Expected-Revision`.  That revision
+is always the **job** revision. `POST /api/jobs/{id}/accept` has no domain body and moves
+only `POSTED` to `ASSIGNED`. `POST /api/jobs/{id}/check-in` accepts only
+`latitude`, `longitude`, optional `accuracy_m`, and optional timezone-aware `claimed_at`;
+the location/time remain crew claims while `checked_in_at` is a separate server receipt time.
+Neither route runs a model or creates an invocation.
+
+`POST /api/jobs/{id}/proof` is bounded multipart. A first proof from `CHECKED_IN` contains
+distinct `before` and `after` JPEG/PNG files plus strict JSON metadata with optional
+`before_observed_at` and `after_observed_at`; a B8-opened rework accepts only a new `after`
+and optional `after_observed_at`. The server normalizes and privately stores bytes before a
+single transaction saves immutable evidence associations, submission, `PROOF_SUBMITTED` job
+state, event, pending proof invocation, and receipt. The response is a pending **“Proof
+received”** acknowledgment and never claims verification, payment, or resolution.
+
+DEMO criterion 8 covers acceptance and check-in/location. Its retained-before-evidence
+assertion remains pending until the first proof is committed in criterion 9, where it must
+reference that exact immutable original-before evidence ID. This paired upload contract has no
+separate before-only upload action.
+
 Budget accounting validates the saved relationships and counts outstanding RESERVE
 amounts plus spent CONSUME amounts once; Payment is not subtracted again. RELEASE frees
 the corresponding reservation. Inconsistent journals fail closed. The normal first

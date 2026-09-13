@@ -582,6 +582,14 @@ class Store:
     def get_exception(self, record_id: str) -> c.ExceptionRecord:
         return self._record(c.ExceptionRecord, record_id)
 
+    def open_completion_exception(self, job_id: str) -> c.ExceptionRecord | None:
+        """The crew may not replace proof while a completion exception awaits B8."""
+        row = self.db.execute(
+            "SELECT id FROM exceptions WHERE job_id=? AND kind='completion' "
+            "AND status IN ('PENDING','DECIDED') ORDER BY rowid DESC LIMIT 1", (job_id,)
+        ).fetchone()
+        return self.get_exception(row[0]) if row else None
+
     def get_operator_decision(self, record_id: str) -> c.OperatorDecisionRecord:
         return self._record(c.OperatorDecisionRecord, record_id)
 
@@ -984,7 +992,8 @@ class StoreTransaction:
 
     def replace_job(self, record: c.JobRecord, expected_revision: int) -> None:
         self._replace(record, expected_revision, {"status", "checkin_location", "checked_in_at",
-            "accepted_at", "submitted_at", "paid_at", "latest_submission_id", "rework_instructions"})
+            "checkin_claimed_at", "accepted_at", "submitted_at", "paid_at", "latest_submission_id",
+            "current_verification_id", "rework_instructions"})
 
     def replace_exception(self, record: c.ExceptionRecord, expected_revision: int) -> None:
         self._replace(record, expected_revision, {"status", "handled_at"})

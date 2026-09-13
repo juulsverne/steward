@@ -51,7 +51,16 @@ from .investigation import (
     stable_id,
 )
 from .models import utc_time
-from .operations import VendorOptions, build_resolution_plan, dispatch_vendor, list_eligible_vendors
+from .operations import (
+    ProofImages,
+    VendorOptions,
+    accept_job,
+    build_resolution_plan,
+    check_in,
+    dispatch_vendor,
+    list_eligible_vendors,
+    submit_proof,
+)
 from .policy import load_policy
 from .store import IdempotencyConflict, RevisionConflict, Store
 
@@ -66,6 +75,18 @@ class PlanRequest(c.Record):
 
 class DispatchRequest(c.Record):
     vendor_id: c.OpaqueId
+
+
+class CheckinRequest(c.Record):
+    latitude: float
+    longitude: float
+    accuracy_m: float | None = None
+    claimed_at: c.Timestamp | None = None
+
+
+class ProofMetadata(c.Record):
+    before_observed_at: c.Timestamp | None = None
+    after_observed_at: c.Timestamp | None = None
 
 
 class IssueCreateRequest(c.Record):
@@ -169,8 +190,8 @@ MAX_MULTIPART_OVERHEAD = 64 * 1024
 class IntakeMultiPartParser(MultiPartParser):
     """One file and bounded streamed bytes before Starlette can spool an unbounded upload."""
 
-    def __init__(self, headers, stream):
-        super().__init__(headers, stream, max_files=1, max_fields=4,
+    def __init__(self, headers, stream, *, max_files: int = 1):
+        super().__init__(headers, stream, max_files=max_files, max_fields=4,
                          max_part_size=MAX_MULTIPART_OVERHEAD)
         self._file_bytes: dict[int, int] = {}
         self._multipart_complete = False
@@ -222,6 +243,19 @@ async def parse_intake_form(request: Request) -> FormData:
             yield chunk
 
     return await IntakeMultiPartParser(request.headers, limited_stream()).parse()
+
+
+async def parse_proof_form(request: Request) -> FormData:
+    """B6's two-image form retains B3's streamed limit, completion and cleanup behavior."""
+    async def limited_stream():
+        total = 0
+        async for chunk in request.stream():
+            total += len(chunk)
+            if total > (2 * MAX_UPLOAD_BYTES) + MAX_MULTIPART_OVERHEAD:
+                raise MultiPartException("multipart request exceeded upload limit")
+            yield chunk
+
+    return await IntakeMultiPartParser(request.headers, limited_stream(), max_files=2).parse()
 
 
 def result_response(result: c.ToolResult, *, status: int | None = None) -> JSONResponse:
@@ -748,6 +782,119 @@ def create_app(settings: ApiSettings | None = None,
             raise AccessError(422, "VALIDATION_ERROR") from None
         return result_response(result, status=201 if result.outcome == "OK" else
                                409 if result.reason_code == "STALE_ISSUE_REVISION" else 403)
+
+    @app.post("/api/jobs/{job_id}/accept", response_model=c.ToolResult[c.EntityResult],
+              openapi_extra={"parameters": [{"name": name, "in": "header", "required": True,
+                  "schema": {"type": "string"}} for name in ("Idempotency-Key", "X-Steward-Expected-Revision")]})
+    async def accept_crew_job(request: Request, job_id: str):
+        context = mutation_context(request, Action.ACCEPT_JOB, expected_revision=expected_revision(request))
+        # This endpoint deliberately has no domain body. Never buffer an arbitrary
+        # chunked body merely to reject it.
+        content_length = _header(request, "content-length")
+        if content_length is not None and (not content_length.isdigit() or int(content_length) != 0):
+            raise AccessError(422, "VALIDATION_ERROR")
+        async for chunk in request.stream():
+            if chunk:
+                raise AccessError(422, "VALIDATION_ERROR")
+        try:
+            def operation():
+                with request_store(request) as store:
+                    return accept_job(store, job_id=job_id, context=context).result
+            result = await to_thread(operation)
+        except (IdempotencyConflict, RevisionConflict):
+            raise
+        except ValueError:
+            raise AccessError(422, "VALIDATION_ERROR") from None
+        return result_response(result)
+
+    @app.post("/api/jobs/{job_id}/check-in", response_model=c.ToolResult[c.EntityResult],
+              openapi_extra={"parameters": [{"name": name, "in": "header", "required": True,
+                  "schema": {"type": "string"}} for name in ("Idempotency-Key", "X-Steward-Expected-Revision")]})
+    async def crew_check_in(request: Request, job_id: str):
+        context = mutation_context(request, Action.CHECK_IN, expected_revision=expected_revision(request))
+        body = await parse_json_request(request, CheckinRequest)
+        try:
+            location = c.LocationRecord(lat=body.latitude, lon=body.longitude,
+                                        accuracy_m=body.accuracy_m, provenance="live")
+            def operation():
+                with request_store(request) as store:
+                    return check_in(store, job_id=job_id, location=location,
+                        claimed_at=body.claimed_at, context=context).result
+            result = await to_thread(operation)
+        except (IdempotencyConflict, RevisionConflict):
+            raise
+        except ValueError:
+            raise AccessError(422, "VALIDATION_ERROR") from None
+        return result_response(result)
+
+    @app.post("/api/jobs/{job_id}/proof", response_model=c.ToolResult[c.EntityResult], status_code=202,
+              openapi_extra={"parameters": [{"name": name, "in": "header", "required": True,
+                  "schema": {"type": "string"}} for name in ("Idempotency-Key", "X-Steward-Expected-Revision")]})
+    async def crew_proof(request: Request, job_id: str):
+        context = mutation_context(request, Action.SUBMIT_PROOF, expected_revision=expected_revision(request))
+        # Reject an unrelated crew before multipart parsing can allocate upload spools.
+        with app.state.store_factory(settings.store_path) as store:
+            AccessBoundary(context.actor, settings.district_id).require_job(store, job_id)
+        content_type = (_header(request, "content-type") or "").split(";", 1)[0].strip().lower()
+        if content_type != "multipart/form-data":
+            raise AccessError(415, "MULTIPART_REQUIRED")
+        content_length = _header(request, "content-length")
+        limit = (2 * MAX_UPLOAD_BYTES) + MAX_MULTIPART_OVERHEAD
+        if content_length and (not content_length.isdigit() or int(content_length) > limit):
+            raise AccessError(413, "REQUEST_TOO_LARGE")
+        try:
+            form = await parse_proof_form(request)
+        except MultiPartException as error:
+            status = 422 if str(error) in {"invalid upload filename", "incomplete multipart body"} else 413
+            raise AccessError(status, "VALIDATION_ERROR" if status == 422 else "REQUEST_TOO_LARGE") from None
+        try:
+            allowed = {"before", "after", "metadata"}
+            if any(key not in allowed or len(form.getlist(key)) != 1 for key in form):
+                raise AccessError(422, "VALIDATION_ERROR")
+            if set(form.keys()) not in ({"before", "after", "metadata"}, {"after", "metadata"}):
+                raise AccessError(422, "VALIDATION_ERROR")
+            metadata_raw = form.get("metadata")
+            if not isinstance(metadata_raw, str) or len(metadata_raw.encode("utf-8")) > 4096:
+                raise AccessError(422, "VALIDATION_ERROR")
+            try:
+                metadata = ProofMetadata.model_validate_json(metadata_raw)
+            except ValueError:
+                raise AccessError(422, "VALIDATION_ERROR") from None
+            before_part, after_part = form.get("before"), form.get("after")
+            if before_part is not None and not isinstance(before_part, UploadFile):
+                raise AccessError(422, "VALIDATION_ERROR")
+            if not isinstance(after_part, UploadFile):
+                raise AccessError(422, "VALIDATION_ERROR")
+            if before_part is None and "before_observed_at" in metadata.model_fields_set:
+                raise AccessError(422, "VALIDATION_ERROR")
+            before_raw = await before_part.read() if before_part is not None else None
+            before_type = before_part.content_type if before_part is not None else None
+            after_raw, after_type = await after_part.read(), after_part.content_type
+        finally:
+            await form.close()
+
+        try:
+            def operation():
+                before = decode_upload(before_raw, before_type) if before_raw is not None else None
+                after = decode_upload(after_raw, after_type)
+                before_provenance = ("synthetic" if before_raw is not None
+                    and known_synthetic_fixture(before_raw, before) else "live")
+                after_provenance = "synthetic" if known_synthetic_fixture(after_raw, after) else "live"
+                images = ProofImages(before=before, after=after,
+                    before_observed_at=metadata.before_observed_at,
+                    after_observed_at=metadata.after_observed_at,
+                    before_provenance=before_provenance if before is not None else None,
+                    after_provenance=after_provenance,
+                    before_observed_supplied="before_observed_at" in metadata.model_fields_set)
+                with request_store(request) as store:
+                    return submit_proof(store, job_id=job_id, images=images, context=context,
+                                        image_root=settings.image_root).result
+            result = await to_thread(operation)
+        except (IdempotencyConflict, RevisionConflict):
+            raise
+        except (UploadError, ValueError):
+            raise AccessError(422, "VALIDATION_ERROR") from None
+        return result_response(result, status=202)
 
     @app.post("/api/issues/{issue_id}/geocode", response_model=c.ToolResult[c.EntityResult])
     async def geocode_issue(request: Request, issue_id: str):
