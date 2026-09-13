@@ -52,6 +52,9 @@ DecisionType = Literal[
     "MONITOR", "MARK_ACTIONABLE", "DISPUTE_OFFICIAL_STATUS", "ROUTE_EXTERNAL",
     "REQUEST_DISPATCH", "REQUEST_SETTLEMENT", "REQUEST_OPERATOR", "REQUEST_REWORK", "RESOLVE",
 ]
+OperationalDecisionType = Literal[
+    "REQUEST_DISPATCH", "REQUEST_SETTLEMENT", "REQUEST_OPERATOR", "REQUEST_REWORK", "RESOLVE",
+]
 TriggerType = Literal["SIGNAL_RECEIVED", "PROOF_SUBMITTED", "OPERATOR_DECISION"]
 InvocationStatus = Literal["PENDING", "RUNNING", "WAITING", "COMPLETED", "ERROR"]
 
@@ -101,6 +104,86 @@ class GateRecord(Record):
     name: Text
     allowed: bool
     unmet: tuple[Text, ...] = ()
+
+
+class DispatchProposalBasis(Record):
+    kind: Literal["dispatch"] = "dispatch"
+    plan_id: Text
+    vendor_id: Text
+    expected_issue_revision: Nonnegative
+
+
+class SettlementProposalBasis(Record):
+    kind: Literal["settlement"] = "settlement"
+    job_id: Text
+    submission_id: Text
+    verification_id: Text
+    expected_job_revision: Nonnegative
+
+
+class CompletionOperatorProposalBasis(Record):
+    kind: Literal["completion_operator"] = "completion_operator"
+    job_id: Text
+    submission_id: Text
+    verification_id: Text
+    denial_event_id: Positive
+    expected_job_revision: Nonnegative
+
+
+class AuthorityOperatorProposalBasis(Record):
+    kind: Literal["authority"] = "authority"
+    expected_issue_revision: Nonnegative
+
+
+class NoVendorOperatorProposalBasis(Record):
+    kind: Literal["no_vendor"] = "no_vendor"
+    expected_issue_revision: Nonnegative
+
+
+class BudgetOperatorProposalBasis(Record):
+    kind: Literal["budget"] = "budget"
+    denial_event_id: Positive
+    expected_issue_revision: Nonnegative
+
+
+class ReworkProposalBasis(Record):
+    kind: Literal["rework"] = "rework"
+    operator_decision_id: Text
+    expected_job_revision: Nonnegative
+
+
+class ResolveProposalBasis(Record):
+    kind: Literal["resolve"] = "resolve"
+    job_id: Text
+    payment_id: Text
+    submission_id: Text
+    verification_id: Text
+    expected_issue_revision: Nonnegative
+
+
+OperationalDecisionProposalBasis = Annotated[
+    DispatchProposalBasis | SettlementProposalBasis | CompletionOperatorProposalBasis
+    | AuthorityOperatorProposalBasis | NoVendorOperatorProposalBasis | BudgetOperatorProposalBasis
+    | ReworkProposalBasis | ResolveProposalBasis,
+    Field(discriminator="kind"),
+]
+
+
+class OperationalDecisionBasis(Record):
+    """Server-resolved immutable snapshot for an operational proposal."""
+
+    proposal: OperationalDecisionProposalBasis
+    actual_issue_revision: Nonnegative
+    actual_job_revision: Nonnegative | None = None
+    plan_id: Text | None = None
+    vendor_id: Text | None = None
+    job_id: Text | None = None
+    submission_id: Text | None = None
+    verification_id: Text | None = None
+    exception_id: Text | None = None
+    operator_decision_id: Text | None = None
+    payment_id: Text | None = None
+    denial_event_id: Positive | None = None
 
 
 class ModelUsage(Record):
@@ -689,8 +772,29 @@ class DecisionRecord(Record):
     gate_results: tuple[GateRecord, ...] = ()
     next_actor: ActorType | None = None
     next_event: Text | None = None
+    basis: OperationalDecisionBasis | None = None
     metadata: ModelRunMetadata | None = None
     created_at: Timestamp
+
+    @model_validator(mode="after")
+    def operational_basis_matches_type(self):
+        if self.basis is None:
+            return self
+        expected = {
+            "dispatch": "REQUEST_DISPATCH",
+            "settlement": "REQUEST_SETTLEMENT",
+            "completion_operator": "REQUEST_OPERATOR",
+            "authority": "REQUEST_OPERATOR",
+            "no_vendor": "REQUEST_OPERATOR",
+            "budget": "REQUEST_OPERATOR",
+            "rework": "REQUEST_REWORK",
+            "resolve": "RESOLVE",
+        }[self.basis.proposal.kind]
+        if self.decision_type != expected:
+            raise ValueError("operational decision basis does not match decision type")
+        if self.job_id != self.basis.job_id:
+            raise ValueError("operational decision job reference does not match basis")
+        return self
 
 
 class SignalReceipt(Record):
@@ -744,6 +848,13 @@ class CompletionInspectionResult(EntityResult):
     physical_call_count: Nonnegative | None = None
 
 
+class OperationalDecisionResult(EntityResult):
+    """New receipt shape: save a proposal without claiming its action happened."""
+
+    kind: Literal["operational_decision"] = "operational_decision"
+    decision: DecisionRecord
+
+
 ResultData = TypeVar("ResultData", bound=Record)
 
 
@@ -766,7 +877,7 @@ class RequestReceipt(Record):
     signal_id: Text | None = None
     issue_id: Text | None = None
     job_id: Text | None = None
-    result: ToolResult[SignalReceipt | CompletionInspectionResult | PendingEntityResult | EntityResult]
+    result: ToolResult[SignalReceipt | CompletionInspectionResult | OperationalDecisionResult | PendingEntityResult | EntityResult]
     invocation_id: Text | None = None
     created_at: Timestamp
 

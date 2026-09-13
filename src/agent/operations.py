@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from . import contracts as c
 from .actors import AccessBoundary, AccessError, Action
+from .http_contracts import VendorOptions
 from .images import ImageStorage, NormalizedImage, UploadError, hamming
 from .intake import stable_id
 from .investigation import _validated_cause
@@ -30,12 +31,6 @@ from .vision import (
     capture_request_basis,
     inspect_pair_result,
 )
-
-
-class VendorOptions(c.Record):
-    plan: c.PlanRecord
-    issue_revision: c.Nonnegative
-    vendors: tuple[c.VendorRecord, ...]
 
 
 @dataclass(frozen=True)
@@ -787,6 +782,56 @@ def list_eligible_vendors(store: Store, *, plan_id: str, actor: c.ActorContext,
             issue_revision=issue.state_revision, vendors=ordered))
 
 
+def _configured_budget(store: Store, policy: dict) -> c.BudgetAvailability:
+    budget = store.get_budget(policy["district"])
+    if budget.policy_version != policy["version"] or budget.initial_cents != policy["budget_cents"]:
+        raise ValueError("budget does not match configured allocation")
+    return store.budget_availability(budget.id)
+
+
+def _dispatch_evaluation(store: Store, *, plan: c.PlanRecord, issue: c.IssueRecord,
+                         vendor_id: str, expected_revision: int | None, policy: dict,
+                         financial_errors_as_denial: bool = False):
+    """Read the full dispatch boundary once for actions and saved intent previews.
+
+    The action preserves its historical audited financial denial. Intent recording
+    rejects damaged financial state instead of inventing a business proposal gate.
+    """
+    facts = store.current_issue_facts(issue.id)
+    unmet, computed_quote = _plan_current(store, plan, issue, facts, policy)
+    if issue.state_revision != expected_revision:
+        unmet.append("stale_issue_revision")
+    if store.active_job_for_issue(issue.id) is not None or store.job_for_plan(plan.id) is not None:
+        unmet.append("job_already_exists")
+    if facts.jurisdiction is None or facts.jurisdiction.responsibility != "district":
+        unmet.append("responsibility_not_district")
+    if facts.unresolved_hazards:
+        unmet.append("unresolved_hazards")
+    location = facts.geocode.location if facts.geocode else None
+    if location is None or location.accuracy_m is None or location.accuracy_m > policy["precise_geocode_max_m"]:
+        unmet.append("location_not_precise")
+    try:
+        budget = _configured_budget(store, policy)
+    except (KeyError, ValueError):
+        if not financial_errors_as_denial:
+            raise
+        budget = None
+        unmet.append("budget_unavailable_or_inconsistent")
+    try:
+        vendor = store.get_vendor(vendor_id).model_dump()
+    except KeyError:
+        vendor = {}
+        unmet.append("vendor_not_found")
+    score = store.current_evidence_score(issue.id)
+    gate = dispatch_gate(policy, issue_status=issue.status, evidence_total=score.total,
+        category=facts.classification.category if facts.classification else plan.service_type,
+        hazards=facts.unresolved_hazards, coordinates=location.model_dump() if location else None,
+        vendor=vendor, required_equipment=list(plan.required_equipment),
+        quote=computed_quote or plan.quote_cents, available_cents=budget.available_cents if budget else 0)
+    unmet.extend(gate.unmet)
+    return facts, computed_quote, budget, score, tuple(dict.fromkeys(unmet))
+
+
 def dispatch_vendor(store: Store, *, plan_id: str, vendor_id: str,
                     context: c.MutationContext, policy_path: Path = DEFAULT_POLICY_PATH) -> c.RequestReceipt:
     policy = load_policy(policy_path)
@@ -801,40 +846,9 @@ def dispatch_vendor(store: Store, *, plan_id: str, vendor_id: str,
         if previous is not None:
             return previous
         issue = tx.require_issue(plan.issue_id)
-        facts = store.current_issue_facts(issue.id)
-        unmet, computed_quote = _plan_current(store, plan, issue, facts, policy)
-        if issue.state_revision != context.expected_revision:
-            unmet.append("stale_issue_revision")
-        if store.active_job_for_issue(issue.id) is not None or store.job_for_plan(plan.id) is not None:
-            unmet.append("job_already_exists")
-        if facts.jurisdiction is None or facts.jurisdiction.responsibility != "district":
-            unmet.append("responsibility_not_district")
-        if facts.unresolved_hazards:
-            unmet.append("unresolved_hazards")
-        location = facts.geocode.location if facts.geocode else None
-        if location is None or location.accuracy_m is None or location.accuracy_m > policy["precise_geocode_max_m"]:
-            unmet.append("location_not_precise")
-        try:
-            budget_record = store.get_budget(policy["district"])
-            if (budget_record.policy_version != policy["version"]
-                    or budget_record.initial_cents != policy["budget_cents"]):
-                raise ValueError("budget does not match configured allocation")
-            budget = store.budget_availability(budget_record.id)
-        except (KeyError, ValueError):
-            budget = None
-            unmet.append("budget_unavailable_or_inconsistent")
-        try:
-            vendor = store.get_vendor(vendor_id).model_dump()
-        except KeyError:
-            vendor = {}
-            unmet.append("vendor_not_found")
-        score = store.current_evidence_score(issue.id)
-        gate = dispatch_gate(policy, issue_status=issue.status, evidence_total=score.total,
-            category=facts.classification.category if facts.classification else plan.service_type,
-            hazards=facts.unresolved_hazards, coordinates=location.model_dump() if location else None,
-            vendor=vendor, required_equipment=list(plan.required_equipment),
-            quote=computed_quote or plan.quote_cents, available_cents=budget.available_cents if budget else 0)
-        unmet.extend(gate.unmet)
+        facts, computed_quote, budget, score, unmet = _dispatch_evaluation(store, plan=plan, issue=issue,
+            vendor_id=vendor_id, expected_revision=context.expected_revision, policy=policy,
+            financial_errors_as_denial=True)
         audit = c.DispatchAuditFacts(plan_id=plan.id, vendor_id=vendor_id,
             expected_issue_revision=context.expected_revision, actual_issue_revision=issue.state_revision,
             computed_quote_cents=computed_quote, budget=budget,
@@ -931,11 +945,22 @@ def _reserved_contract(store: Store, job: c.JobRecord, plan: c.PlanRecord,
     budget = store.get_budget(reservation.budget_id)
     if budget.policy_version != policy["version"] or budget.initial_cents != policy["budget_cents"]:
         raise ValueError("reserved budget does not match policy")
+    return _saved_dispatch_contract(store, job, plan)
+
+
+def _saved_dispatch_contract(store: Store, job: c.JobRecord, plan: c.PlanRecord) -> c.ReservationRecord:
+    """Original immutable dispatch evidence survives legitimate consume/release actions."""
+    reservation = _financial_reservation(store, job)
+    if (reservation.issue_id != job.issue_id or reservation.job_id != job.id
+            or reservation.budget_id != plan.district_id or plan.issue_id != job.issue_id
+            or reservation.amount_cents != job.price_cents or job.price_cents != plan.quote_cents):
+        raise ValueError("original contract relationships disagree")
     store.budget_availability(reservation.budget_id)
     entries = store.ledger_for_reservation(reservation.id)
-    if len(entries) != 1 or entries[0].kind != "RESERVE":
-        raise ValueError("unpaid contract lacks its sole reserve movement")
-    event = store.get_event(entries[0].event_id)
+    reserves = tuple(entry for entry in entries if entry.kind == "RESERVE")
+    if len(reserves) != 1 or (reservation.status == "RESERVED" and len(entries) != 1):
+        raise ValueError("contract lacks its original reserve movement")
+    event = store.get_event(reserves[0].event_id)
     receipt = store.receipt_for_event(event.id, operation=Action.DISPATCH.value)
     audit = event.payload.dispatch
     if (event.event_type != "SIMULATED_DISPATCH" or event.actor.actor_type != "service"
@@ -967,6 +992,22 @@ def _current_completion(store: Store, *, job: c.JobRecord, submission: c.Submiss
             or verification.basis is None or verification.checks is None or verification.attempt_id is None
             or plan.basis is None):
         raise RevisionConflict("completion interpretation is not current")
+    return _completion_evidence(store, job=job, submission=submission, verification=verification, current=True)
+
+
+def _completion_evidence(store: Store, *, job: c.JobRecord, submission: c.SubmissionRecord,
+                         verification: c.VerificationRecord, current: bool = False):
+    """Validate immutable proof/source facts without treating later workflow as corruption."""
+    plan = store.get_plan(job.plan_id)
+    if (submission.job_id != job.id or submission.issue_id != job.issue_id
+            or verification.job_id != job.id or verification.issue_id != job.issue_id
+            or verification.submission_id != submission.id
+            or verification.result_job_revision != verification.job_revision + 1
+            or verification.job_revision < submission.job_revision
+            or verification.policy_version != plan.policy_version
+            or verification.basis is None or verification.checks is None or verification.attempt_id is None
+            or plan.basis is None):
+        raise ValueError("saved completion relationships disagree")
     before, after = store.get_evidence(submission.before_evidence_id), store.get_evidence(submission.after_evidence_id)
     proof_event = store.proof_event_for_submission(submission.id)
     if (proof_event.job_id != job.id or proof_event.issue_id != job.issue_id
@@ -981,10 +1022,13 @@ def _current_completion(store: Store, *, job: c.JobRecord, submission: c.Submiss
     if any(prior.before_evidence_id != before.id for prior in store.prior_completion_submissions(submission.id)
            if prior.job_id == job.id):
         raise ValueError("completion changed the original before evidence")
-    basis = _completion_basis(job=job, submission=submission, plan=plan, before=before, after=after)
-    _physical_basis(verification.basis)
+    frozen = _physical_basis(verification.basis)
+    basis = _completion_basis(job=job, submission=submission, plan=plan, before=before, after=after,
+                              frozen=None if current else frozen)
     if verification.basis != basis:
-        raise RevisionConflict("completion interpretation basis is obsolete")
+        if current:
+            raise RevisionConflict("completion interpretation basis is obsolete")
+        raise ValueError("saved completion contradicts its frozen inspection basis")
     checks = _completion_checks(store, job=job, submission=submission, before=before, after=after, plan=plan)
     components, gates, unmet = _evaluate_completion(verification.findings, checks)
     if (verification.checks != checks or verification.components != components
@@ -1043,13 +1087,25 @@ def _completion_denial(store: Store, *, job: c.JobRecord, submission: c.Submissi
     """Require the exact B9-shaped settle denial; arbitrary events cannot escalate work."""
     plan, before, after = _current_completion(store, job=job, submission=submission,
                                              verification=verification, policy=policy)
-    reservation = _reserved_contract(store, job, plan, policy)
+    _reserved_contract(store, job, plan, policy)
+    event = _saved_completion_denial(store, job=job, submission=submission,
+        verification=verification, denial_event_id=denial_event_id, policy=policy)
+    if event.state_revision != job.state_revision:
+        raise RevisionConflict("completion denial is not current")
+    return event, plan, before, after
+
+
+def _saved_completion_denial(store: Store, *, job: c.JobRecord, submission: c.SubmissionRecord,
+                             verification: c.VerificationRecord, denial_event_id: int, policy: dict):
+    """Authentic historical refusal, independent of later rework/payment/cancellation."""
+    plan, _before, _after = _completion_evidence(store, job=job, submission=submission, verification=verification)
+    reservation = _saved_dispatch_contract(store, job, plan)
     event = store.get_event(denial_event_id)
     receipt = store.receipt_for_event(event.id, operation=Action.SETTLE.value)
     if (receipt is None or receipt.issue_id != job.issue_id or receipt.job_id != job.id
             or receipt.actor_id != event.actor.actor_id or event.event_type != "SETTLEMENT_DENIED"
             or event.actor.actor_type != "service" or event.issue_id != job.issue_id or event.job_id != job.id
-            or event.state_revision != job.state_revision or event.policy_version != plan.policy_version
+            or event.state_revision != verification.result_job_revision or event.policy_version != plan.policy_version
             or receipt.result.outcome != "DENIED" or event.payload.outcome != "DENIED"
             or event.payload.submission_id != submission.id
             or event.payload.record_id != verification.id or event.id not in receipt.result.event_ids
@@ -1063,11 +1119,14 @@ def _completion_denial(store: Store, *, job: c.JobRecord, submission: c.Submissi
     if audit is not None:
         # Older B8 primitive fixtures have no financial audit. Actual B9 results must
         # prove this was a current completion denial, not stale/terminal/other-state refusal.
-        gate = _settlement_action_gate(policy, job, verification)
+        # A completion-only denial was evaluated in the proof phase. The present
+        # job can legitimately be reworked, paid or cancelled without rewriting it.
+        proof_job = job.model_copy(update={"status": "PROOF_SUBMITTED", "state_revision": event.state_revision})
+        gate = _settlement_action_gate(policy, proof_job, verification)
         if (audit.action != "settle" or audit.plan_id != plan.id or audit.reservation_id != reservation.id
                 or audit.payment_id is not None or audit.submission_id != submission.id
-                or audit.verification_id != verification.id or audit.expected_job_revision != job.state_revision
-                or audit.actual_job_revision != job.state_revision or audit.expected_issue_revision is not None
+                or audit.verification_id != verification.id or audit.expected_job_revision != event.state_revision
+                or audit.actual_job_revision != event.state_revision or audit.expected_issue_revision is not None
                 or audit.original_amount_cents != reservation.amount_cents or audit.action_gate != gate
                 or receipt.result.unmet != gate.unmet or audit.budget is None
                 or audit.budget.budget_id != reservation.budget_id
@@ -1076,9 +1135,9 @@ def _completion_denial(store: Store, *, job: c.JobRecord, submission: c.Submissi
                 or audit.budget.available_cents != audit.budget.initial_cents - audit.budget.reserved_cents - audit.budget.spent_cents
                 or not isinstance(receipt.result.data, c.EntityResult)
                 or receipt.result.data.record_id != verification.id
-                or receipt.result.data.state_revision != job.state_revision):
+                or receipt.result.data.state_revision != event.state_revision):
             raise ValueError("settlement refusal was not an applicable completion-only denial")
-    return event, plan, before, after
+    return event
 
 
 def _completion_exception_fields(store: Store, *, job: c.JobRecord, submission: c.SubmissionRecord,
@@ -1153,6 +1212,29 @@ def _existing_exception_result(store: Store, exception: c.ExceptionRecord, *, po
     return result
 
 
+def _pre_job_escalation_gate(store: Store, *, issue: c.IssueRecord, kind: str, policy: dict):
+    """Shared lifecycle and current-plan policy; no state changes or exceptions created."""
+    unmet = []
+    if (issue.status not in {"CANDIDATE", "MONITORING", "ACTIONABLE", "ROUTED_EXTERNAL"}
+            or store.active_job_for_issue(issue.id) is not None):
+        unmet.append("pre_job_work_not_actionable")
+    facts = store.current_issue_facts(issue.id)
+    plans = store.plans_for_issue(issue.id)
+    plan = plans[-1] if plans else None
+    if kind == "authority":
+        if facts.jurisdiction is None or facts.jurisdiction.responsibility == "district":
+            unmet.append("authority_escalation_not_required")
+    elif kind == "no_vendor":
+        current_unmet, _ = _plan_current(store, plan, issue, facts, policy) if plan else (("no_plan",), None)
+        unmet.extend(current_unmet)
+        if plan is not None and any(not vendor_eligibility(policy, vendor.model_dump(),
+                category=plan.service_type, required_equipment=list(plan.required_equipment))
+                for vendor in store.list_vendors()):
+            unmet.append("eligible_vendor_exists")
+    return plan, c.GateRecord(name="operator_escalation", allowed=not unmet,
+                              unmet=tuple(dict.fromkeys(unmet)))
+
+
 def escalate_to_operator(store: Store, *, issue_id: str, reason_code: str, context: c.MutationContext,
                          job_id: str | None = None, submission_id: str | None = None,
                          verification_id: str | None = None, denial_event_id: int | None = None,
@@ -1217,77 +1299,16 @@ def escalate_to_operator(store: Store, *, issue_id: str, reason_code: str, conte
                     unmet=verification.unmet, evidence_ids=(before.id, after.id), event_ids=(event.id,)))
 
         issue = tx.require_issue(issue_id, context.expected_revision)
-        if (issue.status not in {"CANDIDATE", "MONITORING", "ACTIONABLE", "ROUTED_EXTERNAL"}
-                or store.active_job_for_issue(issue_id) is not None):
+        plan, pre_job_gate = _pre_job_escalation_gate(store, issue=issue, kind=kind, policy=policy)
+        if "pre_job_work_not_actionable" in pre_job_gate.unmet:
             raise RevisionConflict("pre-job exception cannot replace active or terminal work")
-        facts = store.current_issue_facts(issue_id)
-        plan = store.plans_for_issue(issue_id)[-1] if store.plans_for_issue(issue_id) else None
-        if kind == "authority":
-            if facts.jurisdiction is None or facts.jurisdiction.responsibility == "district":
-                raise ValueError("authority escalation lacks current non-district fact")
-        elif kind == "no_vendor":
-            current_unmet, _ = _plan_current(store, plan, issue, facts, policy) if plan else (("no_plan",), None)
-            eligible = () if plan is None else tuple(v for v in store.list_vendors()
-                if not vendor_eligibility(policy, v.model_dump(), category=plan.service_type,
-                    required_equipment=list(plan.required_equipment)))
-            if (plan is None or current_unmet or store.active_job_for_issue(issue_id) is not None
-                    or eligible):
-                raise ValueError("no-vendor escalation lacks current unassigned plan")
-        else:  # budget
-            if denial_event_id is None or store.active_job_for_issue(issue_id) is not None:
-                raise ValueError("budget escalation lacks current unassigned plan")
-            denial = store.get_event(denial_event_id)
-            receipt = store.receipt_for_event(denial.id, operation=Action.DISPATCH.value)
-            audit = denial.payload.dispatch
-            if audit is None:
-                raise ValueError("budget escalation requires actual dispatch shortage")
-            attempted_plan = store.get_plan(audit.plan_id)
-            if (attempted_plan.issue_id != issue_id or attempted_plan.district_id != policy["district"]
-                    or attempted_plan.policy_version != policy["version"]):
-                raise ValueError("budget escalation has stale dispatch plan")
-            facts = store.current_issue_facts(issue_id)
-            plan_unmet, computed_quote = _plan_current(store, attempted_plan, issue, facts, policy)
-            try:
-                vendor = store.get_vendor(audit.vendor_id).model_dump()
-                budget_record = store.get_budget(policy["district"])
-                if (budget_record.policy_version != policy["version"]
-                        or budget_record.initial_cents != policy["budget_cents"]):
-                    raise ValueError("budget does not match configured allocation")
-                budget = store.budget_availability(policy["district"])
-            except (KeyError, ValueError) as error:
-                raise ValueError("budget escalation has inconsistent dispatch records") from error
-            score = store.current_evidence_score(issue_id)
-            location = facts.geocode.location if facts.geocode else None
-            gate = dispatch_gate(policy, issue_status=issue.status, evidence_total=score.total,
-                category=facts.classification.category if facts.classification else attempted_plan.service_type,
-                hazards=facts.unresolved_hazards, coordinates=location.model_dump() if location else None,
-                vendor=vendor, required_equipment=list(attempted_plan.required_equipment),
-                quote=computed_quote or attempted_plan.quote_cents, available_cents=budget.available_cents)
-            if "insufficient_budget" not in denial.payload.unmet:
-                raise ValueError("budget escalation requires an actual shortage")
-            if budget.available_cents >= (computed_quote or attempted_plan.quote_cents):
-                raise RevisionConflict("funds have recovered")
-            if (receipt is None or receipt.issue_id != issue_id or receipt.actor_id != denial.actor.actor_id
-                    or receipt.result.outcome != "DENIED" or denial.event_type != "DISPATCH_DENIED"
-                    or denial.actor.actor_type != "service" or denial.payload.outcome != "DENIED"
-                    or denial.policy_version != policy["version"]
-                    or denial.issue_id != issue_id or denial.state_revision != issue.state_revision
-                    or audit.expected_issue_revision != issue.state_revision
-                    or audit.actual_issue_revision != issue.state_revision
-                    or audit.computed_quote_cents != computed_quote
-                    or audit.budget is None or audit.budget.budget_id != budget.budget_id
-                    or audit.budget.initial_cents != budget.initial_cents
-                    or audit.budget.available_cents >= computed_quote
-                    or audit.budget.available_cents != (audit.budget.initial_cents
-                        - audit.budget.reserved_cents - audit.budget.spent_cents)
-                    or plan_unmet or gate.unmet != ("insufficient_budget",)
-                    or denial.payload.unmet != gate.unmet
-                    or denial.payload.score_components != c.EvidenceComponents(**score.components)
-                    or denial.payload.gate_results != (c.GateRecord(name="dispatch_policy", allowed=False,
-                                                                      unmet=gate.unmet),)
-                    or denial.id not in receipt.result.event_ids):
-                raise ValueError("budget escalation requires actual dispatch shortage")
-            plan = attempted_plan
+        if not pre_job_gate.allowed:
+            raise ValueError("pre-job escalation lacks current supporting facts")
+        if kind == "budget":
+            if denial_event_id is None:
+                raise ValueError("budget escalation lacks dispatch shortage")
+            plan, _gate = _current_budget_shortage(store, issue=issue,
+                                                    denial_event_id=denial_event_id, policy=policy)
         existing = next((item for item in store.exceptions_for_issue(issue_id)
                          if item.kind == kind and item.reason_code == reason_code and item.status in {"PENDING", "DECIDED"}), None)
         if existing is not None:
@@ -1490,6 +1511,91 @@ def _financial_reservation(store: Store, job: c.JobRecord) -> c.ReservationRecor
     if reservation is None:
         raise ValueError("dispatched job lacks its original reservation")
     return reservation
+
+
+def _saved_budget_shortage(store: Store, *, issue: c.IssueRecord, denial_event_id: int, policy: dict):
+    """Immutable producer evidence, distinct from a shortage that is still actionable."""
+    denial = store.get_event(denial_event_id)
+    receipt = store.receipt_for_event(denial.id, operation=Action.DISPATCH.value)
+    audit = denial.payload.dispatch
+    if audit is None or audit.budget is None:
+        raise ValueError("budget denial lacks its actual dispatch audit")
+    plan = store.get_plan(audit.plan_id)
+    if (plan.issue_id != issue.id or plan.district_id != policy["district"]
+            or receipt is None or receipt.issue_id != issue.id or receipt.job_id is not None
+            or receipt.actor_id != denial.actor.actor_id or receipt.result.outcome != "DENIED"
+            or not isinstance(receipt.result.data, c.EntityResult) or receipt.result.data.record_id != plan.id
+            or receipt.result.data.state_revision != plan.state_revision
+            or denial.event_type != "DISPATCH_DENIED" or denial.actor.actor_type != "service"
+            or denial.issue_id != issue.id or denial.job_id is not None or denial.payload.outcome != "DENIED"
+            or denial.policy_version != plan.policy_version or audit.reservation_id is not None
+            or audit.expected_issue_revision != denial.state_revision
+            or audit.actual_issue_revision != denial.state_revision
+            or audit.computed_quote_cents != plan.quote_cents or audit.budget.budget_id != plan.district_id
+            or audit.budget.initial_cents != policy["budget_cents"]
+            or audit.budget.available_cents >= plan.quote_cents
+            or audit.budget.available_cents != audit.budget.initial_cents - audit.budget.reserved_cents - audit.budget.spent_cents
+            or denial.payload.unmet != ("insufficient_budget",) or receipt.result.unmet != denial.payload.unmet
+            or denial.payload.gate_results != (c.GateRecord(name="dispatch_policy", allowed=False,
+                                                           unmet=("insufficient_budget",)),)
+            or not isinstance(denial.payload.score_components, c.EvidenceComponents)
+            or denial.id not in receipt.result.event_ids):
+        raise ValueError("budget escalation requires an authentic saved shortage")
+    return denial, plan
+
+
+def _current_budget_shortage(store: Store, *, issue: c.IssueRecord, denial_event_id: int,
+                             policy: dict) -> tuple[c.PlanRecord, c.GateRecord]:
+    """Validate the exact B5 shortage that can ground a current B8 budget request."""
+    if store.active_job_for_issue(issue.id) is not None:
+        raise RevisionConflict("budget escalation has an active job")
+    denial, plan = _saved_budget_shortage(store, issue=issue, denial_event_id=denial_event_id, policy=policy)
+    receipt = store.receipt_for_event(denial.id, operation=Action.DISPATCH.value)
+    audit = denial.payload.dispatch
+    if audit is None:
+        raise ValueError("budget escalation requires actual dispatch shortage")
+    if (plan.issue_id != issue.id or plan.district_id != policy["district"]
+            or plan.policy_version != policy["version"]):
+        raise ValueError("budget escalation has stale dispatch plan")
+    facts = store.current_issue_facts(issue.id)
+    plan_unmet, computed_quote = _plan_current(store, plan, issue, facts, policy)
+    try:
+        vendor = store.get_vendor(audit.vendor_id).model_dump()
+        budget = _configured_budget(store, policy)
+    except (KeyError, ValueError) as error:
+        raise ValueError("budget escalation has inconsistent dispatch records") from error
+    score = store.current_evidence_score(issue.id)
+    location = facts.geocode.location if facts.geocode else None
+    gate = dispatch_gate(policy, issue_status=issue.status, evidence_total=score.total,
+        category=facts.classification.category if facts.classification else plan.service_type,
+        hazards=facts.unresolved_hazards, coordinates=location.model_dump() if location else None,
+        vendor=vendor, required_equipment=list(plan.required_equipment),
+        quote=computed_quote or plan.quote_cents, available_cents=budget.available_cents)
+    if "insufficient_budget" not in denial.payload.unmet:
+        raise ValueError("budget escalation requires an actual shortage")
+    if budget.available_cents >= (computed_quote or plan.quote_cents):
+        raise RevisionConflict("funds have recovered")
+    if (receipt is None or receipt.issue_id != issue.id or receipt.actor_id != denial.actor.actor_id
+            or receipt.result.outcome != "DENIED" or denial.event_type != "DISPATCH_DENIED"
+            or denial.actor.actor_type != "service" or denial.payload.outcome != "DENIED"
+            or denial.policy_version != policy["version"] or denial.issue_id != issue.id
+            or denial.state_revision != issue.state_revision
+            or audit.expected_issue_revision != issue.state_revision
+            or audit.actual_issue_revision != issue.state_revision
+            or audit.computed_quote_cents != computed_quote
+            or audit.budget is None or audit.budget.budget_id != budget.budget_id
+            or audit.budget.initial_cents != budget.initial_cents
+            or audit.budget.available_cents >= computed_quote
+            or audit.budget.available_cents != (audit.budget.initial_cents
+                - audit.budget.reserved_cents - audit.budget.spent_cents)
+            or plan_unmet or gate.unmet != ("insufficient_budget",)
+            or denial.payload.unmet != gate.unmet
+            or denial.payload.score_components != c.EvidenceComponents(**score.components)
+            or denial.payload.gate_results != (c.GateRecord(name="dispatch_policy", allowed=False,
+                                                              unmet=gate.unmet),)
+            or denial.id not in receipt.result.event_ids):
+        raise ValueError("budget escalation requires actual dispatch shortage")
+    return plan, gate
 
 
 def _settlement_action_gate(policy: dict, job: c.JobRecord, verification: c.VerificationRecord | None,

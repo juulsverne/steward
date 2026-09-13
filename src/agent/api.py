@@ -11,13 +11,14 @@ from collections.abc import Callable
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
 from urllib.parse import urlsplit
 from uuid import uuid4
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
+from fastapi.routing import APIRoute
 from starlette.datastructures import FormData, UploadFile
 from starlette.exceptions import HTTPException
 from starlette.formparsers import MultiPartException, MultiPartParser
@@ -28,14 +29,44 @@ from .actors import (
     AccessBoundary,
     AccessError,
     Action,
-    CrewJobView,
     DemoPersona,
     DemoSessions,
-    DemoSessionView,
     configured_personas,
 )
 from .adapters import SeededAdapters
 from .config import ApiSettings
+from .decisions import record_operational_decision
+from .http_contracts import (
+    CandidateSignalsView,
+    CandidateSignalView,
+    CheckinRequest,
+    ClassificationProposalRequest,
+    CompletionExceptionRequest,
+    CrewJobView,
+    DecisionProposalRequest,
+    DemoSessionView,
+    DispatchRequest,
+    ExceptionListView,
+    HealthView,
+    InspectCompletionRequest,
+    IntakeReceiptView,
+    InvestigationActionRequest,
+    IssueCreateRequest,
+    IssueExceptionRequest,
+    JurisdictionProposalRequest,
+    LinkSignalRequest,
+    OperationalDecisionProposalRequest,
+    PersonaRequest,
+    PlanRequest,
+    ProofMetadata,
+    RequestCompletionRequest,
+    SimilarIssuesView,
+    SimilarIssueView,
+    StoredSignalRequest,
+    ValidationDetail,
+    ValidationView,
+    VendorOptions,
+)
 from .images import MAX_UPLOAD_BYTES, UploadError, decode_upload, known_synthetic_fixture
 from .intake import persist_signal, resident_signal
 from .investigation import (
@@ -53,7 +84,6 @@ from .investigation import (
 from .models import utc_time
 from .operations import (
     ProofImages,
-    VendorOptions,
     accept_job,
     build_resolution_plan,
     cancel_job,
@@ -72,153 +102,137 @@ from .operations import (
 from .policy import load_policy
 from .store import IdempotencyConflict, RevisionConflict, Store
 
-
-class PersonaRequest(c.Record):
-    persona_id: c.OpaqueId
-
-
-class PlanRequest(c.Record):
-    classification_fact_id: c.OpaqueId
-
-
-class DispatchRequest(c.Record):
-    vendor_id: c.OpaqueId
-
-
-class CheckinRequest(c.Record):
-    latitude: float
-    longitude: float
-    accuracy_m: float | None = None
-    claimed_at: c.Timestamp | None = None
-
-
-class ProofMetadata(c.Record):
-    before_observed_at: c.Timestamp | None = None
-    after_observed_at: c.Timestamp | None = None
-
-
-class InspectCompletionRequest(c.Record):
-    submission_id: c.OpaqueId
-
-
-class CompletionExceptionRequest(c.Record):
-    submission_id: c.OpaqueId
-    verification_id: c.OpaqueId
-    denial_event_id: c.Positive
-    reason_code: c.Text
-
-
-class IssueExceptionRequest(c.Record):
-    kind: Literal["authority", "no_vendor", "budget"]
-    reason_code: c.Text
-    denial_event_id: c.Positive | None = None
-
-
-class RequestCompletionRequest(c.Record):
-    submission_id: c.OpaqueId
-    expected_job_revision: c.Nonnegative
-
-
-class ExceptionListView(c.Record):
-    exceptions: tuple[c.ExceptionDetail, ...]
-
-
-class IssueCreateRequest(c.Record):
-    signal_id: c.OpaqueId
-    match_rationale: c.Text
-
-
-class StoredSignalRequest(c.Record):
-    signal_id: c.OpaqueId
-
-
-class LinkSignalRequest(StoredSignalRequest):
-    match_rationale: c.Text
-
-
-class ClassificationProposalRequest(c.Record):
-    signal_id: c.OpaqueId
-    category: c.Text
-    visible_objects: tuple[c.Text, ...] = ()
-    hazards: tuple[c.Text, ...] = ()
-    primary_target: c.Text | None = None
-    full_cleanup_scope: c.Text | None = None
-    marked_work_area: c.Text | None = None
-    large_object_count: c.Nonnegative | None = None
-    supporting_evidence_ids: tuple[c.OpaqueId, ...] = ()
-    unknowns: tuple[c.Text, ...] = ()
-
-
-class JurisdictionProposalRequest(c.Record):
-    classification_fact_id: c.OpaqueId
-    responsibility: Literal["district", "city", "private", "unknown"]
-    supporting_fact_ids: tuple[c.OpaqueId, ...] = ()
-    unknowns: tuple[c.Text, ...] = ()
-
-
-class DecisionProposalRequest(c.Record):
-    decision_type: c.DecisionType
-    summary: c.Text
-    evidence_ids: tuple[c.OpaqueId, ...] = ()
-
-
-class InvestigationActionRequest(c.Record):
-    decision_id: c.OpaqueId
-
-
-class CandidateSignalView(c.Record):
-    id: c.Text
-    source_role: c.Text
-    source_author_id: c.Text | None
-    text: c.Text
-    observed_at: c.Timestamp | None
-    image_evidence_ids: tuple[c.Text, ...] = ()
-
-
-class CandidateSignalsView(c.Record):
-    candidates: tuple[CandidateSignalView, ...]
-    truncated: bool = False
-
-
-class SimilarIssueView(c.Record):
-    id: c.Text
-    status: c.IssueStatus
-    location: c.Text
-    evidence_score: c.Nonnegative
-
-
-class SimilarIssuesView(c.Record):
-    candidates: tuple[SimilarIssueView, ...]
-    truncated: bool = False
-
-
-class HealthView(c.Record):
-    ok: bool
-
-
-class IntakeReceiptView(c.Record):
-    """Safe acknowledgment: receipt identity is the saved signal identity."""
-
-    receipt_id: c.Text
-    signal_id: c.Text
-    received_at: c.Timestamp
-    accepted: bool = True
-    processing: str = "PENDING"
-
-
-class ValidationDetail(c.Record):
-    code: str = "INVALID_FIELD"
-    location: str
-
-
-class ValidationView(c.Record):
-    errors: tuple[ValidationDetail, ...]
-
-
-ERROR_RESPONSES = {status: {"model": c.ToolResult[ValidationView]} for status in (
+ERROR_RESPONSES = {status: {"model": c.ToolResult[
+    ValidationView | c.CompletionInspectionResult | c.EntityResult]} for status in (
     400, 401, 403, 404, 405, 409, 413, 415, 422, 429, 500, 503,
 )}
 MAX_MULTIPART_OVERHEAD = 64 * 1024
+
+# Stage B consumes these as protocol names, so every public operation is frozen
+# here rather than falling back to FastAPI's function-name generation.
+OPERATION_IDS = {
+    ("GET", "/health"): "health",
+    ("GET", "/api/demo/session"): "read_demo_session",
+    ("POST", "/api/demo/persona"): "select_demo_persona",
+    ("POST", "/api/signals"): "submit_signal",
+    ("GET", "/api/signals/related"): "find_related_signals",
+    ("GET", "/api/issues/similar"): "find_similar_issues",
+    ("POST", "/api/issues"): "create_issue_from_signal",
+    ("GET", "/api/jobs/{job_id}"): "read_job",
+    ("GET", "/api/budget"): "read_budget",
+    ("POST", "/api/issues/{issue_id}/plan"): "build_resolution_plan",
+    ("GET", "/api/plans/{plan_id}/vendors"): "list_eligible_vendors",
+    ("POST", "/api/plans/{plan_id}/dispatch"): "dispatch_vendor",
+    ("POST", "/api/jobs/{job_id}/accept"): "accept_job",
+    ("POST", "/api/jobs/{job_id}/check-in"): "check_in",
+    ("POST", "/api/jobs/{job_id}/proof"): "submit_proof",
+    ("POST", "/api/jobs/{job_id}/inspect"): "inspect_completion",
+    ("POST", "/api/jobs/{job_id}/settle"): "release_payment",
+    ("POST", "/api/jobs/{job_id}/cancel"): "cancel_job",
+    ("POST", "/api/issues/{issue_id}/close"): "close_issue",
+    ("POST", "/api/jobs/{job_id}/exceptions"): "escalate_completion_exception",
+    ("POST", "/api/issues/{issue_id}/exceptions"): "escalate_issue_exception",
+    ("GET", "/api/exceptions/{exception_id}"): "read_exception",
+    ("GET", "/api/issues/{issue_id}/exceptions"): "list_issue_exceptions",
+    ("POST", "/api/exceptions/{exception_id}/request-completion"): "request_completion",
+    ("POST", "/api/operator-decisions/{decision_id}/rework"): "request_rework",
+    ("POST", "/api/issues/{issue_id}/geocode"): "geocode_location",
+    ("POST", "/api/issues/{issue_id}/sources"): "link_signal",
+    ("POST", "/api/issues/{issue_id}/service-records/search"): "search_311",
+    ("POST", "/api/issues/{issue_id}/classification"): "classify_issue",
+    ("POST", "/api/issues/{issue_id}/jurisdiction"): "determine_jurisdiction",
+    ("POST", "/api/issues/{issue_id}/decisions"): "decide_issue",
+    ("POST", "/api/issues/{issue_id}/operational-decisions"): "decide_operational",
+    ("POST", "/api/issues/{issue_id}/investigation-action"): "apply_investigation_decision",
+    ("POST", "/api/issues/{issue_id}/official-dispute"): "official_dispute",
+    ("POST", "/api/signals/{signal_id}/intake-inspection"): "inspect_intake_photo",
+}
+
+
+def _openapi_request_schema(model: type[c.Record]) -> dict:
+    """Use namespaced components for both refs and discriminator mappings.
+
+    Definitions remain attached until _configure_openapi installs them in the
+    complete document. Request schemas cannot collide with response-mode schemas.
+    """
+    return model.model_json_schema(ref_template=f"#/components/schemas/{model.__name__}_{{model}}")
+
+
+def _configure_openapi(app: FastAPI) -> None:
+    json_bodies = {
+        "select_demo_persona": PersonaRequest, "create_issue_from_signal": IssueCreateRequest,
+        "build_resolution_plan": PlanRequest, "dispatch_vendor": DispatchRequest,
+        "check_in": CheckinRequest, "inspect_completion": InspectCompletionRequest,
+        "release_payment": InspectCompletionRequest, "escalate_completion_exception": CompletionExceptionRequest,
+        "escalate_issue_exception": IssueExceptionRequest, "request_completion": RequestCompletionRequest,
+        "geocode_location": StoredSignalRequest, "link_signal": LinkSignalRequest,
+        "search_311": StoredSignalRequest, "classify_issue": ClassificationProposalRequest,
+        "determine_jurisdiction": JurisdictionProposalRequest, "decide_issue": DecisionProposalRequest,
+        "decide_operational": OperationalDecisionProposalRequest,
+        "apply_investigation_decision": InvestigationActionRequest, "official_dispute": InvestigationActionRequest,
+    }
+    human_posts = {"select_demo_persona", "submit_signal", "accept_job", "check_in", "submit_proof", "request_completion"}
+    no_revision = {"select_demo_persona", "submit_signal", "create_issue_from_signal", "inspect_intake_photo"}
+    for route in app.routes:
+        if not isinstance(route, APIRoute) or "POST" not in route.methods:
+            continue
+        operation = route.operation_id
+        extra = dict(route.openapi_extra or {})
+        parameters = {item["name"].lower(): item for item in extra.get("parameters", [])}
+        header_names = ["Idempotency-Key"]
+        if operation not in no_revision:
+            header_names.append("X-Steward-Expected-Revision")
+        if operation in human_posts:
+            header_names.extend(("Origin", "X-Steward-Request"))
+        else:
+            parameters["x-steward-invocation-id"] = {"name": "X-Steward-Invocation-Id", "in": "header",
+                "required": False, "description": "Service only; actual saved invocation identity.",
+                "schema": {"type": "string", "pattern": r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"}}
+        for name in header_names:
+            parameters[name.lower()] = {"name": name, "in": "header", "required": True,
+                "schema": {"type": "string", **({"pattern": "^[0-9]+$"} if name == "X-Steward-Expected-Revision" else {})}}
+        extra["parameters"] = list(parameters.values())
+        if operation in json_bodies:
+            extra["requestBody"] = {"required": True, "content": {"application/json": {
+                "schema": _openapi_request_schema(json_bodies[operation])}}}
+        elif operation == "submit_signal":
+            extra["requestBody"] = {"required": True, "content": {"multipart/form-data": {"schema": {
+                "type": "object", "additionalProperties": False, "required": ["description", "location"],
+                "properties": {"description": {"type": "string", "minLength": 1, "pattern": r"\S"},
+                    "location": {"type": "string", "minLength": 1, "pattern": r"\S"},
+                    "observed_at": {"type": "string", "description": "Optional timestamp with timezone; empty means unknown."},
+                    "image": {"type": "string", "format": "binary", "description": "Optional JPEG/PNG, at most 10 MiB."}}}}}}
+        elif operation == "submit_proof":
+            extra["requestBody"] = {"required": True, "content": {"multipart/form-data": {"schema": {
+                "type": "object", "additionalProperties": False, "required": ["after", "metadata"],
+                "properties": {"before": {"type": "string", "format": "binary",
+                    "description": "Required for first proof; forbidden for rework. JPEG/PNG, at most 10 MiB."},
+                    "after": {"type": "string", "format": "binary", "description": "Fresh JPEG/PNG, at most 10 MiB."},
+                    "metadata": {"type": "string", "contentMediaType": "application/json",
+                        "contentSchema": ProofMetadata.model_json_schema(), "maxLength": 4096,
+                        "description": "JSON encoded ProofMetadata, at most 4096 UTF-8 bytes. Rework forbids before_observed_at, including null."}}}}}}
+        route.openapi_extra = extra
+
+    def openapi():
+        if app.openapi_schema is None:
+            document = get_openapi(title=app.title, version=app.version, openapi_version=app.openapi_version,
+                                   description=app.description, routes=app.routes)
+            components = document.setdefault("components", {}).setdefault("schemas", {})
+            for path in document["paths"].values():
+                for operation in path.values():
+                    if not isinstance(operation, dict):
+                        continue
+                    content = operation.get("requestBody", {}).get("content", {})
+                    for media in content.values():
+                        schema = media.get("schema", {})
+                        for name, definition in schema.pop("$defs", {}).items():
+                            component = f"{schema['title']}_{name}"
+                            if component in components and components[component] != definition:
+                                raise ValueError("conflicting public request schema")
+                            components[component] = definition
+            app.openapi_schema = document
+        return app.openapi_schema
+    app.openapi = openapi
 
 
 class IntakeMultiPartParser(MultiPartParser):
@@ -437,6 +451,9 @@ def resolve_actor(request: Request, *, optional: bool = False) -> c.ActorContext
     """Authority comes exclusively from the configured human cookie or service token."""
     authorization = _header(request, "authorization")
     cookie = _cookie(request)
+    invocation_id = _header(request, "x-steward-invocation-id")
+    if invocation_id is not None and authorization is None:
+        raise AccessError(403, "INVOCATION_SERVICE_ONLY")
     if authorization is not None and cookie is not None:
         raise AccessError(400, "MIXED_CREDENTIALS")
     if authorization is not None:
@@ -473,8 +490,15 @@ def mutation_context(request: Request, action: Action, *,
     The operation/revision arguments come from the route, not an ActorContext body.
     """
     actor = require_action(request, action)
+    invocation_id = _header(request, "x-steward-invocation-id")
+    if invocation_id is not None:
+        if actor.actor_type != "service":
+            raise AccessError(403, "INVOCATION_SERVICE_ONLY")
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", invocation_id):
+            raise AccessError(400, "INVOCATION_ID_INVALID")
     return c.MutationContext(actor=actor, operation=operation or action.value,
-        idempotency_key=idempotency_key(request), expected_revision=expected_revision)
+        idempotency_key=idempotency_key(request), invocation_id=invocation_id,
+        expected_revision=expected_revision)
 
 
 @contextmanager
@@ -586,13 +610,15 @@ def create_app(settings: ApiSettings | None = None,
 
     @app.post("/api/demo/persona", response_model=c.ToolResult[DemoSessionView], openapi_extra={
         "requestBody": {"required": True, "content": {"application/json": {
-            "schema": PersonaRequest.model_json_schema()}}},
+            "schema": _openapi_request_schema(PersonaRequest)}}},
         "parameters": [{"name": name, "in": "header", "required": True,
                         "schema": {"type": "string"}} for name in (
                             "Origin", "X-Steward-Request", "Idempotency-Key")],
     })
     async def persona(request: Request):
         # Protect before parsing, including the first unauthenticated selection.
+        if _header(request, "x-steward-invocation-id") is not None:
+            raise AccessError(403, "INVOCATION_SERVICE_ONLY")
         cookie = _cookie(request)  # Permit replacement of one invalid cookie, not ambiguity.
         if _header(request, "authorization") is not None:
             if cookie is not None:
@@ -773,7 +799,7 @@ def create_app(settings: ApiSettings | None = None,
               openapi_extra={"parameters": [{"name": name, "in": "header", "required": True,
                   "schema": {"type": "string"}} for name in ("Idempotency-Key", "X-Steward-Expected-Revision")],
                   "requestBody": {"required": True, "content": {"application/json": {
-                  "schema": PlanRequest.model_json_schema()}}}})
+                  "schema": _openapi_request_schema(PlanRequest)}}}})
     async def plan_issue(request: Request, issue_id: str):
         context = mutation_context(request, Action.BUILD_PLAN, expected_revision=expected_revision(request))
         body = await parse_json_request(request, PlanRequest)
@@ -802,7 +828,7 @@ def create_app(settings: ApiSettings | None = None,
               openapi_extra={"parameters": [{"name": name, "in": "header", "required": True,
                   "schema": {"type": "string"}} for name in ("Idempotency-Key", "X-Steward-Expected-Revision")],
                   "requestBody": {"required": True, "content": {"application/json": {
-                  "schema": DispatchRequest.model_json_schema()}}}})
+                  "schema": _openapi_request_schema(DispatchRequest)}}}})
     async def dispatch_plan(request: Request, plan_id: str):
         context = mutation_context(request, Action.DISPATCH, expected_revision=expected_revision(request))
         body = await parse_json_request(request, DispatchRequest)
@@ -968,7 +994,7 @@ def create_app(settings: ApiSettings | None = None,
 
     @app.post("/api/jobs/{job_id}/settle", response_model=c.ToolResult[c.EntityResult],
         openapi_extra=financial_headers | {"requestBody": {"required": True, "content": {"application/json": {
-            "schema": InspectCompletionRequest.model_json_schema()}}}})
+            "schema": _openapi_request_schema(InspectCompletionRequest)}}}})
     async def settle_job(request: Request, job_id: str):
         context = mutation_context(request, Action.SETTLE, expected_revision=expected_revision(request))
         body = await parse_json_request(request, InspectCompletionRequest)
@@ -1008,7 +1034,7 @@ def create_app(settings: ApiSettings | None = None,
               openapi_extra={"parameters": [{"name": name, "in": "header", "required": True,
                   "schema": {"type": "string"}} for name in ("Idempotency-Key", "X-Steward-Expected-Revision")],
                   "requestBody": {"required": True, "content": {"application/json": {
-                      "schema": CompletionExceptionRequest.model_json_schema()}}}})
+                      "schema": _openapi_request_schema(CompletionExceptionRequest)}}}})
     async def escalate_completion_exception(request: Request, job_id: str):
         context = mutation_context(request, Action.ESCALATE, expected_revision=expected_revision(request))
         body = await parse_json_request(request, CompletionExceptionRequest)
@@ -1030,7 +1056,7 @@ def create_app(settings: ApiSettings | None = None,
               openapi_extra={"parameters": [{"name": name, "in": "header", "required": True,
                   "schema": {"type": "string"}} for name in ("Idempotency-Key", "X-Steward-Expected-Revision")],
                   "requestBody": {"required": True, "content": {"application/json": {
-                      "schema": IssueExceptionRequest.model_json_schema()}}}})
+                      "schema": _openapi_request_schema(IssueExceptionRequest)}}}})
     async def escalate_issue_exception(request: Request, issue_id: str):
         context = mutation_context(request, Action.ESCALATE, expected_revision=expected_revision(request))
         body = await parse_json_request(request, IssueExceptionRequest)
@@ -1070,7 +1096,7 @@ def create_app(settings: ApiSettings | None = None,
               openapi_extra={"parameters": [{"name": name, "in": "header", "required": True,
                   "schema": {"type": "string"}} for name in ("Idempotency-Key", "X-Steward-Expected-Revision")],
                   "requestBody": {"required": True, "content": {"application/json": {
-                      "schema": RequestCompletionRequest.model_json_schema()}}}})
+                      "schema": _openapi_request_schema(RequestCompletionRequest)}}}})
     async def operator_request_completion(request: Request, exception_id: str):
         context = mutation_context(request, Action.REQUEST_COMPLETION, expected_revision=expected_revision(request))
         body = await parse_json_request(request, RequestCompletionRequest)
@@ -1263,6 +1289,30 @@ def create_app(settings: ApiSettings | None = None,
             raise AccessError(422, "VALIDATION_ERROR") from None
         return result_response(result)
 
+    @app.post("/api/issues/{issue_id}/operational-decisions",
+              response_model=c.ToolResult[c.OperationalDecisionResult], operation_id="decide_operational",
+              openapi_extra={"parameters": [{"name": name, "in": "header", "required": True,
+                  "schema": {"type": "string"}} for name in ("Idempotency-Key", "X-Steward-Expected-Revision")]
+                  + [{"name": "X-Steward-Invocation-Id", "in": "header", "required": False,
+                      "schema": {"type": "string"}}],
+                  "requestBody": {"required": True, "content": {"application/json": {
+                      "schema": _openapi_request_schema(OperationalDecisionProposalRequest)}}}})
+    async def decide_operational(request: Request, issue_id: str):
+        context = mutation_context(request, Action.DECIDE_OPERATIONAL,
+            expected_revision=expected_revision(request))
+        body = await parse_json_request(request, OperationalDecisionProposalRequest)
+        try:
+            def operation():
+                with request_store(request) as store:
+                    return record_operational_decision(store, issue_id=issue_id, proposal=body,
+                                                       context=context).result
+            result = await to_thread(operation)
+        except (IdempotencyConflict, RevisionConflict):
+            raise
+        except (KeyError, ValueError):
+            raise AccessError(422, "VALIDATION_ERROR") from None
+        return result_response(result)
+
     @app.post("/api/issues/{issue_id}/investigation-action", response_model=c.ToolResult[c.EntityResult])
     async def apply_decision(request: Request, issue_id: str):
         context = mutation_context(request, Action.APPLY_INVESTIGATION_DECISION,
@@ -1328,4 +1378,13 @@ def create_app(settings: ApiSettings | None = None,
         except KeyError:
             raise AccessError(404, "RESOURCE_NOT_FOUND") from None
 
+    # Refuse a server change that has not frozen its public client operation ID.
+    for route in app.routes:
+        if isinstance(route, APIRoute) and route.operation_id is None:
+            method = next(iter(sorted(route.methods - {"HEAD", "OPTIONS"})), "get").lower()
+            try:
+                route.operation_id = OPERATION_IDS[(method.upper(), route.path)]
+            except KeyError as error:
+                raise RuntimeError(f"missing explicit operation ID for {method} {route.path}") from error
+    _configure_openapi(app)
     return app

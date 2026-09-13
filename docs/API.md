@@ -91,7 +91,8 @@ before the 20-result bound and return `truncated` when further matches exist.
 | POST `/api/issues` | Service-only creation from one stored unlinked physical-observation signal and concise rationale |
 | POST `/api/issues/{id}/geocode`, `/service-records/search` | Service-only trusted seeded adapter facts keyed to a stored linked signal |
 | POST `/api/issues/{id}/sources` | Service-only explicit link of one stored signal to a case, with a saved match rationale |
-| POST `/api/issues/{id}/classification`, `/jurisdiction`, `/decisions` | Service-only saved proposals and gate-validated decision intents; decision intent alone does not mutate lifecycle state |
+| POST `/api/issues/{id}/classification`, `/jurisdiction`, `/decisions` | Service-only saved B4 proposals and gate-validated investigation decision intents; decision intent alone does not mutate lifecycle state |
+| POST `/api/issues/{id}/operational-decisions` | Service-only durable operational proposal with typed saved basis and current server gates; it never dispatches, settles, reworks, or closes |
 | POST `/api/issues/{id}/investigation-action`, `/official-dispute` | Service-only, revision-checked application of an eligible saved investigation decision |
 | POST `/api/signals/{id}/intake-inspection` | Service-only configured image inspection of stored evidence; exact-version results are cached |
 
@@ -136,7 +137,10 @@ handling. `require_action(request, Action)` resolves credentials and checks role
 `mutation_context(request, Action, expected_revision=...)` additionally requires the
 idempotency key and returns B1's `MutationContext`; `request.state.request_id` stays a
 transport-only identifier. Route code supplies the operation and validated revision,
-never a caller-supplied ActorContext. B11/B12 will add saved invocation context validation.
+never a caller-supplied ActorContext. A service request may supply one
+`X-Steward-Invocation-Id`; duplicate header values are rejected, human requests cannot
+supply it, and the domain validates its persisted cause. It is not a lease or fence;
+B12 adds those current-claim checks later.
 
 Use `with request_store(request) as store:` **inside one synchronous route/worker call**.
 It opens and closes one SQLite connection on that thread, including failure paths.
@@ -164,6 +168,50 @@ gates inside the same Store writer transaction as the effect, audit event and pe
 actor-scoped idempotency receipt. No network/model work belongs inside that lock.
 Full operational timelines, exceptions, collections, invocation views and business
 routes remain with their owning cards. Test-only harness routes are not in the shipped app.
+
+## Operational intents (B10 Stage A)
+
+`POST /api/issues/{issue_id}/operational-decisions` records one service-owned proposed
+`REQUEST_DISPATCH`, `REQUEST_SETTLEMENT`, `REQUEST_OPERATOR`, `REQUEST_REWORK`, or
+`RESOLVE` decision. Its JSON body has only a summary of at most 2,000 characters, up to
+64 optional stored evidence IDs,
+and a discriminated basis. The basis carries the applicable saved plan/vendor, job/proof/
+verification, authentic denial, operator choice, or payment reference plus the caller's
+expected issue or job revision. `X-Steward-Expected-Revision` is required and must match
+that basis. The server resolves every referenced record, records actual issue/job revisions,
+and returns an `OperationalDecisionResult` with the immutable `DecisionRecord` and its
+current deterministic gate.
+
+Canonical intake evidence can be cited through its saved signal-to-issue link; unlinked
+or other-issue evidence cannot. Dispatch and pre-job escalation previews share their
+server evaluators with actual actions. A genuine old proposal records its expected and
+actual revisions with failing freshness gates. Historical completion/budget denials and
+operator choices retain their immutable provenance checks, including on exact replay;
+later rework does not make an authentic old denial corrupt. Damaged financial state is
+an error and does not produce an invented successful gate.
+
+`/openapi.json` publishes every public operation's explicit ID, JSON or multipart body,
+required transport headers and typed response envelope. References and discriminator
+mappings resolve against named components. The accept, rework, cancel, close and intake
+inspection operations have no domain body; proof metadata remains a bounded JSON string
+within the multipart form. HTTP tool registration and durable retries remain Stage B/B12.
+
+The HTTP result `OK / DECISION_SAVED` means only that the proposal and receipt were saved.
+An in-scope proposal that is currently ineligible still receives a saved decision with a
+failing gate; it performs no business action. Missing, foreign, contradictory, or corrupt
+references are rejected. For an exact replay, current actor, invocation cause, and immutable
+references are checked again, then the original result is returned even if dispatch, payment,
+or rework has since changed eligibility. A new matching-but-old issue/job revision is also
+saved, with the expected and actual revision retained in its basis and a failed stale gate.
+Actual mutation endpoints keep their normal compare-and-swap behavior.
+
+Public request DTOs and safe read projections live in `agent.http_contracts`, including
+`OperationalDecisionProposalRequest`, planning/dispatch/proof/exception requests, B4 proposal
+requests, candidate/exception/session/job views, and vendor options. This module has no
+FastAPI, Store, operations, or actor-boundary import, so the later HTTP client can import its
+wire contracts without importing the server. Existing `agent.api` request imports remain
+compatible re-exports. All public API operations publish frozen unique OpenAPI operation IDs;
+the new route is `decide_operational`.
 
 All responses carry a fresh server `X-Request-ID`, `Cache-Control: no-store`, and
 `X-Content-Type-Options: nosniff`. Caller request IDs are not authoritative. Domain replies

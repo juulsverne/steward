@@ -48,6 +48,16 @@ def stable_id(kind: str, *parts: str) -> str:
     return f"{kind}-{uuid5(NAMESPACE_URL, value)}"
 
 
+def _invocation_cause(store: Store, invocation_id: str):
+    """Immutable identity shared by ordinary actions and first canonical binding."""
+    invocation = store.get_invocation(invocation_id)
+    trigger = store.get_event(invocation.trigger_event_id)
+    if (trigger.event_type != invocation.trigger_type or trigger.signal_id != invocation.signal_id
+            or trigger.policy_version != invocation.policy_version or trigger.job_id != invocation.job_id):
+        raise ValueError("invocation cause identity is inconsistent")
+    return invocation, trigger
+
+
 def _validated_cause(store: Store, context: c.MutationContext, *,
                      issue_id: str | None, signal_id: str | None, job_id: str | None = None,
                      submission_id: str | None = None) -> c.EventRecord | None:
@@ -58,12 +68,7 @@ def _validated_cause(store: Store, context: c.MutationContext, *,
     """
     if context.invocation_id is None:
         return None
-    invocation = store.get_invocation(context.invocation_id)
-    trigger = store.get_event(invocation.trigger_event_id)
-    if (trigger.event_type != invocation.trigger_type or trigger.signal_id != invocation.signal_id
-            or trigger.policy_version != invocation.policy_version
-            or trigger.job_id != invocation.job_id):
-        raise ValueError("invocation cause identity is inconsistent")
+    invocation, trigger = _invocation_cause(store, context.invocation_id)
     if job_id is not None and invocation.job_id is not None and invocation.job_id != job_id:
         raise ValueError("invocation cause does not belong to job")
     if job_id is not None and trigger.job_id is not None and trigger.job_id != job_id:
@@ -104,6 +109,40 @@ def _authorize(store, context, *, issue_id=None, signal_id=None, evidence_ids=()
     for evidence_id in evidence_ids:
         boundary.evidence(store, evidence_id)
     return _validated_cause(store, context, issue_id=issue_id, signal_id=signal_id)
+
+
+def _authorize_unlinked_signal_transition(store, context, *, issue_id: str | None, signal_id: str):
+    """Allow only an original unlinked B3 intake to acquire its first canonical issue."""
+    boundary = AccessBoundary(context.actor, load_policy()["district"])
+    boundary.require(Action.INVESTIGATE)
+    if issue_id is not None:
+        boundary.issue(store, issue_id)
+    boundary.signal(store, signal_id)
+    if context.invocation_id is None:
+        return None
+    invocation, trigger = _invocation_cause(store, context.invocation_id)
+    if (invocation.trigger_type != "SIGNAL_RECEIVED" or invocation.signal_id != signal_id
+            or invocation.issue_id is not None or invocation.job_id is not None
+            or trigger.event_type != "SIGNAL_RECEIVED" or trigger.signal_id != signal_id
+            or trigger.issue_id is not None or trigger.job_id is not None
+            or store.issue_for_signal(signal_id) is not None):
+        raise ValueError("invocation cannot bind this signal transition")
+    return trigger
+
+
+def _bind_unlinked_signal_invocation(tx, store: Store, context: c.MutationContext, *, signal_id: str,
+                                     issue_id: str) -> None:
+    if context.invocation_id is None:
+        return
+    invocation, trigger = _invocation_cause(store, context.invocation_id)
+    if (invocation.trigger_type != "SIGNAL_RECEIVED" or invocation.signal_id != signal_id
+            or invocation.issue_id is not None or invocation.job_id is not None
+            or trigger.event_type != "SIGNAL_RECEIVED" or trigger.signal_id != signal_id
+            or trigger.issue_id is not None or trigger.job_id is not None
+            or store.issue_for_signal(signal_id).id != issue_id):
+        raise ValueError("invocation cannot bind this signal transition")
+    tx.replace_invocation(invocation.model_copy(update={"issue_id": issue_id,
+        "state_revision": invocation.state_revision + 1}), invocation.state_revision)
 
 
 def _expected(context):
@@ -193,6 +232,7 @@ def create_issue_from_signal(store: Store, *, signal_id: str, rationale: str,
         created = _event(tx, issue_id, context.actor, "ISSUE_CREATED_FROM_SIGNAL", revision=0,
             summary=rationale, record_id=signal_id)
         linked_issue = store._link_signal(issue_id, signal_id)
+        _bind_unlinked_signal_invocation(tx, store, context, signal_id=signal_id, issue_id=issue_id)
         result = c.RequestReceipt(id=str(uuid4()), operation=context.operation,
             actor_id=context.actor.actor_id, idempotency_key=context.idempotency_key,
             request_sha256=fingerprint, signal_id=signal_id, issue_id=issue_id,
@@ -209,8 +249,14 @@ def link_signal_to_issue(store: Store, *, issue_id: str, signal_id: str, rationa
     fingerprint = request_fingerprint({"issue_id": issue_id, "signal_id": signal_id,
         "rationale": rationale, "actor": context.actor.model_dump(mode="json"),
         "expected_revision": context.expected_revision})
+    def authorize_link():
+        if store.issue_for_signal(signal_id) is None:
+            return _authorize_unlinked_signal_transition(store, context, issue_id=issue_id, signal_id=signal_id)
+        return _authorize(store, context, issue_id=issue_id, signal_id=signal_id)
+
+    authorize_link()
     with store.transaction() as tx:
-        _authorize(store, context, issue_id=issue_id, signal_id=signal_id)
+        authorize_link()
         _expected(context)
         previous = tx.lookup_request(context, fingerprint)
         if previous is not None:
@@ -220,6 +266,7 @@ def link_signal_to_issue(store: Store, *, issue_id: str, signal_id: str, rationa
         if linked is not None:
             raise IdempotencyConflict("signal is already linked to an issue")
         result = store._link_signal(issue_id, signal_id)
+        _bind_unlinked_signal_invocation(tx, store, context, signal_id=signal_id, issue_id=issue_id)
         current = store.get_issue_record(issue_id)
         event = _event(tx, issue_id, context.actor, "CANDIDATE_LINK_RECORDED",
             revision=current.state_revision, summary=rationale, record_id=signal_id)

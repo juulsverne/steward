@@ -15,6 +15,14 @@ from itsdangerous import BadData, URLSafeTimedSerializer
 from pydantic import ValidationError
 
 from . import contracts as c
+from .http_contracts import (
+    CrewJobView,
+    DemoSessionView,
+    EvidenceView,
+    IssueView,
+    PersonaChoice,
+    ReceiptView,
+)
 from .store import Store
 
 SESSION_MAX_AGE = 12 * 60 * 60
@@ -34,19 +42,6 @@ class AccessError(Exception):
 class DemoPersona(c.Record):
     persona_id: c.OpaqueId
     actor: c.ActorContext
-
-
-class PersonaChoice(c.Record):
-    persona_id: c.OpaqueId
-    label: c.Text
-    actor_type: Literal["resident", "crew", "operator"]
-
-
-class DemoSessionView(c.Record):
-    sandbox: Literal[True] = True
-    notice: str = SANDBOX_NOTICE
-    actor: c.ActorContext | None = None
-    personas: tuple[PersonaChoice, ...]
 
 
 class SessionClaim(c.Record):
@@ -122,6 +117,7 @@ class Action(StrEnum):
     READ_CONTEXT = "read_context"
     INVESTIGATE = "investigate"
     APPLY_INVESTIGATION_DECISION = "apply_investigation_decision"
+    DECIDE_OPERATIONAL = "decide_operational"
     ACCEPT_JOB = "accept_job"
     CHECK_IN = "check_in"
     SUBMIT_PROOF = "submit_proof"
@@ -148,6 +144,7 @@ _ACTION_ROLES = {
     Action.READ_CONTEXT: {"service"},
     Action.INVESTIGATE: {"service"},
     Action.APPLY_INVESTIGATION_DECISION: {"service"},
+    Action.DECIDE_OPERATIONAL: {"service"},
     Action.ACCEPT_JOB: {"crew"},
     Action.CHECK_IN: {"crew"},
     Action.SUBMIT_PROOF: {"crew"},
@@ -163,63 +160,6 @@ _ACTION_ROLES = {
     Action.CANCEL: {"service"},
     Action.EDIT_POLICY: set(),
 }
-
-
-class ReceiptView(c.Record):
-    receipt_id: c.Text
-    signal_id: c.Text
-    received_at: c.Timestamp
-    accepted: Literal[True] = True
-    processing: Literal["PENDING"] = "PENDING"
-
-
-class IssueView(c.Record):
-    """Minimal operational summary. Full timelines belong to their later read card."""
-
-    id: c.Text
-    category: c.Text
-    location: c.Text
-    status: c.IssueStatus
-    state_revision: c.Nonnegative
-    evidence_score: c.Nonnegative
-    components: c.EvidenceComponents
-    responsibility: c.Text | None
-    hazards: tuple[c.Text, ...]
-
-
-class CrewJobView(c.Record):
-    id: c.Text
-    issue_id: c.Text
-    vendor_id: c.Text
-    status: c.JobStatus
-    state_revision: c.Nonnegative
-    location: c.Text
-    scope: c.Text
-    work_area: c.Text
-    price_cents: c.Positive
-    proof_requirements: c.ProofRequirements
-    accepted_at: c.Timestamp | None
-    checkin_claimed_at: c.Timestamp | None = None
-    checked_in_at: c.Timestamp | None
-    submitted_at: c.Timestamp | None
-    latest_submission_id: c.Text | None
-    rework_instructions: c.Text | None
-    simulated: Literal[True] = True
-    plan_id: c.Text
-    primary_target: c.Text | None = None
-    dispatch_location: c.LocationRecord | None = None
-    required_equipment: tuple[c.Text, ...] = ()
-    crew_count: c.Positive
-    reservation_id: c.Text | None = None
-    policy_version: c.Text
-
-
-class EvidenceView(c.Record):
-    id: c.Text
-    content_type: Literal["image/jpeg", "image/png"]
-    provenance: c.Provenance
-    observed_at: c.Timestamp | None
-    received_at: c.Timestamp
 
 
 @dataclass(frozen=True)
@@ -303,6 +243,18 @@ class AccessBoundary:
             plan_id=plan.id, primary_target=plan.primary_target, dispatch_location=plan.dispatch_location,
             required_equipment=plan.required_equipment, crew_count=plan.crew_count,
             reservation_id=reservation.id if reservation else None, policy_version=plan.policy_version)
+
+    def issue_evidence(self, store: Store, issue_id: str, evidence_id: str) -> EvidenceView:
+        """Authorize actual canonical ownership, including retained intake associations."""
+        self._issue(store, issue_id)
+        evidence = self.evidence(store, evidence_id)
+        for association in store.evidence_associations(evidence_id):
+            linked_issue = (store.issue_for_signal(association.signal_id)
+                            if association.signal_id is not None else None)
+            if (association.issue_id == issue_id or
+                    (association.issue_id is None and linked_issue is not None and linked_issue.id == issue_id)):
+                return evidence
+        raise AccessError(404, "RESOURCE_NOT_FOUND")
 
     def evidence(self, store: Store, evidence_id: str, *, job_id: str | None = None) -> EvidenceView:
         self.require(Action.READ_EVIDENCE)

@@ -33,7 +33,7 @@ def test_operator_routes_publish_header_and_exact_body_contract(tmp_path):
     assert "/api/operator-decisions/{decision_id}/rework" in paths
     operator = paths["/api/exceptions/{exception_id}/request-completion"]["post"]
     assert {item["name"] for item in operator["parameters"] if item["in"] == "header" and item["required"]} == {
-        "Idempotency-Key", "X-Steward-Expected-Revision"
+        "Idempotency-Key", "X-Steward-Expected-Revision", "Origin", "X-Steward-Request"
     }
     assert "expected_exception_revision" not in str(operator["requestBody"])
     assert "expected_job_revision" in str(operator["requestBody"])

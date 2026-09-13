@@ -152,5 +152,5 @@ def test_crew_routes_publish_the_header_only_job_revision_contract(tmp_path):
     for route in ("/api/jobs/{job_id}/accept", "/api/jobs/{job_id}/check-in", "/api/jobs/{job_id}/proof"):
         parameters = paths[route]["post"]["parameters"]
         assert {item["name"] for item in parameters if item["in"] == "header" and item["required"]} == {
-            "Idempotency-Key", "X-Steward-Expected-Revision"}
+            "Idempotency-Key", "X-Steward-Expected-Revision", "Origin", "X-Steward-Request"}
     assert "requestBody" not in paths["/api/jobs/{job_id}/accept"]["post"]
