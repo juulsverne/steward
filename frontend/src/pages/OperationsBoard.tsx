@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
 import "./OperationsBoard.css";
 import { ApiError, read } from "../api/client";
-import { issueStatus, markerTone } from "../api/labels";
+import { humanizeCode, issueStatus, markerTone } from "../api/labels";
 import { IssueMap } from "../components/IssueMap";
 import { Money } from "../components/Money";
 import { PageHeader } from "../components/PageHeader";
@@ -94,7 +94,7 @@ function BoardContent() {
                   <ul className="issue-list">{unlocated.map((k) => (
                     <li key={k.issue_id} className="issue-row">
                       <StatusBadge label={issueStatus(k.status).label} tone={markerTone(k.marker_state)} />
-                      <div className="issue-row__text"><Link to={`/issues/${k.issue_id}`} className="issue-row__link">{k.label}</Link><p className="small muted">{k.location_unknown_reason ?? "No coordinates saved"}</p></div>
+                      <div className="issue-row__text"><Link to={`/issues/${k.issue_id}`} className="issue-row__link">{k.label}</Link><p className="small muted">{k.location_unknown_reason ? humanizeCode(k.location_unknown_reason) : "No coordinates saved"}</p></div>
                     </li>))}</ul>
                 </div>
               )}
