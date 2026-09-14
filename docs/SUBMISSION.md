@@ -16,11 +16,13 @@ A neighborhood operator hears about the same dumped couch three times: a communi
 
 **Who it is for.** District operators (business improvement districts, neighborhood associations, community-benefit organizations) who already pay approved providers for supplemental cleanup and who today reconcile reports, records and crew photos by hand. Residents report without knowing jurisdiction or contractor categories. Crews see exactly what remains after a rejection.
 
-**What was proven and what was not.** The sixteen-step couch acceptance passed live through the API in two independently seeded runs on September 14 with real Bedrock text and vision, and the same journey was driven again and read back on every screen (`docs/DEMO.md`, `docs/evaluations/2026-09-14-ui-walk.md`). 703 offline tests pass; a twelve-comparison vision check scored 12/12. The twenty-two-scenario internal evaluation has **not** run, so no accuracy or reliability figure is claimed. Nothing is hosted: AgentCore Runtime, Observability and Gateway and a public URL are planned, not built. The district, budget, providers, addresses, reporter identities, community feed and 311 record are seeded fixtures; the photos are synthetic images generated for this project with published prompts; dispatch and settlement are simulated. No real money or municipal work is involved.
+**What was proven and what was not.** The sixteen-step couch acceptance passed live through the API in two independently seeded runs on September 14 with real Bedrock text and vision, and the same journey was driven again and read back on every screen (`docs/DEMO.md`, `docs/evaluations/2026-09-14-ui-walk.md`). 703 offline tests pass; a twelve-comparison vision check scored 12/12. The twenty-two-scenario internal evaluation has **not** run, so no accuracy or reliability figure is claimed. Hosted for judging on EC2 + CloudFront (deployed September 14; acceptance evidence: docs/evaluations/2026-09-14-hosted-acceptance.md). The hosted acceptance run and restart durability proof were still in progress when this was written; that evidence file records the result. AgentCore Runtime, Observability and Gateway are not deployed. The district, budget, providers, addresses, reporter identities, community feed and 311 record are seeded fixtures; the photos are synthetic images generated for this project with published prompts; dispatch and settlement are simulated. No real money or municipal work is involved.
 
 ## Judging access
 
-There is **no hosted URL**. Judging access is the documented clone-and-run path in [README.md](../README.md#run-it-yourself): clone the repository, `uv sync --locked --extra dev --extra web`, build the frontend, put two generated secrets and your own AWS profile in `.env`, seed, start the API with `STEWARD_RUNTIME_ENABLED=true`, and run `python -m agent.demo`. It requires the judge's own AWS account with Bedrock access to `global.anthropic.claude-sonnet-4-6` and costs a few dollars of inference per full run. Everything else (screens, tests, the offline scoring harness, the seeded state) runs without AWS. The rules ask for free, unrestricted access through October 8; a bring-your-own-AWS setup is the fallback we can offer today and is disclosed as such. If the owner later authorizes hosting, the URL goes in "Final links" below and this paragraph changes.
+**Primary: the hosted system.** Hosted for judging on EC2 + CloudFront (deployed September 14; acceptance evidence: docs/evaluations/2026-09-14-hosted-acceptance.md). Public URL: `https://d1uke66gfefpu4.cloudfront.net` — one EC2 `t3.small` in `us-west-2` with a retained EBS data volume for SQLite and images, private S3 backups, nginx + uvicorn, the in-process Strands runtime, behind CloudFront. It serves `/health` and the Board; pick a persona in the header (a labeled sandbox, not authentication) and walk the Board, Issue Detail, Inbox, Crew Form and Report screens. The hosted acceptance run and the restart/reboot durability proof are recorded by the hosting worker in `docs/evaluations/2026-09-14-hosted-acceptance.md`, with the decision in [HOSTING_DECISION.md](HOSTING_DECISION.md); this checklist does not claim their result. The rules ask for free, unrestricted access through October 8; the owner keeps the instance up through that date.
+
+**Fallback: clone and run.** The documented path in [README.md](../README.md#run-it-yourself): clone the repository, `uv sync --locked --extra dev --extra web`, build the frontend, put two generated secrets and your own AWS profile in `.env`, seed, start the API with `STEWARD_RUNTIME_ENABLED=true`, and run `python -m agent.demo`. It requires the judge's own AWS account with Bedrock access to `global.anthropic.claude-sonnet-4-6` and costs a few dollars of inference per full run. Everything else (screens, tests, the offline scoring harness, the seeded state) runs without AWS.
 
 ## What is implemented and what is not
 
@@ -35,8 +37,8 @@ There is **no hosted URL**. Judging access is the documented clone-and-run path 
 | Synthetic images with prompts and fingerprints; supplemental evaluation images | Implemented and documented |
 | Twenty-two-scenario internal evaluation (`python -m agent.evaluate`) | **Not run; command not built (P8)** |
 | Plain-model comparison arm | Not built (tier 4) |
-| AgentCore Runtime / Observability / Gateway | **Not built (tier 3)** |
-| Hosted API and screens with a public judging URL | **Not built**; recommendation in [HOSTING_DECISION.md](HOSTING_DECISION.md), owner decision pending |
+| AgentCore Runtime / Observability / Gateway | **Not deployed** (tier 3); the agent runs in-process next to the API, locally and on the hosted instance |
+| Hosted API and screens with a public judging URL | Hosted for judging on EC2 + CloudFront (deployed September 14; acceptance evidence: docs/evaluations/2026-09-14-hosted-acceptance.md); decision in [HOSTING_DECISION.md](HOSTING_DECISION.md) |
 | Live Chicago 311 lookup, Amazon Location geocoding | Not built (tier 4, flags); seeded fixtures are used |
 | Clean-install proof from a fresh clone with recorded commands | In progress (R1) on September 14; not yet recorded here |
 | Real payments, identity verification, policy editor, multiple agents | Excluded by design (PRD 4.6) |
@@ -50,9 +52,9 @@ There is **no hosted URL**. Judging access is the documented clone-and-run path 
 - [x] Recording script for a demo of at most five minutes ([DEMO.md](DEMO.md#recording-script--maximum-5-minutes)).
 - [x] Disclosure of incorporated pre-existing work and third-party rights (below).
 - [ ] **Owner:** register on Devpost and provide the AWS Builder ID.
-- [ ] **Owner:** make the repository public with all source, assets and instructions (the frontend footer already links to `https://github.com/juulsverne/agents-for-humans`; confirm that is the public URL or change the footer).
+- [ ] **Owner:** make the repository public with all source, assets and instructions. Public repository URL: `https://github.com/juulsverne/steward` (the git remote; the frontend footer's Source link points there too). It is private until the owner flips it.
 - [ ] **Owner:** record the video from the script, upload it to YouTube or Vimeo as public, and test the link signed out.
-- [ ] **Owner:** judging access — paste the clone-and-run paragraph above, or a hosted URL if one is authorized later.
+- [ ] **Owner:** judging access — paste the hosted URL and the clone-and-run fallback from above; keep the instance running through October 8.
 - [ ] **Owner:** save the Devpost submission and verify it before the deadline.
 
 ## Steward release checks
@@ -63,7 +65,7 @@ There is **no hosted URL**. Judging access is the documented clone-and-run path 
 - [ ] Clean install from scratch with recorded commands and results (R1, in progress).
 - [x] Real/seeded/synthetic/simulated labels match runtime behavior, screenshots and the recording script.
 - [ ] Evaluation counts, denominators, failures and limitations — **not available; the evaluation has not run.** The video and description say so.
-- [x] No credentials or private material in the published tree or history (see the provenance pass below).
+- [x] No secrets or credentials in the tree or history; two low-sensitivity local-path disclosures remain and are named in the rights section below, flagged for the owner.
 - [ ] **Owner:** video, repository, judging access and submission links tested while signed out.
 - [ ] **Owner:** Devpost submission saved and verified.
 
@@ -74,16 +76,16 @@ There is **no hosted URL**. Judging access is the documented clone-and-run path 
 - Map tiles are requested from `tile.openstreetmap.org` at runtime with the "Map data © OpenStreetMap contributors" caption shown under the map; nothing is cached or redistributed.
 - The five demo images and six supplemental images are synthetic, generated for this project on September 13 from prompts published in [data/images/PROVENANCE.md](../data/images/PROVENANCE.md) and [data/images/supplemental/PROMPTS.md](../data/images/supplemental/PROMPTS.md); fingerprints are in the manifests. The generation tool's terms govern their use; they depict no real place, person or incident.
 - All other fixtures (district, budget, providers, addresses, reporters, feed, 311 record) are invented demo data ([data/README.md](../data/README.md)). Chicago and the South Loop are used as a setting only; no municipal data or authority is claimed.
-- The credential/provenance pass on September 14 grepped the tree and full history for keys, tokens and private paths; `.env`, `.steward/`, local notes and worktrees are gitignored and absent from history. Findings are in the P9 report; anything unresolved is listed there for the owner.
+- The credential/provenance pass on September 14 grepped the tree and full history for keys, tokens and private paths. No secrets or credentials were found; `.env`, `.steward/`, local notes and worktrees are gitignored and were never committed. Two low-sensitivity local-path disclosures remain, flagged for the owner: the tracked plan file `docs/superpowers/plans/2026-09-14-frontend.md` contains the literal path `D:\devgents-for-humans\.worktrees\steward-build`, and the historical commit `2a49c02` (reachable from `main`; its files `docs/MAC-REMOTE.md` and `scripts/mac-session.sh` were removed in `c2f4497` but not purged) contains `/Users/cara/...` paths and an ssh host alias `mac-mini-tailscale`. Neither contains a credential.
 
 ## Tiers 3 and 4 after the deadline
 
-AgentCore Runtime, Observability and Gateway plus a hosted judging URL are tier 3; live 311, Amazon Location and the plain-model evaluation arm are tier 4. [EVALUATION.md](EVALUATION.md) defines equal model/input conditions and how any separate model arm must disclose its differences. None of these displaces the working couch, the evaluation, README, diagram or video. The AWS credit request deadline (September 11) has passed and is not an open prerequisite.
+AgentCore Runtime, Observability and Gateway are the remaining tier 3 items (the hosted judging URL is deployed); live 311, Amazon Location and the plain-model evaluation arm are tier 4. [EVALUATION.md](EVALUATION.md) defines equal model/input conditions and how any separate model arm must disclose its differences. None of these displaces the working couch, the evaluation, README, diagram or video. The AWS credit request deadline (September 11) has passed and is not an open prerequisite.
 
 ## Final links — fill when real
 
-- Public repository: pending owner action (see the footer URL note above)
-- Judging access and instructions: clone-and-run, [README.md](../README.md#run-it-yourself); hosted URL none
+- Public repository: `https://github.com/juulsverne/steward` (private until the owner makes it public)
+- Judging access and instructions: `https://d1uke66gfefpu4.cloudfront.net` (hosted, see above); clone-and-run fallback in [README.md](../README.md#run-it-yourself)
 - Public video: pending owner recording and upload
 - Devpost submission: pending owner action
-- Clean-install/acceptance run evidence: acceptance in [DEMO.md](DEMO.md#run-artifacts) and the [UI walk](evaluations/2026-09-14-ui-walk.md); clean install pending R1
+- Clean-install/acceptance run evidence: local acceptance in [DEMO.md](DEMO.md#run-artifacts) and the [UI walk](evaluations/2026-09-14-ui-walk.md); hosted acceptance in `docs/evaluations/2026-09-14-hosted-acceptance.md` (written by the hosting worker); clean install in the R1 report, pending integration

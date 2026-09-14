@@ -1,6 +1,6 @@
 # Steward architecture and implementation contract
 
-**As built, September 14, 2026.** The local system in this contract exists and is verified: FastAPI (`src/agent/server.py`) owns SQLite state, the private image store, policy at every mutation, the trusted vision inspector and the invocation journal; one Strands agent runs in-process per accepted event and reaches the API only through HTTP tools with a service token; Bedrock `global.anthropic.claude-sonnet-4-6` serves both the text and vision roles from a `us-west-2` client. The sixteen-step couch passed live through the API twice and once more on the screens ([DEMO.md](DEMO.md), [UI walk](evaluations/2026-09-14-ui-walk.md)). The hosted targets in the diagram below — AgentCore Runtime, Observability, Gateway and a public App Runner/EC2 URL — are **planned, not built**; the durable-hosting decision is open ([HOSTING_DECISION.md](HOSTING_DECISION.md)). The exported, implementation-accurate diagram is [architecture.png](../architecture.png) at the repository root; its editable source is [architecture.svg](architecture.svg). The sections that follow are the contract the code was built against; where they describe hosting, read them as the target.
+**As built, September 14, 2026.** The local system in this contract exists and is verified: FastAPI (`src/agent/server.py`) owns SQLite state, the private image store, policy at every mutation, the trusted vision inspector and the invocation journal; one Strands agent runs in-process per accepted event and reaches the API only through HTTP tools with a service token; Bedrock `global.anthropic.claude-sonnet-4-6` serves both the text and vision roles from a `us-west-2` client. The sixteen-step couch passed live through the API twice and once more on the screens ([DEMO.md](DEMO.md), [UI walk](evaluations/2026-09-14-ui-walk.md)). Hosted for judging on EC2 + CloudFront (deployed September 14; acceptance evidence: docs/evaluations/2026-09-14-hosted-acceptance.md) — one EC2 `t3.small` in `us-west-2` with a retained EBS data volume for SQLite and images, private S3 backups, nginx + uvicorn and the in-process Strands runtime, behind CloudFront (`https://d1uke66gfefpu4.cloudfront.net`); the decision record is [HOSTING_DECISION.md](HOSTING_DECISION.md). AgentCore Runtime, Observability and Gateway are **not deployed**; the diagram labels them so. The exported, implementation-accurate diagram is [architecture.png](../architecture.png) at the repository root; its editable source is [architecture.svg](architecture.svg). The sections that follow are the contract the code was built against; where they describe hosting, read them as the target.
 
 Status as originally written, September 13: **target design with Tier 1A verified and Tier 1B policy/fixtures started**. The repository contained a Strands/Bedrock terminal and FastAPI starter plus validated signals, pure evidence scoring, and SQLite issue/source/event persistence. Preserve `src/agent/` and extend it; a cosmetic directory migration has no value this weekend.
 
@@ -20,16 +20,18 @@ flowchart TD
         A <--> B[Bedrock text: global.anthropic.claude-sonnet-4-6]
         API -->|trusted image inspection| V[Bedrock vision: same model ID, separate role setting]
     end
-    subgraph PLANNED[Planned, not built - owner decision pending]
+    subgraph HOSTED[Hosted for judging - deployed September 14]
+        H[EC2 t3.small us-west-2: nginx + uvicorn, retained EBS volume for SQLite and images, private S3 backups, behind CloudFront]
+    end
+    subgraph AGENTCORE[AgentCore - not deployed]
         RT[AgentCore Runtime hosting the same agent]
         O[AgentCore Observability: CloudWatch traces]
         GW[AgentCore Gateway: MCP tools from the API's OpenAPI]
-        H[Hosted API and screens with a public judging URL: EC2/EBS/S3 recommended over App Runner]
     end
+    H --> API
     RT -.-> A
     A -.-> O
     GW -.-> API
-    H -.-> API
 ```
 
 `architecture.png` at the repository root is the exported diagram (rendered from [architecture.svg](architecture.svg) with headless Chrome); the Mermaid block above is the same picture in text form.

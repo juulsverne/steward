@@ -10,7 +10,9 @@ Built for the **Good Neighbor Agents** track of the AWS Agents for Humans Hackat
 
 **Done and verified locally.** The full couch journey runs end to end with real Bedrock inference: the sixteen-step acceptance passed through the API in two independently seeded live runs (Sonnet text and vision, `us-west-2`; B13 receipt in [BUILD_PLAN.md](docs/BUILD_PLAN.md#b13-completion-receipt--september-14)), and the same journey was driven again on September 14 and read back on the operations UI — Board, Issue Detail, Operator Inbox, Crew Form and Resident intake — with screenshots per criterion in [the UI walk](docs/evaluations/2026-09-14-ui-walk.md). The offline suite is 703 tests; the twelve-comparison vision check is 12/12 ([vision spike](docs/evaluations/2026-09-13-vision-spike.md)); the model screen is in [MODEL_SELECTION.md](docs/MODEL_SELECTION.md).
 
-**Not done.** The twenty-two-scenario internal evaluation ([EVALUATION.md](docs/EVALUATION.md)) has not run, so no evaluation counts are published. Nothing is hosted: AgentCore Runtime, Observability, Gateway and a public judging URL are planned, not built; the hosting recommendation in [HOSTING_DECISION.md](docs/HOSTING_DECISION.md) awaits the owner's decision. Judging access is therefore clone-and-run with your own AWS Bedrock access ([SUBMISSION.md](docs/SUBMISSION.md)). Clean-install proof from a fresh clone is being recorded separately (R1); the run below was verified on the developers' machines.
+**Hosted.** Hosted for judging on EC2 + CloudFront (deployed September 14; acceptance evidence: docs/evaluations/2026-09-14-hosted-acceptance.md). Public URL: `https://d1uke66gfefpu4.cloudfront.net` — one EC2 `t3.small` in `us-west-2` with a retained EBS volume for SQLite and images, private S3 backups, nginx + uvicorn and the in-process Strands runtime, behind CloudFront; the decision is in [HOSTING_DECISION.md](docs/HOSTING_DECISION.md). The hosted acceptance run and restart durability proof were in progress when this was written; the evidence file records their result. AgentCore Runtime, Observability and Gateway are **not deployed**.
+
+**Not done.** The twenty-two-scenario internal evaluation ([EVALUATION.md](docs/EVALUATION.md)) has not run, so no evaluation counts are published. Clean-install proof from a fresh clone was recorded separately (R1) and is pending integration; the run below was verified on the developers' machines. Judging access is the hosted URL, with clone-and-run using your own AWS Bedrock access as the fallback ([SUBMISSION.md](docs/SUBMISSION.md)).
 
 **What the demo is.** A driven live run: the agent and vision calls are real Bedrock calls; the district, authority, budget, providers, addresses, reporter identities, community feed and the 311 record are seeded fixtures; the five photos are synthetic images with published prompts ([provenance](data/images/PROVENANCE.md)); dispatch and settlement are simulated. No real money or municipal work is authorized. Labels travel with the records and are shown on the screens.
 
@@ -18,17 +20,17 @@ The competition proof is one couch: wait at evidence score 65; corroborate at 85
 
 ## Run it yourself
 
-You need: Python 3.11+, [uv](https://docs.astral.sh/uv/), Node.js 22 or newer with npm, the AWS CLI, and an AWS account with Amazon Bedrock model access to `global.anthropic.claude-sonnet-4-6` (a cross-region inference profile; the client binds to `us-west-2`). Each full run makes five agent invocations plus the photo inspections (about 574k input tokens in the recorded run); you pay for that inference. The recorded runs were made on Windows 11 in Git Bash; nothing in the commands is Windows-specific.
+You need: Python 3.11+, [uv](https://docs.astral.sh/uv/), Node.js 22 or newer with npm (`npm ci` prints an `EBADENGINE` warning but still installs under Node 24.12–24.14 because of the frontend's `jsdom` devDependency), the AWS CLI, and an AWS account with Amazon Bedrock model access to `global.anthropic.claude-sonnet-4-6` (a cross-region inference profile; the client binds to `us-west-2`). Each full run makes five agent invocations plus the photo inspections (about 574k input tokens in the recorded run); you pay for that inference. The recorded runs were made on Windows 11 in Git Bash; nothing in the commands is Windows-specific.
 
 ### 1. Install
 
 ```bash
 git clone <this repository> && cd agents-for-humans
 uv sync --locked --extra dev --extra web
-cd frontend && npm install && npm run build && cd ..
+cd frontend && npm ci && npm run build && cd ..
 ```
 
-The frontend build lands in `frontend/dist`, which the API serves at `/`.
+`npm ci` is the locked, reproducible install (`frontend/package-lock.json` is committed). The frontend build lands in `frontend/dist`, which the API serves at `/`.
 
 ### 2. Configure
 
@@ -53,6 +55,8 @@ uv run --no-sync python -m agent.bedrock_check
 It must print a successful tool result and final model reply. `aws login` issues short-lived tokens that botocore refreshes through the sign-in endpoint of the profile's own region; Steward resolves credentials there and binds only the Bedrock client to `AWS_REGION` (`agent.aws_session.region_session`). If the preflight reports `CreateOAuth2Token ... authorization grant is invalid`, run `aws login` again. Keep credentials out of source control.
 
 ### 3. Seed and start
+
+Seed a fresh named database before the first start; without it the Board is empty (no issue, $0 budget, no marker):
 
 ```bash
 uv run --no-sync python -m agent.seed --db .steward/steward.sqlite3
@@ -122,7 +126,7 @@ The foundation harness prints **OFFLINE FOUNDATION CHECK** and proves scoring an
 - [Sixteen acceptance criteria and the recording script](docs/DEMO.md)
 - [Internal evaluation protocol (not yet run)](docs/EVALUATION.md)
 - [Model choices: each step, costs, live comparison and qualification gates](docs/MODEL_SELECTION.md)
-- [Hosting decision (recommendation, not built)](docs/HOSTING_DECISION.md)
+- [Hosting decision (EC2 + CloudFront, deployed September 14)](docs/HOSTING_DECISION.md)
 - [Submission checklist and judging access](docs/SUBMISSION.md)
 - [Post-competition company vision](docs/VISION.md)
 - [Coding-agent instructions](AGENTS.md)
@@ -142,7 +146,7 @@ docs/evaluations/   Vision spike report, model-screen export, UI walk and screen
 scripts/            Acceptance runner, link checker, OpenAPI/model-screen exporters, preflight
 ```
 
-Next: record the video from [DEMO.md](docs/DEMO.md), publish the repository and save the submission (owner actions in [SUBMISSION.md](docs/SUBMISSION.md)); then, after the deadline, the P8 evaluation, the hosting decision and the hosted judging URL (H1–H6). Product thresholds, exclusions and labels do not change to make any of that easier.
+Next: record the video from [DEMO.md](docs/DEMO.md), publish the repository and save the submission (owner actions in [SUBMISSION.md](docs/SUBMISSION.md)); keep the hosted instance up through October 8; then, after the deadline, the P8 evaluation and AgentCore Runtime/Observability/Gateway. Product thresholds, exclusions and labels do not change to make any of that easier.
 
 ## Demo boundaries and license
 

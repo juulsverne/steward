@@ -12,7 +12,7 @@
 
   <!-- Title -->
   <text x="40" y="44" font-size="28" font-weight="700" fill="#1c2733">Steward — one agent, one policy owner, one couch</text>
-  <text x="40" y="72" font-size="16" fill="#4a5866">As built and verified locally on September 14, 2026. Solid boxes run today on a developer machine. Dashed boxes are planned hosting targets, not built.</text>
+  <text x="40" y="72" font-size="16" fill="#4a5866">As built and verified locally on September 14, 2026. Solid boxes are built and verified; the hosted band was deployed September 14. Dashed boxes are not deployed.</text>
 
   <!-- Screens row -->
   <rect x="40" y="100" width="1000" height="150" rx="10" fill="#f3f6f9" stroke="#c9d2db"/>
@@ -31,8 +31,8 @@
   <text x="696" y="212" fill="#3a4856">plan, job, proof; action: Request completion</text>
 
   <!-- Driver box -->
-  <rect x="1080" y="100" width="480" height="150" rx="10" fill="#fbfbfb" stroke="#8a94a0" stroke-dasharray="6 4"/>
-  <text x="1096" y="126" font-size="15" font-weight="700" fill="#4a5866">ACCEPTANCE DRIVER — python -m agent.demo</text>
+  <rect x="1080" y="100" width="480" height="150" rx="10" fill="#fbfbfb" stroke="#2b3a4a" stroke-width="1.5"/>
+  <text x="1096" y="126" font-size="14" font-weight="700" fill="#4a5866">ACCEPTANCE DRIVER — python -m agent.demo · built, run manually</text>
   <text x="1096" y="154" fill="#3a4856">Submits the resident, crew and operator events</text>
   <text x="1096" y="176" fill="#3a4856">through the same HTTP API the screens use and records</text>
   <text x="1096" y="198" fill="#3a4856">every response and agent trace. Sixteen criteria passed</text>
@@ -42,7 +42,7 @@
   <line x1="205" y1="230" x2="205" y2="300" stroke="#2b3a4a" stroke-width="2" marker-end="url(#arrow)"/>
   <line x1="515" y1="230" x2="515" y2="300" stroke="#2b3a4a" stroke-width="2" marker-end="url(#arrow)"/>
   <line x1="850" y1="230" x2="850" y2="300" stroke="#2b3a4a" stroke-width="2" marker-end="url(#arrow)"/>
-  <line x1="1320" y1="250" x2="1320" y2="300" stroke="#8a94a0" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arrow-grey)"/>
+  <line x1="1320" y1="250" x2="1320" y2="300" stroke="#2b3a4a" stroke-width="2" marker-end="url(#arrow)"/>
   <text x="560" y="280" fill="#4a5866" font-size="15">HTTPS (localhost): signed persona cookies, idempotency keys, expected revisions</text>
 
   <!-- FastAPI box -->
@@ -108,25 +108,29 @@
   <line x1="1350" y1="532" x2="1350" y2="620" stroke="#2b3a4a" stroke-width="2" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
   <text x="1366" y="580" fill="#4a5866" font-size="15">structured findings</text>
 
-  <!-- Planned band -->
-  <rect x="40" y="820" width="1520" height="150" rx="12" fill="#fafafa" stroke="#8a94a0" stroke-width="2" stroke-dasharray="8 5"/>
-  <text x="56" y="848" font-size="17" font-weight="700" fill="#5a6673">PLANNED, NOT BUILT (tier 3, owner decision pending — docs/HOSTING_DECISION.md)</text>
-  <rect x="60" y="864" width="340" height="90" rx="8" fill="#ffffff" stroke="#8a94a0" stroke-dasharray="6 4"/>
-  <text x="76" y="890" font-weight="700" fill="#5a6673">AgentCore Runtime</text>
-  <text x="76" y="914" fill="#6a7683">hosts the same one agent; tools still</text>
-  <text x="76" y="936" fill="#6a7683">call the API over HTTPS with a token</text>
-  <rect x="420" y="864" width="340" height="90" rx="8" fill="#ffffff" stroke="#8a94a0" stroke-dasharray="6 4"/>
-  <text x="436" y="890" font-weight="700" fill="#5a6673">AgentCore Observability → CloudWatch</text>
-  <text x="436" y="914" fill="#6a7683">hosted traces of each invocation</text>
-  <text x="436" y="936" fill="#6a7683">(local runs keep JSON traces today)</text>
-  <rect x="780" y="864" width="340" height="90" rx="8" fill="#ffffff" stroke="#8a94a0" stroke-dasharray="6 4"/>
-  <text x="796" y="890" font-weight="700" fill="#5a6673">AgentCore Gateway (last)</text>
-  <text x="796" y="914" fill="#6a7683">MCP tools generated from the API's</text>
-  <text x="796" y="936" fill="#6a7683">OpenAPI; changes transport, not authority</text>
-  <rect x="1140" y="864" width="400" height="90" rx="8" fill="#ffffff" stroke="#8a94a0" stroke-dasharray="6 4"/>
-  <text x="1156" y="890" font-weight="700" fill="#5a6673" font-size="16">Hosted API + screens, public judging URL</text>
-  <text x="1156" y="914" fill="#6a7683" font-size="15">EC2 + EBS + S3 recommended over App Runner;</text>
-  <text x="1156" y="936" fill="#6a7683" font-size="15">durable SQLite owner and image store come first</text>
+  <!-- Hosting band: built -->
+  <rect x="40" y="820" width="700" height="150" rx="12" fill="#eef4fb" stroke="#1f5fa8" stroke-width="2"/>
+  <text x="56" y="848" font-size="16" font-weight="700" fill="#173f6e">HOSTED FOR JUDGING — EC2 + CloudFront, deployed Sept 14 (HOSTING_DECISION.md)</text>
+  <text x="56" y="876" fill="#2b3a4a" font-size="15">One EC2 t3.small in us-west-2: nginx + uvicorn serving this same FastAPI and the built screens,</text>
+  <text x="56" y="898" fill="#2b3a4a" font-size="15">in-process Strands runtime, retained EBS data volume for SQLite and images, private S3 backups.</text>
+  <text x="56" y="920" fill="#2b3a4a" font-size="15">Public URL: https://d1uke66gfefpu4.cloudfront.net — acceptance evidence:</text>
+  <text x="56" y="942" fill="#2b3a4a" font-size="15">docs/evaluations/2026-09-14-hosted-acceptance.md records the hosted run and restart result.</text>
+
+  <!-- AgentCore band: not deployed -->
+  <rect x="760" y="820" width="800" height="150" rx="12" fill="#fafafa" stroke="#8a94a0" stroke-width="2" stroke-dasharray="8 5"/>
+  <text x="776" y="848" font-size="17" font-weight="700" fill="#5a6673">AGENTCORE — NOT DEPLOYED (tier 3, after the deadline)</text>
+  <rect x="776" y="864" width="245" height="90" rx="8" fill="#ffffff" stroke="#8a94a0" stroke-dasharray="6 4"/>
+  <text x="790" y="890" font-weight="700" fill="#5a6673" font-size="16">AgentCore Runtime</text>
+  <text x="790" y="914" fill="#6a7683" font-size="14">would host the same one agent;</text>
+  <text x="790" y="936" fill="#6a7683" font-size="14">tools still call the API over HTTPS</text>
+  <rect x="1036" y="864" width="245" height="90" rx="8" fill="#ffffff" stroke="#8a94a0" stroke-dasharray="6 4"/>
+  <text x="1050" y="890" font-weight="700" fill="#5a6673" font-size="16">Observability → CloudWatch</text>
+  <text x="1050" y="914" fill="#6a7683" font-size="14">hosted traces per invocation</text>
+  <text x="1050" y="936" fill="#6a7683" font-size="14">(runs keep JSON traces today)</text>
+  <rect x="1296" y="864" width="245" height="90" rx="8" fill="#ffffff" stroke="#8a94a0" stroke-dasharray="6 4"/>
+  <text x="1310" y="890" font-weight="700" fill="#5a6673" font-size="16">AgentCore Gateway (last)</text>
+  <text x="1310" y="914" fill="#6a7683" font-size="14">MCP tools from the API's OpenAPI;</text>
+  <text x="1310" y="936" fill="#6a7683" font-size="14">changes transport, not authority</text>
 
   <!-- Legend -->
     <text x="56" y="985" fill="#4a5866" font-size="14">Labels: real = Strands loop, Bedrock inference, scoring, policy, persistence, screens · seeded = district, budget, providers, addresses, feed, reporters, 311 record · synthetic = the images · simulated = dispatch and settlement. No real money.</text>
