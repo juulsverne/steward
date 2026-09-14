@@ -76,6 +76,8 @@ Judge-style fingerprint (no service token): select the `operator` persona over H
 
 Exactly one payment row existed before and after both events; no invocation was re-run and no new event was written by the restart or the reboot (event count stayed 37).
 
+A real browser (Chromium, 375 × 812 viewport) opened the URL at 16:20 CDT after the reboot: the persona page listed the six seeded personas, selecting "District operator (seeded)" sent `POST /api/demo/persona` → 200 and `GET /api/board?limit=50` → 200 through CloudFront, and the Operations Board rendered "Policy south-loop-v3", Resolved 1, Active 0, Attention 0, Watching 0, "$428.00 Budget available, $0.00 reserved, $72.00 spent of $500.00", and the 1530 S Michigan Ave marker "Paid, simulated".
+
 ## Defect found and fixed
 
 `deploy/provision.sh` renders `__CF_DOMAIN__` in `deploy/user-data.sh`; the first version of the user-data also used `__CF_DOMAIN__` as the marker inside its own `sed` for `nginx.conf`, so the render turned that `sed` into a no-op and nginx forwarded the literal placeholder as `Host`, which the application rejects (`HOST_FORBIDDEN`). Fixed in place on the instance (`sed -i … /etc/nginx/nginx.conf; nginx -t; systemctl reload nginx`) and at the source: `deploy/nginx/nginx.conf` now uses `@CF_DOMAIN@` and the bootstrap asserts the substituted hostname is present. Because the initial bootstrap exited at its readiness loop, `/opt/steward/bootstrap-complete` was not written on this instance; all other steps had completed and the corrected deploy bundle was re-uploaded (bucket versioning keeps the first). The corrected bootstrap has not yet run end to end on a fresh instance; that is the replacement test listed as open.
