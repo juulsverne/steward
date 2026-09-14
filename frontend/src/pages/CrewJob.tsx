@@ -87,10 +87,10 @@ function JobContent() {
       {actionError ? <ErrorNotice error={actionError} title="Action not saved" /> : null}
       <ol className="steps">
         <li className={`step ${accepted ? "step--done" : "step--current"}`}><SectionCard id="accept" title="1. Accept">
-          {accepted ? <p><StatusBadge label="Accepted" tone="resolved" /> <Timestamp value={job.accepted_at} /></p> : <ActionButton onClick={() => void act("accept")} pending={busy === "accept"}>Accept job</ActionButton>}
+          {accepted ? <p><StatusBadge label="Accepted" tone="active" /> <Timestamp value={job.accepted_at} /></p> : <ActionButton onClick={() => void act("accept")} pending={busy === "accept"}>Accept job</ActionButton>}
         </SectionCard></li>
         <li className={`step ${checkedIn ? "step--done" : accepted ? "step--current" : "step--locked"}`}><SectionCard id="checkin" title="2. Check in">
-          {checkedIn ? <p><StatusBadge label="Checked in" tone="resolved" /> <Timestamp value={job.checked_in_at} /></p> : accepted ? (
+          {checkedIn ? <p><StatusBadge label="Checked in" tone="active" /> <Timestamp value={job.checked_in_at} /></p> : accepted ? (
             <div className="stack-3">
               <div className="row"><ActionButton variant="secondary" onClick={useMyLocation}>Use my location</ActionButton>{job.dispatch_location && <ActionButton variant="secondary" onClick={useDispatch}>Use dispatch coordinates, demo</ActionButton>}</div>
               <div className="coords">

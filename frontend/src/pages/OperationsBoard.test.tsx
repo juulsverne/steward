@@ -45,4 +45,12 @@ describe("OperationsBoard", () => {
     expect(screen.getByText("Resolved", { selector: "span.badge--resolved" })).toHaveClass("badge--resolved");
     expect(screen.getByText(/Paid, simulated/)).toBeInTheDocument();
   });
+  it("shows the error notice with a Retry button when the board fetch fails", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) =>
+      String(input).startsWith("/api/board") ? Promise.reject(new Error("network down"))
+        : Promise.resolve(envelope({ sandbox: true, notice: "", actor: { actor_id: "o", actor_type: "operator", label: "District operator (seeded)" }, personas: [] })));
+    render(<MemoryRouter><OperationsBoard /></MemoryRouter>);
+    expect(await screen.findByText("Could not load")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+  });
 });

@@ -70,7 +70,7 @@ img { max-width: 100%; display: block; }
 ::selection { background: var(--action-soft); }
 code, .mono { font-family: ui-monospace, "Cascadia Mono", Consolas, Menlo, monospace; font-size: 0.9em; }
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 80ms !important; transform: none !important; }
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 80ms !important; }
 }
 
 .visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }

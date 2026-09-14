@@ -73,6 +73,52 @@ describe("OperatorInbox", () => {
     expect(await screen.findByText("Decided and handled (1)")).toBeInTheDocument();
     expect(screen.getByText("1 pending, 1 decided, 1 handled")).toBeInTheDocument();
   });
+  it("keeps the same Idempotency-Key when a network failure is retried", async () => {
+    let attempts = 0; const posts: Request[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+      const url = String(input);
+      if (init?.method === "POST" && url.includes("request-completion")) {
+        posts.push(new Request(new URL(url, "http://localhost"), init));
+        attempts += 1;
+        if (attempts === 1) return Promise.reject(new Error("network down"));
+        return Promise.resolve(envelope({ record_id: "exc-1", state_revision: 4, invocation_id: "inv-9" }, 202));
+      }
+      if (url.startsWith("/api/exceptions/exc-1")) return Promise.resolve(envelope(pending));
+      if (url.startsWith("/api/exceptions")) return Promise.resolve(envelope({ exceptions: [pending], pending_count: 1, decided_count: 1 }));
+      if (url.startsWith("/api/invocations/")) return Promise.resolve(envelope({ invocation_id: "inv-9", trigger_event_id: 7, status: "WAITING", state_revision: 4, episode_count: 1, model_cycles: 1, tool_requests: 1, logical_requests: 1, transport_attempts: 1, error_code: null, trace: [] }));
+      return Promise.resolve(envelope({ sandbox: true, notice: "", actor: { actor_id: "o", actor_type: "operator", label: "District operator (seeded)" }, personas: [] }));
+    });
+    mount();
+    await userEvent.click(await screen.findByRole("button", { name: "Request completion" }));
+    expect(await screen.findByText("Request not saved")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Request completion" }));
+    expect(await screen.findByText("Decision saved")).toBeInTheDocument();
+    expect(posts).toHaveLength(2);
+    expect(posts[1].headers.get("Idempotency-Key")).toBe(posts[0].headers.get("Idempotency-Key"));
+  });
+  it("sends a different Idempotency-Key after a 409 revision conflict is resolved", async () => {
+    let attempts = 0; const posts: Request[] = [];
+    const revised = { ...pending, state_revision: 4 };
+    vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+      const url = String(input);
+      if (init?.method === "POST" && url.includes("request-completion")) {
+        posts.push(new Request(new URL(url, "http://localhost"), init));
+        attempts += 1;
+        return Promise.resolve(attempts === 1 ? denied() : envelope({ record_id: "exc-1", state_revision: 5, invocation_id: "inv-9" }, 202));
+      }
+      if (url.startsWith("/api/exceptions/exc-1")) return Promise.resolve(envelope(attempts >= 1 ? revised : pending));
+      if (url.startsWith("/api/exceptions")) return Promise.resolve(envelope({ exceptions: [pending], pending_count: 1, decided_count: 1 }));
+      if (url.startsWith("/api/invocations/")) return Promise.resolve(envelope({ invocation_id: "inv-9", trigger_event_id: 7, status: "WAITING", state_revision: 5, episode_count: 1, model_cycles: 1, tool_requests: 1, logical_requests: 1, transport_attempts: 1, error_code: null, trace: [] }));
+      return Promise.resolve(envelope({ sandbox: true, notice: "", actor: { actor_id: "o", actor_type: "operator", label: "District operator (seeded)" }, personas: [] }));
+    });
+    mount();
+    await userEvent.click(await screen.findByRole("button", { name: "Request completion" }));
+    expect(await screen.findByText(/changed since you opened it/)).toBeInTheDocument();
+    await userEvent.click(await screen.findByRole("button", { name: "Request completion" }));
+    expect(await screen.findByText("Decision saved")).toBeInTheDocument();
+    expect(posts).toHaveLength(2);
+    expect(posts[1].headers.get("Idempotency-Key")).not.toBe(posts[0].headers.get("Idempotency-Key"));
+  });
   it("keeps the saved decision visible when the status poll fails", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
       const url = String(input);

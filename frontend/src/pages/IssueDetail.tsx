@@ -56,7 +56,6 @@ function IssueContent() {
         </>}
         actions={<>
           {who === "operator" && ex?.status === "PENDING" && <Link className="btn btn--primary" to={`/inbox?exception=${ex.id}`}>Open in Inbox</Link>}
-          {who === "crew" && job && <Link className="btn btn--secondary" to={`/crew/jobs/${job.id}`}>Open job</Link>}
         </>} />
       {detail.status === "error" && <ErrorNotice error={detail.error} title="Refresh failed, showing the last loaded data" onRetry={() => void load()} />}
       <p className="issue__next lead">{nextText(d)}</p>
@@ -67,7 +66,7 @@ function IssueContent() {
           <SectionCard id="decision" title="Decision and policy"><DecisionCard detail={d} /></SectionCard>
           <SectionCard id="timeline" title="Timeline">
             {events.status === "pending" ? <PendingState /> : events.data ? <DecisionTimeline events={events.data.events} /> : <ErrorNotice error={events.error} onRetry={() => void load()} />}
-            {events.data && events.data.events.length >= 50 && <p className="small muted">Showing the first 50 events.</p>}
+            {events.data && events.data.truncated && <p className="small muted">Showing the 50 most recent events.</p>}
           </SectionCard>
         </div>
         <aside className="issue__aside stack-6">

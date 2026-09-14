@@ -68,4 +68,15 @@ describe("IssueDetail", () => {
     expect(screen.getByText("SETTLEMENT_DENIED")).toBeInTheDocument();
     expect(screen.getAllByText(/simulated/i).length).toBeGreaterThan(0);
   });
+  it("shows the error notice when the issue fetch returns 404 NOT_FOUND", async () => {
+    const notFound = () => new Response(JSON.stringify({ outcome: "NOT_FOUND", reason_code: "NOT_FOUND", data: null, unmet: [], allowed_next: [], evidence_ids: [], event_ids: [] }), { status: 404, headers: { "content-type": "application/json" } });
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = String(input);
+      if (url.startsWith("/api/issues/")) return Promise.resolve(notFound());
+      return Promise.resolve(envelope({ sandbox: true, notice: "", actor: { actor_id: "o", actor_type: "operator", label: "District operator (seeded)" }, personas: [] }));
+    });
+    mount();
+    expect(await screen.findByText("Could not load")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+  });
 });

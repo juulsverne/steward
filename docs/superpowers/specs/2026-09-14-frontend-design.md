@@ -189,7 +189,7 @@ Acceptance: after a walked run the tiles show the B5 and B9 balances, a watching
 
 ### 7.2 Issue Detail, `/issues/:issueId`
 
-Highest polish. Reads `GET /api/issues/{id}` and `GET /api/issues/{id}/events`. Images through `EvidenceImage`. If the session actor is an operator and `current.exception` is pending, the page links to `/inbox?exception={id}`. If the actor is crew and `current.job` belongs to it, the page links to `/crew/jobs/{id}`.
+Highest polish. Reads `GET /api/issues/{id}` and `GET /api/issues/{id}/events`. Images through `EvidenceImage`. If the session actor is an operator and `current.exception` is pending, the page links to `/inbox?exception={id}`. Crew personas cannot read issues (`READ_ISSUE` is operator and service only), so the page is operator-only and offers no crew link.
 
 Layout at 1024 px and up: `PageHeader`, then a two-column grid, main at 8/12 and an aside at 4/12. Under 1024 px, single column in the order below with the aside content placed after the decision section.
 

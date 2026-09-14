@@ -15,7 +15,8 @@ export interface MutateOptions { idempotencyKey: string; expectedRevision?: numb
 export interface PollOptions { intervalMs?: number; maxMs?: number; backoff?: number; signal?: AbortSignal }
 
 export function newIdempotencyKey(prefix: string): string {
-  const raw = `${prefix}-${crypto.randomUUID()}`.replace(/[^A-Za-z0-9._:-]/g, "-");
+  const uuid = globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}-${Math.random().toString(36).slice(2, 10)}`;
+  const raw = `${prefix}-${uuid}`.replace(/[^A-Za-z0-9._:-]/g, "-");
   return (/^[A-Za-z0-9]/.test(raw) ? raw : `k${raw}`).slice(0, 128);
 }
 

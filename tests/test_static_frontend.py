@@ -51,5 +51,8 @@ def test_with_dist_client_routes_return_index_and_api_stays_json(config, dist):
         assert unknown_api.status_code == 404 and unknown_api.json()["reason_code"] == "RESOURCE_NOT_FOUND"
         assert client.get("/health").json()["data"] == {"ok": True}
         assert client.get("/assets/missing.js").status_code == 404
-        assert client.get("/..%2Fpyproject.toml").status_code in {200, 404}
-        assert "hatchling" not in client.get("/..%2Fpyproject.toml").text
+        for path in ("/..%2Fpyproject.toml", "/../pyproject.toml", "/%2e%2e%2fpyproject.toml", "/assets/../../pyproject.toml"):
+            traversal = client.get(path)
+            assert "hatchling" not in traversal.text
+            if traversal.status_code == 200:
+                assert traversal.headers["content-type"].startswith("text/html")
