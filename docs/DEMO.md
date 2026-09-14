@@ -65,6 +65,8 @@ The intake photo contract now defines `visible_hazards` as specialist safety haz
 
 ## Run artifacts still to fill
 
-- Pass/fail per step from the retained run receipts (see BUILD_PLAN section 14).
-- A clean-install result and any known fallback behavior.
-- Public video URL, screenshots, and accessible judging URL/test-build instructions.
+- Setup used on September 14 (Windows, worktree `codex/steward-build`): `uv run --no-sync python -m agent.seed --db .steward/ui.sqlite3`; API `STEWARD_STORE_PATH=.steward/ui.sqlite3 STEWARD_DEVELOPMENT_ORIGINS=http://localhost:5173 STEWARD_RUNTIME_ENABLED=true uv run --no-sync uvicorn agent.server:app --port 8000 --host 127.0.0.1`; driver `uv run --no-sync python -m agent.demo --base-url http://localhost:8000 --out .steward/ui-run.json --wait-seconds 240`; UI `cd frontend && npm install && npm run build`, then open `http://localhost:8000/`.
+- Model `global.anthropic.claude-sonnet-4-6` for text and vision, region from `.env`; policy version `south-loop-v3`; fixture scenario `baseline`; seed version `south-loop-demo-b3`.
+- Event trace and run artifact: `.steward/ui-run.json` (run 14:06 to 14:08 CDT, criteria 1 to 15 passed; 16 requires a second seeded run with `--compare`, not repeated).
+- UI walk with screenshots and pass/fail per criterion: `docs/evaluations/2026-09-14-ui-walk.md`.
+- Clean-install result: not yet recorded. Public video URL and judging URL: not yet recorded.

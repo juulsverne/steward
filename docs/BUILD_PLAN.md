@@ -587,12 +587,12 @@ Start after B13. P1 fixes shared UI/API contracts; P2–P6 can then be independe
 
 **Files:** create `frontend/package.json`, lockfile, `frontend/index.html`, `frontend/vite.config.ts`, `frontend/src/main.tsx`, `App.tsx`, `api.ts`, `types.ts`, `styles.css`; extend `api.py` for static serving.
 
-- [ ] Implement typed API calls from the frozen B10 contract, session handling, pending/error states and read refresh. Use polling of saved processing status initially; model text is not application state.
-- [ ] Build district/demo header, operator/crew-per-vendor/resident persona switcher and navigation. Use one simple layout with visible states, accessible labels and responsive forms.
-- [ ] Carry the confirmed design direction into the public implementation: professional, credible and contemporary; operator evidence first, mobile-friendly crew/resident flows; both themes, light by default. Save only theme preference in browser storage, never authoritative job/payment state. Carry forward an approved screen study if one exists at build kickoff; otherwise the lead settles colors, fonts and layout within this direction and records the choices. A separate visual study does not close B13 or start application frontend implementation.
-- [ ] Own the shared theme tokens, navigation, typed client and reusable status/error/evidence primitives centrally. Check labels, keyboard focus, contrast in both themes, reduced motion and narrow layouts. Record any approved design artifact in the public build receipt so a new frontend worker does not depend on untracked local design notes.
-- [ ] Build React to static files served by FastAPI; keep API routes separate from client-route fallback. Add frontend build commands to README and `npm run build` to the package.
-- [ ] Add `npm run typecheck` for the complete React/TypeScript source. Require both `npm --prefix frontend run typecheck` and `npm --prefix frontend run build` before screen integration; declare direct dependencies and commit the generated frontend lockfile with this task.
+- [x] Implement typed API calls from the frozen B10 contract, session handling, pending/error states and read refresh. Use polling of saved processing status initially; model text is not application state.
+- [x] Build district/demo header, operator/crew-per-vendor/resident persona switcher and navigation. Use one simple layout with visible states, accessible labels and responsive forms.
+- [x] Carry the confirmed design direction into the public implementation: professional, credible and contemporary; operator evidence first, mobile-friendly crew/resident flows; both themes, light by default. Save only theme preference in browser storage, never authoritative job/payment state. Carry forward an approved screen study if one exists at build kickoff; otherwise the lead settles colors, fonts and layout within this direction and records the choices. A separate visual study does not close B13 or start application frontend implementation.
+- [x] Own the shared theme tokens, navigation, typed client and reusable status/error/evidence primitives centrally. Check labels, keyboard focus, contrast in both themes, reduced motion and narrow layouts. Record any approved design artifact in the public build receipt so a new frontend worker does not depend on untracked local design notes.
+- [x] Build React to static files served by FastAPI; keep API routes separate from client-route fallback. Add frontend build commands to README and `npm run build` to the package.
+- [x] Add `npm run typecheck` for the complete React/TypeScript source. Require both `npm --prefix frontend run typecheck` and `npm --prefix frontend run build` before screen integration; declare direct dependencies and commit the generated frontend lockfile with this task.
 
 **Inspect when done:** refresh a deep issue URL, switch persona, and see the correct saved permissions/data without lost navigation. `npm --prefix frontend run build` passes and built files load through the API host.
 
@@ -606,9 +606,9 @@ Start after B13. P1 fixes shared UI/API contracts; P2–P6 can then be independe
 
 **Files:** create `frontend/src/pages/IssueDetail.tsx`, `frontend/src/components/EvidenceComparison.tsx`, `DecisionTimeline.tsx`; extend `api.ts`, `types.ts` only through shared review.
 
-- [ ] Show current state, latest decision and next actor first, then sources, score components, authority, scope, quote, vendor and job.
-- [ ] Place official completion time next to newer observation times and source labels. Show before/middle/after proof, failed requirements and 90/95 or 100 results.
-- [ ] Render ordered persisted events distinguishing a requested tool from a successful action. Preserve denied settlement and operator choice after resolution; never show hidden reasoning.
+- [x] Show current state, latest decision and next actor first, then sources, score components, authority, scope, quote, vendor and job.
+- [x] Place official completion time next to newer observation times and source labels. Show before/middle/after proof, failed requirements and 90/95 or 100 results.
+- [x] Render ordered persisted events distinguishing a requested tool from a successful action. Preserve denied settlement and operator choice after resolution; never show hidden reasoning.
 
 **Inspect when done:** a nontechnical reader can explain why Steward waited, disputed, acted, blocked payment and later permitted it. Missing evidence/error/loading states are clear. Status comes only from the API.
 
@@ -622,9 +622,9 @@ Start after B13. P1 fixes shared UI/API contracts; P2–P6 can then be independe
 
 **Files:** create `frontend/src/pages/OperationsBoard.tsx`, `frontend/src/components/IssueMap.tsx`; consume the Board projection already verified by B13. If a contract defect appears, report it to the backend owner and fix/recheck it as a backend change before the frontend relies on it.
 
-- [ ] Show seeded district identity, attention count, watching/active/resolved counts and budget split into available/reserved/spent.
-- [ ] Build Leaflet markers from stored coordinates with text labels and links. Green means resolved only; external routing never gets a resolved marker.
-- [ ] Define counts without double-counting: pending exceptions are attention items, not a lifecycle bucket. Zero attention says “No decisions waiting.” Keep list navigation usable if tiles fail.
+- [x] Show seeded district identity, attention count, watching/active/resolved counts and budget split into available/reserved/spent.
+- [x] Build Leaflet markers from stored coordinates with text labels and links. Green means resolved only; external routing never gets a resolved marker.
+- [x] Define counts without double-counting: pending exceptions are attention items, not a lifecycle bucket. Zero attention says “No decisions waiting.” Keep list navigation usable if tiles fail.
 
 **Inspect when done:** dispatch and payment produce the B5/B9 balances; a watching case remains open; a resolved couch turns green. Simulate tile failure and still open the issue from its list.
 
@@ -638,10 +638,10 @@ Start after B13. P1 fixes shared UI/API contracts; P2–P6 can then be independe
 
 **Files:** create `frontend/src/pages/OperatorInbox.tsx`; reuse the shared API client and evidence display.
 
-- [ ] Show exact issue/job/proof, scope, failed area-clear requirement, images and score/threshold.
-- [ ] For authority/no-provider escalations without a job, show the saved reason and current limits; do not offer Request completion without a real pending completion exception or invent another operator action.
-- [ ] Provide **Request completion** only. Acknowledge saved decision separately from resumed processing; disable duplicate submission while pending.
-- [ ] On stale decision rejection, refresh current data and explain that the item changed. Preserve actionable API errors.
+- [x] Show exact issue/job/proof, scope, failed area-clear requirement, images and score/threshold.
+- [x] For authority/no-provider escalations without a job, show the saved reason and current limits; do not offer Request completion without a real pending completion exception or invent another operator action.
+- [x] Provide **Request completion** only. Acknowledge saved decision separately from resumed processing; disable duplicate submission while pending.
+- [x] On stale decision rejection, refresh current data and explain that the item changed. Preserve actionable API errors.
 
 **Inspect when done:** a valid action requests rework on the same job; a stale tab cannot alter newer proof. There is no Pay/Approve payment button.
 
@@ -655,9 +655,9 @@ Start after B13. P1 fixes shared UI/API contracts; P2–P6 can then be independe
 
 **Files:** create `frontend/src/pages/CrewForm.tsx`; reuse evidence and API components.
 
-- [ ] Display location, scope, price, state and proof requirements before acceptance. Unlock accept, check-in and proof in sequence.
-- [ ] Upload before/completion evidence through B3 storage; show received versus processing/verified states. Failed upload retains form data and names the missing item.
-- [ ] Show remaining-debris rework instructions on the same job. During a pending exception, show “Awaiting operator decision” and prevent new completion; server still enforces this.
+- [x] Display location, scope, price, state and proof requirements before acceptance. Unlock accept, check-in and proof in sequence.
+- [x] Upload before/completion evidence through B3 storage; show received versus processing/verified states. Failed upload retains form data and names the missing item.
+- [x] Show remaining-debris rework instructions on the same job. During a pending exception, show “Awaiting operator decision” and prevent new completion; server still enforces this.
 
 **Inspect when done:** each vendor sees only its own job, retries do not duplicate proof, and rework retains previous evidence and the $72 quote.
 
@@ -671,9 +671,9 @@ Start after B13. P1 fixes shared UI/API contracts; P2–P6 can then be independe
 
 **Files:** create `frontend/src/pages/ResidentIntake.tsx`; reuse the API client.
 
-- [ ] Ask for description and location; allow an optional photo and honest observation-time input. Do not ask for vendor, service code, price, jurisdiction or urgency.
-- [ ] Issue receipt only after persistence. Preserve form state on failure and explain that an unknown address was received but could not yet be located.
-- [ ] Keep other reporters' identities and timelines private. Preserve synthetic/demo labels when using the demo photo.
+- [x] Ask for description and location; allow an optional photo and honest observation-time input. Do not ask for vendor, service code, price, jurisdiction or urgency.
+- [x] Issue receipt only after persistence. Preserve form state on failure and explain that an unknown address was received but could not yet be located.
+- [x] Keep other reporters' identities and timelines private. Preserve synthetic/demo labels when using the demo photo.
 
 **Inspect when done:** the independent report enters the actual flow, gets linked by the agent and raises the score as expected. No resident status-page feature is added.
 
@@ -687,11 +687,13 @@ Start after B13. P1 fixes shared UI/API contracts; P2–P6 can then be independe
 
 **Files:** record evidence under a unique local `.steward/ui-acceptance-*` directory; update DEMO.md and this guide. Add browser automation only where it helps repeat the meaningful flow.
 
-- [ ] Reset a named sandbox and perform all sixteen steps using the screens, real Strands/vision and persona events. Inspect network errors and browser console.
+- [x] Reset a named sandbox and perform all sixteen steps using the screens, real Strands/vision and persona events. Inspect network errors and browser console.
 - [ ] Check refresh/restart during operator wait, stale tabs, failed uploads, duplicate clicks, unknown address, narrow/mobile layout and keyboard access. Repeat representative evidence/denial/form checks in light and dark themes, and confirm the default is light. Verify API denials are understandable in the UI.
 - [ ] Retain screenshots, event/trace IDs and step-level outcomes. Ask a reader to explain the five decisions listed in PRD definition of done; fix missing explanations rather than narrating around them.
 
 **Inspect when done:** all sixteen UI criteria pass, including actual side-by-side evidence and correct Board state. API-only evidence cannot close this gate. Stop adding product once it passes.
+
+Walk record, September 14: the five surfaces were built on the `codex/steward-build` branch and verified against a database walked by the B13 driver (criteria 1 to 15 passed live; 16 not repeated). Screens, fixes and limits are in [the UI walk](evaluations/2026-09-14-ui-walk.md); screenshots are under `docs/evaluations/ui/`.
 
 ### P8. Run the twenty-two-scenario evaluation
 
