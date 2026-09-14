@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
 import "./IssueDetail.css";
 import { ApiError, read } from "../api/client";
-import { actorTypeLabel, exceptionKind, exceptionStatus, issueStatus, jobStatus, requirementLabel } from "../api/labels";
+import { actorTypeLabel, exceptionKind, exceptionStatus, humanizeCode, issueStatus, jobStatus, requirementLabel } from "../api/labels";
 import { actorType, useSession } from "../api/session";
 import { DecisionCard } from "../components/DecisionCard";
 import { DecisionTimeline } from "../components/DecisionTimeline";
@@ -47,7 +47,7 @@ function IssueContent() {
   const status = issueStatus(d.issue.status); const job = d.current.job; const plan = d.current.plan; const ex = d.current.exception; const pay = d.current.payment;
   return (
     <div className="page issue">
-      <PageHeader eyebrow={d.issue.category} title={d.issue.location}
+      <PageHeader eyebrow={humanizeCode(d.issue.category)} title={d.issue.location}
         meta={<>
           <StatusBadge label={status.label} tone={status.tone} />
           <Points value={d.issue.evidence_score} threshold={70} />
@@ -60,7 +60,7 @@ function IssueContent() {
         </>} />
       {detail.status === "error" && <ErrorNotice error={detail.error} title="Refresh failed, showing the last loaded data" onRetry={() => void load()} />}
       <p className="issue__next lead">{nextText(d)}</p>
-      {d.latest_decision && <p className="issue__last small muted">Steward's last decision, <Timestamp value={d.latest_decision.created_at} /> by {d.latest_decision.actor_label}</p>}
+      {d.latest_decision && <p className="issue__last small muted">Last decision recorded <Timestamp value={d.latest_decision.created_at} /> by {d.latest_decision.actor_label}</p>}
       <div className="issue__grid">
         <div className="issue__main stack-6">
           <SectionCard id="evidence" title="Evidence"><EvidenceComparison detail={d} /></SectionCard>

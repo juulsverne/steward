@@ -20,7 +20,10 @@ beforeEach(() => { resetSessionForTests(); conflict = false; posted = []; vi.spy
   if (init?.method === "POST" && url.includes("request-completion")) { posted.push(new Request(new URL(url, "http://localhost"), init)); return Promise.resolve(conflict ? denied() : envelope({ record_id: "exc-1", state_revision: 4, invocation_id: "inv-9" }, 202)); }
   if (url.startsWith("/api/exceptions/exc-1")) return Promise.resolve(envelope(pending));
   if (url.startsWith("/api/exceptions/exc-0")) return Promise.resolve(envelope(decided));
-  if (url.startsWith("/api/exceptions")) return Promise.resolve(envelope({ exceptions: [pending, decided], pending_count: 1, decided_count: 1 }));
+  // exc-0 (status HANDLED) is reachable only via its own detail fetch above, not via the
+  // list/merge calls, so the shared list fixture here has no handled items: the "1 pending,
+  // 1 decided" header meta below must not gain a ", N handled" suffix.
+  if (url.startsWith("/api/exceptions")) return Promise.resolve(envelope({ exceptions: [pending], pending_count: 1, decided_count: 1 }));
   if (url.startsWith("/api/invocations/")) return Promise.resolve(envelope({ invocation_id: "inv-9", trigger_event_id: 7, status: "WAITING", state_revision: 4, episode_count: 1, model_cycles: 1, tool_requests: 1, logical_requests: 1, transport_attempts: 1, error_code: null, trace: [] }));
   return Promise.resolve(envelope({ sandbox: true, notice: "", actor: { actor_id: "o", actor_type: "operator", label: "District operator (seeded)" }, personas: [] }));
 }); });
@@ -68,6 +71,7 @@ describe("OperatorInbox", () => {
     });
     render(<MemoryRouter initialEntries={["/inbox"]}><OperatorInbox /></MemoryRouter>);
     expect(await screen.findByText("Decided and handled (1)")).toBeInTheDocument();
+    expect(screen.getByText("1 pending, 1 decided, 1 handled")).toBeInTheDocument();
   });
   it("keeps the saved decision visible when the status poll fails", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {

@@ -1,4 +1,4 @@
-import { requirementLabel } from "../api/labels";
+import { humanizeCode, requirementLabel } from "../api/labels";
 import { plural } from "../lib/format";
 import type { IssueDetailView, ProofHistoryItem } from "../types";
 import { EvidenceImage } from "./EvidenceImage";
@@ -11,17 +11,22 @@ import { Timestamp } from "./Timestamp";
 export function ProofPair({ beforeId, afterId, jobId, beforeObservedAt, afterObservedAt }: { beforeId: string | null; afterId: string | null; jobId: string | null; beforeObservedAt?: string | null; afterObservedAt?: string | null }) {
   return (
     <div className="proof-pair">
-      {beforeId ? <EvidenceImage evidenceId={beforeId} role="Before" observedAt={beforeObservedAt ?? null} jobId={jobId} /> : <p className="muted">No before photo</p>}
-      {afterId ? <EvidenceImage evidenceId={afterId} role="After" observedAt={afterObservedAt ?? null} jobId={jobId} /> : <p className="muted">No after photo</p>}
+      {beforeId ? <EvidenceImage evidenceId={beforeId} role="Before" observedAt={beforeObservedAt ?? undefined} jobId={jobId} /> : <p className="muted">No before photo</p>}
+      {afterId ? <EvidenceImage evidenceId={afterId} role="After" observedAt={afterObservedAt ?? undefined} jobId={jobId} /> : <p className="muted">No after photo</p>}
     </div>
   );
 }
 
+// The official service record's `conflict` field is "none" | "pending" | "disputed"
+// (src/agent/models.py CONFLICT_STATES); a disputed record means the operator confirmed
+// the dispute and the service match still credits points, so both a "disputed" state and
+// any legacy "confirmed"-style value read the same sentence.
 function conflictText(state: string | null | undefined): string {
   if (!state) return "No official record conflict";
-  if (state.toUpperCase().includes("CONFIRM")) return "Dispute confirmed, service match credited";
-  if (state.toUpperCase().includes("PENDING")) return "Conflict pending, 0 points credited";
-  return state;
+  const upper = state.toUpperCase();
+  if (upper === "DISPUTED" || upper.includes("CONFIRM")) return "Dispute confirmed, service match credited";
+  if (upper === "PENDING" || upper.includes("PENDING")) return "Conflict pending, 0 points credited";
+  return humanizeCode(state);
 }
 
 export function EvidenceComparison({ detail }: { detail: IssueDetailView }) {
@@ -39,7 +44,7 @@ export function EvidenceComparison({ detail }: { detail: IssueDetailView }) {
         <ul className="source-list">
           {sources.map((s) => (
             <li key={s.id} className="source-row">
-              <div className="row"><strong>{s.source_role}</strong><ProvenanceTag provenance={s.provenance} /><Timestamp value={s.observed_at} label="observed" /><Timestamp value={s.received_at} label="received" /></div>
+              <div className="row"><strong>{humanizeCode(s.source_role)}</strong><ProvenanceTag provenance={s.provenance} /><Timestamp value={s.observed_at} label="observed" /><Timestamp value={s.received_at} label="received" /></div>
               <p className="small muted">{s.reported_location}</p>
               {s.evidence_ids.length > 0 && <div className="row">{s.evidence_ids.map((id) => <EvidenceImage key={id} evidenceId={id} role="Intake" observedAt={s.observed_at} provenance={s.provenance} size="thumb" />)}</div>}
             </li>
@@ -61,7 +66,7 @@ export function EvidenceComparison({ detail }: { detail: IssueDetailView }) {
         <div className="official-compare__col">
           <h3>Newer observations</h3>
           {newer.length === 0 ? <p className="muted">None newer than the official completion</p> : (
-            <ul className="stack-2">{newer.map((s) => <li key={s.id} className="row"><strong>{s.source_role}</strong><Timestamp value={s.observed_at} label="observed" /><ProvenanceTag provenance={s.provenance} /></li>)}</ul>
+            <ul className="stack-2">{newer.map((s) => <li key={s.id} className="row"><strong>{humanizeCode(s.source_role)}</strong><Timestamp value={s.observed_at} label="observed" /><ProvenanceTag provenance={s.provenance} /></li>)}</ul>
           )}
         </div>
       </div>

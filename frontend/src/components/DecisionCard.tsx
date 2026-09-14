@@ -1,4 +1,4 @@
-import { decisionLabel, requirementLabel } from "../api/labels";
+import { decisionLabel, humanizeCode, requirementLabel } from "../api/labels";
 import type { IssueDetailView } from "../types";
 import { EvidenceImage } from "./EvidenceImage";
 import { KeyValue } from "./KeyValue";
@@ -42,7 +42,7 @@ export function DecisionCard({ detail }: { detail: IssueDetailView }) {
         <div className="stack-2">
           <h3>Authority and scope</h3>
           <KeyValue items={[
-            ...(cls ? [{ label: "Category", value: cls.category }, { label: "Primary target", value: cls.primary_target ?? "Unknown" }, { label: "Full cleanup scope", value: cls.full_cleanup_scope ?? "Unknown" }, { label: "Marked work area", value: cls.marked_work_area ?? "Unknown" }] : []),
+            ...(cls ? [{ label: "Category", value: humanizeCode(cls.category) }, { label: "Primary target", value: cls.primary_target ?? "Unknown" }, { label: "Full cleanup scope", value: cls.full_cleanup_scope ?? "Unknown" }, { label: "Marked work area", value: cls.marked_work_area ?? "Unknown" }] : []),
             ...(jur ? [{ label: "Responsibility", value: jur.responsibility }] : []),
             ...((cls?.unknowns?.length ?? 0) > 0 ? [{ label: "Unknowns", value: cls!.unknowns.join(", ") }] : []),
           ]} />

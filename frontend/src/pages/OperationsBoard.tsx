@@ -39,7 +39,7 @@ function MarkerRow({ k, selected, onSelect }: { k: BoardMarker; selected: boolea
       <div className="issue-row__text">
         <Link to={`/issues/${k.issue_id}`} className="issue-row__link">{k.label}</Link>
         <p className="small muted">
-          {k.current_job_id && <span>Job in progress. </span>}
+          {k.current_job_id && !k.payment_id && <span>Job in progress. </span>}
           {k.payment_id && <span>Paid, simulated. </span>}
           {k.location_provenance && <ProvenanceTag provenance={k.location_provenance} />}
         </p>

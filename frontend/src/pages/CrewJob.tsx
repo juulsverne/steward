@@ -103,7 +103,7 @@ function JobContent() {
             </div>) : <p className="muted">Accept the job first.</p>}
         </SectionCard></li>
         <li className={`step ${proofOpen ? "step--current" : job.submitted_at ? "step--done" : "step--locked"}`}><SectionCard id="proof" title="3. Proof">
-          {job.rework_instructions && <Notice tone="warning" title="Rework required"><p>{job.rework_instructions}</p></Notice>}
+          {job.rework_instructions && job.status === "REWORK_REQUIRED" && <Notice tone="warning" title="Rework required"><p>{job.rework_instructions}</p></Notice>}
           {proofOpen ? <ProofForm key={proofCycleKey} job={job} onSubmitted={() => { setSubmittedLocally(true); void load(); }} /> : job.submitted_at ? <p><StatusBadge label="Submitted" tone="active" /> <Timestamp value={job.submitted_at} /></p> : <p className="muted">Check in first.</p>}
         </SectionCard></li>
         <li className="step"><SectionCard id="result" title="4. Result">

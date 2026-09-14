@@ -55,9 +55,10 @@ function InboxContent() {
   const data = list.data;
   const pending = data?.exceptions.filter((e) => e.status === "PENDING") ?? [];
   const others = data?.exceptions.filter((e) => e.status !== "PENDING") ?? [];
+  const handledCount = data?.exceptions.filter((e) => e.status === "HANDLED").length ?? 0;
   return (
     <div className={`page inbox ${selected ? "inbox--detail" : ""}`}>
-      <PageHeader eyebrow="Operator" title="Operator inbox" meta={data && <span>{data.pending_count} pending, {data.decided_count} decided</span>} />
+      <PageHeader eyebrow="Operator" title="Operator inbox" meta={data && <span>{data.pending_count} pending, {data.decided_count} decided{handledCount > 0 ? `, ${handledCount} handled` : ""}</span>} />
       {list.status === "error" && <ErrorNotice error={list.error} onRetry={() => void load()} />}
       <div className="inbox__grid">
         <section className="inbox__list" aria-label="Exceptions">

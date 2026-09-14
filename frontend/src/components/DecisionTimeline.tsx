@@ -10,7 +10,9 @@ const DECISION_TYPES = /DECISION|DENIED|SETTLE|PAYMENT|DISPATCH|DISPUTE|RESOLVED
 
 export function DecisionTimeline({ events }: { events: TimelineEvent[] }) {
   const [onlyDecisions, setOnlyDecisions] = useState(false);
-  const shown = onlyDecisions ? events.filter((e) => DECISION_TYPES.test(e.type)) : events;
+  // The API returns events newest first; the audit trail reads oldest first, newest last.
+  const ordered = [...events].sort((a, b) => a.id - b.id);
+  const shown = onlyDecisions ? ordered.filter((e) => DECISION_TYPES.test(e.type)) : ordered;
   return (
     <div className="stack-3">
       <label className="row small"><input type="checkbox" checked={onlyDecisions} onChange={(e) => setOnlyDecisions(e.target.checked)} /> Show only decisions and outcomes</label>
