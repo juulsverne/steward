@@ -1,6 +1,8 @@
 # Steward architecture and implementation contract
 
-Status: **target design with Tier 1A verified and Tier 1B policy/fixtures started September 13**. The repository contains a Strands/Bedrock terminal and FastAPI starter plus validated signals, pure evidence scoring, and SQLite issue/source/event persistence. The diagram and downstream tools remain the target, not a claim of a working full agent. Preserve `src/agent/` and extend it; a cosmetic directory migration has no value this weekend.
+**As built, September 14, 2026.** The local system in this contract exists and is verified: FastAPI (`src/agent/server.py`) owns SQLite state, the private image store, policy at every mutation, the trusted vision inspector and the invocation journal; one Strands agent runs in-process per accepted event and reaches the API only through HTTP tools with a service token; Bedrock `global.anthropic.claude-sonnet-4-6` serves both the text and vision roles from a `us-west-2` client. The sixteen-step couch passed live through the API twice and once more on the screens ([DEMO.md](DEMO.md), [UI walk](evaluations/2026-09-14-ui-walk.md)). The hosted targets in the diagram below — AgentCore Runtime, Observability, Gateway and a public App Runner/EC2 URL — are **planned, not built**; the durable-hosting decision is open ([HOSTING_DECISION.md](HOSTING_DECISION.md)). The exported, implementation-accurate diagram is [architecture.png](../architecture.png) at the repository root; its editable source is [architecture.svg](architecture.svg). The sections that follow are the contract the code was built against; where they describe hosting, read them as the target.
+
+Status as originally written, September 13: **target design with Tier 1A verified and Tier 1B policy/fixtures started**. The repository contained a Strands/Bedrock terminal and FastAPI starter plus validated signals, pure evidence scoring, and SQLite issue/source/event persistence. Preserve `src/agent/` and extend it; a cosmetic directory migration has no value this weekend.
 
 Implemented foundation: `models.py`, `scoring.py`, `store.py`, and the explicitly offline `foundation.py` command. SQLite schema version 1 persists state and audit events in the same writer transaction. Source linking and supplied geocode/service-match facts update scores, not agent decisions or physical resolution. CANDIDATE remains until agent decision tools land. Identical signal retries have no additional effects and return current issue state; changed payloads or a second issue link conflict.
 
@@ -10,20 +12,27 @@ One Strands agent using a selected Bedrock text model chooses tools based on evi
 
 ```mermaid
 flowchart TD
-    subgraph AR[AWS App Runner container]
-        UI[React/Vite static: Board / Issue Detail / Inbox / Crew Form / Resident intake] --> API[FastAPI: validated events, policy at every mutation]
+    subgraph LOCAL[Built and verified locally, September 14, 2026]
+        UI[React/Vite static: Board / Issue Detail / Inbox / Crew Form / Resident intake] --> API[FastAPI: validated events, policy at every mutation, invocation journal]
+        API --> DB[(SQLite store + private image store under .steward/)]
+        API -->|starts one bounded invocation per accepted event, in-process| A[One Strands agent]
+        A -->|HTTP tools with service token: facts, policy results, gated mutations| API
+        A <--> B[Bedrock text: global.anthropic.claude-sonnet-4-6]
+        API -->|trusted image inspection| V[Bedrock vision: same model ID, separate role setting]
     end
-    API --> DB[(Durable owner: H1 decision; SQLite locally)]
-    API -->|InvokeAgentRuntime per reasoning-bearing event| A[Strands Steward agent on AgentCore Runtime]
-    A <--> B[Bedrock: selected text model]
-    API -->|Trusted image inspection| V[Bedrock: selected image model]
-    A -->|HTTP tools with service token: facts, policy results, gated mutations| API
-    A -.-> O[AgentCore Observability: CloudWatch traces]
-    A -.->|tier 3, after Runtime works| GW[AgentCore Gateway: MCP tools from the API's OpenAPI]
-    GW --> API
+    subgraph PLANNED[Planned, not built - owner decision pending]
+        RT[AgentCore Runtime hosting the same agent]
+        O[AgentCore Observability: CloudWatch traces]
+        GW[AgentCore Gateway: MCP tools from the API's OpenAPI]
+        H[Hosted API and screens with a public judging URL: EC2/EBS/S3 recommended over App Runner]
+    end
+    RT -.-> A
+    A -.-> O
+    GW -.-> API
+    H -.-> API
 ```
 
-Export the final, implementation-accurate diagram to `architecture.png` before submission. The Mermaid source is the editable diagram today.
+`architecture.png` at the repository root is the exported diagram (rendered from [architecture.svg](architecture.svg) with headless Chrome); the Mermaid block above is the same picture in text form.
 
 ## Deployment topology
 
