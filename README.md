@@ -56,6 +56,15 @@ uv run ruff check .
 
 The agent/API commands still run the generic starter, not the planned Steward agent. Clean-install verification and full demo reset/seed commands remain open.
 
+## Run the operations UI
+
+Build once, then the API serves it at `/`:
+
+    cd frontend && npm install && npm run build && cd ..
+    uv run --no-sync uvicorn agent.server:app --port 8000
+
+Development with hot reload runs Vite on port 5173 and proxies `/api` to the API. Add `STEWARD_DEVELOPMENT_ORIGINS=http://localhost:5173` to `.env`, start the API as above, then in `frontend/` run `npm run dev` and open `http://localhost:5173` (not 127.0.0.1). After changing API models run `uv run --no-sync python scripts/export_openapi.py` and `npm run types`.
+
 ## Run the offline foundation
 
 From the repository root, after installing the dependencies:

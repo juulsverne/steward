@@ -302,6 +302,32 @@ def result_response(result: c.ToolResult, *, status: int | None = None) -> JSONR
     return JSONResponse(result.model_dump(mode="json"), status_code=status or default)
 
 
+def _mount_frontend(app: FastAPI, dist: Path | None) -> None:
+    """Serve the built SPA. Registered last so every API route wins; unknown /api paths stay JSON 404."""
+    if dist is None:
+        return
+    root = Path(dist).resolve()
+    index = root / "index.html"
+    if not index.is_file():
+        return
+    from fastapi.responses import FileResponse
+    from fastapi.staticfiles import StaticFiles
+
+    if (root / "assets").is_dir():
+        app.mount("/assets", StaticFiles(directory=str(root / "assets")), name="assets")
+    reserved = {"api", "internal", "health", "openapi.json", "docs", "redoc", "assets"}
+
+    @app.get("/{path:path}", include_in_schema=False)
+    def frontend(path: str):
+        if path.split("/", 1)[0] in reserved:
+            raise AccessError(404, "RESOURCE_NOT_FOUND")
+        if path:
+            candidate = (root / path).resolve()
+            if candidate.is_file() and root in candidate.parents:
+                return FileResponse(candidate)
+        return FileResponse(index, media_type="text/html")
+
+
 def error_response(error: AccessError, cookie_name: str) -> JSONResponse:
     outcome = ("NOT_FOUND" if error.status == 404 else "DENIED" if
                error.status in {401, 403, 409} or error.reason == "MIXED_CREDENTIALS" else "ERROR")
@@ -1627,4 +1653,5 @@ def create_app(settings: ApiSettings | None = None,
             except KeyError as error:
                 raise RuntimeError(f"missing explicit operation ID for {method} {route.path}") from error
     _configure_openapi(app)
+    _mount_frontend(app, settings.frontend_dist)
     return app

@@ -81,6 +81,7 @@ class ApiSettings:
     runtime_enabled: bool = False
     fixture_root: Path = Path("data")
     fixture_scenario: str = "baseline"
+    frontend_dist: Path | None = Path("frontend/dist")
 
     @classmethod
     def from_env(cls) -> ApiSettings:
@@ -103,4 +104,6 @@ class ApiSettings:
             development_origins=tuple(filter(None, (
                 x.strip() for x in os.getenv("STEWARD_DEVELOPMENT_ORIGINS", "").split(",")
             ))),
+            frontend_dist=(Path(os.environ["STEWARD_FRONTEND_DIST"]) if os.environ.get("STEWARD_FRONTEND_DIST")
+                           else None if "STEWARD_FRONTEND_DIST" in os.environ else Path("frontend/dist")),
         )

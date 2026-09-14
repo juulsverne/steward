@@ -27,7 +27,8 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         settings = ApiSettings(store_path=Path(tmp) / "export.sqlite3", origin="http://localhost:8000",
                                local_http=True, session_secret=EXPORT_SIGNING, service_token=EXPORT_TOKEN,
-                               policy_path=ROOT / "data" / "policy.yaml", fixture_root=ROOT / "data")
+                               policy_path=ROOT / "data" / "policy.yaml", fixture_root=ROOT / "data",
+                               frontend_dist=None)
         document = create_app(settings).openapi()
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8")
