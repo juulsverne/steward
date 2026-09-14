@@ -8,9 +8,11 @@ Built for the **Good Neighbor Agents** track of the AWS Agents for Humans Hackat
 
 ## Status, September 14, 2026
 
+**Try it:** [Open Steward](https://d1uke66gfefpu4.cloudfront.net), select **District operator (seeded)**, and open **1530 S Michigan Ave**. Inspect the before/after evidence, failed middle proof, policy results and simulated settlement. The hosted case is already completed; use Inbox's handled items and the assigned crew persona to explore its history. No AWS account is needed to view the hosted sandbox. For a fresh run, follow the setup below and the [step-by-step testing guide](docs/JUDGING.md).
+
 **Done and verified locally.** The full couch journey runs end to end with real Bedrock inference: the sixteen-step acceptance passed through the API in two independently seeded live runs (Sonnet text and vision, `us-west-2`; B13 receipt in [BUILD_PLAN.md](docs/BUILD_PLAN.md#b13-completion-receipt--september-14)), and the same journey was driven again on September 14 and read back on the operations UI — Board, Issue Detail, Operator Inbox, Crew Form and Resident intake — with screenshots per criterion in [the UI walk](docs/evaluations/2026-09-14-ui-walk.md). The clean-install candidate `57e7e27` passed 706 offline tests ([R1 receipt](docs/evaluations/2026-09-14-clean-install.md)); the twelve-comparison vision check is 12/12 ([vision spike](docs/evaluations/2026-09-13-vision-spike.md)); the model screen is in [MODEL_SELECTION.md](docs/MODEL_SELECTION.md).
 
-**Hosted.** Hosted for judging on EC2 + CloudFront (deployed September 14; acceptance evidence: docs/evaluations/2026-09-14-hosted-acceptance.md). Public URL: `https://d1uke66gfefpu4.cloudfront.net` — one EC2 `t3.small` in `us-west-2` with a retained EBS volume for SQLite and images, private S3 backups, nginx + uvicorn and the in-process Strands runtime, behind CloudFront; the decision is in [HOSTING_DECISION.md](docs/HOSTING_DECISION.md). The hosted candidate `57e7e27` passed criteria 1–15 and retained its resolved state across service restart and instance reboot. Hosted criterion 16, instance replacement and backup restoration remain unverified. Later local UI fixes are not yet deployed. AgentCore Runtime, Observability and Gateway are **not deployed**.
+**Hosted.** Hosted for judging on EC2 + CloudFront (deployed September 14; acceptance evidence: docs/evaluations/2026-09-14-hosted-acceptance.md). Public URL: `https://d1uke66gfefpu4.cloudfront.net` — one EC2 `t3.small` in `us-west-2` with a retained EBS volume for SQLite and images, private S3 backups, nginx + uvicorn and the in-process Strands runtime, behind CloudFront; the decision is in [HOSTING_DECISION.md](docs/HOSTING_DECISION.md). The hosted candidate `57e7e27` passed criteria 1–15 and retained its resolved state across service restart and instance reboot. Hosted criterion 16, instance replacement and backup restoration remain unverified. The reviewed UI from `2f31548` is now deployed; backend code and dependencies remain identical to `57e7e27`. See the [UI release receipt](docs/evaluations/2026-09-14-ui-release.md). AgentCore Runtime, Observability and Gateway are **not deployed**.
 
 **Not done.** The twenty-two-scenario internal evaluation ([EVALUATION.md](docs/EVALUATION.md)) has not run, so no evaluation counts are published. The [clean-install proof](docs/evaluations/2026-09-14-clean-install.md) is integrated. P7 remains open: driver-based acceptance and screenshots do not prove every step was performed through the browser. Judging access is the hosted URL, with clone-and-run using your own AWS Bedrock access as the fallback ([SUBMISSION.md](docs/SUBMISSION.md)).
 
@@ -20,7 +22,7 @@ The competition proof is one couch: wait at evidence score 65; corroborate at 85
 
 ## Run it yourself
 
-You need: Python 3.11+, [uv](https://docs.astral.sh/uv/), Node.js 22 or newer with npm (`npm ci` prints an `EBADENGINE` warning but still installs under Node 24.12–24.14 because of the frontend's `jsdom` devDependency), the AWS CLI, and an AWS account with Amazon Bedrock model access to `global.anthropic.claude-sonnet-4-6` (a cross-region inference profile; the client binds to `us-west-2`). Each full run makes five agent invocations plus the photo inspections (about 574k input tokens in the recorded run); you pay for that inference. The recorded runs were made on Windows 11 in Git Bash; nothing in the commands is Windows-specific.
+You need Python 3.11+, [uv](https://docs.astral.sh/uv/), Node.js **22.22.2+ in the 22.x line or 24.15+ in the 24.x line** with npm, the AWS CLI, and your own AWS account with Amazon Bedrock access to `global.anthropic.claude-sonnet-4-6`. The client uses `us-west-2`. Live runs incur inference costs; viewing the hosted case does not require your AWS credentials. Commands below use Bash (Git Bash on Windows, or a macOS/Linux terminal). Start the API in one terminal and run the driver in a second terminal from the repository root.
 
 ### 1. Install
 
@@ -28,6 +30,8 @@ You need: Python 3.11+, [uv](https://docs.astral.sh/uv/), Node.js 22 or newer wi
 git clone https://github.com/juulsverne/steward.git && cd steward
 uv sync --locked --extra dev --extra web
 cd frontend && npm ci && npm run build && cd ..
+mkdir -p .steward
+cp .env.example .env
 ```
 
 `npm ci` is the locked, reproducible install (`frontend/package-lock.json` is committed). The frontend build lands in `frontend/dist`, which the API serves at `/`.
@@ -63,7 +67,7 @@ uv run --no-sync python -m agent.seed --db .steward/steward.sqlite3
 uv run --no-sync uvicorn agent.server:app --host 127.0.0.1 --port 8000 --no-proxy-headers
 ```
 
-The seed writes the first labeled feed signal and photo (a 65-point candidate), the uncredited completed 311 fixture, three fictional providers and a $500.00 simulated budget, plus one pending invocation. With `STEWARD_RUNTIME_ENABLED=true` the API's startup scan runs that invocation immediately: one real Bedrock call, and the issue becomes MONITORING at 65. Open `http://localhost:8000/`, pick a persona in the header (Operator, a vendor's Crew, or Resident; it is a labeled sandbox, not authentication), and watch the Board and Issue Detail.
+The seed writes the first labeled feed signal and photo (a 65-point candidate), the uncredited completed 311 fixture, three fictional providers and a $500.00 simulated budget, plus one pending invocation. With `STEWARD_RUNTIME_ENABLED=true` the API's startup scan runs that invocation immediately: one agent invocation (which may make multiple model calls), and the issue becomes MONITORING at 65. Open `http://localhost:8000/`, pick a persona in the header (Operator, a vendor's Crew, or Resident; it is a labeled sandbox, not authentication), and watch the Board and Issue Detail.
 
 ### 4. Run the couch journey
 
@@ -107,7 +111,7 @@ Interrupted runs are safe to resume: pending work, claims and effects are journa
 No AWS credentials are needed for these:
 
 ```bash
-uv run --no-sync pytest -q          # 703 passed on the B13 code
+uv run --no-sync pytest -q
 uv run --no-sync ruff check .
 uv run --no-sync python scripts/check_docs.py
 uv run --no-sync python -m agent.foundation --db .steward/foundation.sqlite3   # 65/65/85/100 scoring harness
@@ -146,7 +150,7 @@ docs/evaluations/   Vision spike report, model-screen export, UI walk and screen
 scripts/            Acceptance runner, link checker, OpenAPI/model-screen exporters, preflight
 ```
 
-Next: record the video from [DEMO.md](docs/DEMO.md), publish the repository and save the submission (owner actions in [SUBMISSION.md](docs/SUBMISSION.md)); keep the hosted instance up through October 8; then, after the deadline, the P8 evaluation and AgentCore Runtime/Observability/Gateway. Product thresholds, exclusions and labels do not change to make any of that easier.
+Next: record the video from [DEMO.md](docs/DEMO.md), publish the final reviewed source and save the submission (owner actions in [SUBMISSION.md](docs/SUBMISSION.md)); keep the hosted instance up through October 8; freeze the submitted code and materials through the winner announcement. P8 evaluation and AgentCore work remain future scope. Product thresholds, exclusions and labels do not change to make any of that easier.
 
 ## Demo boundaries and license
 
