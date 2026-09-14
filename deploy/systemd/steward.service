@@ -1,0 +1,28 @@
+[Unit]
+Description=Steward API (FastAPI/uvicorn) with the in-process Strands runner
+Documentation=https://github.com/juulsverne/agents-for-humans
+After=network-online.target
+Wants=network-online.target
+# The retained data volume must be mounted; a missing mount or database fails readiness, never seeds.
+RequiresMountsFor=/var/lib/steward
+
+[Service]
+Type=simple
+User=steward
+Group=steward
+WorkingDirectory=/opt/steward/app
+EnvironmentFile=/etc/steward/steward.env
+ExecStartPre=/bin/sh -c 'mountpoint -q /var/lib/steward && test -f /var/lib/steward/steward.sqlite3'
+ExecStart=/opt/steward/app/.venv/bin/uvicorn agent.server:app --host 127.0.0.1 --port 8000 --proxy-headers --forwarded-allow-ips=*
+Restart=always
+RestartSec=3
+TimeoutStopSec=30
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectControlGroups=true
+
+[Install]
+WantedBy=multi-user.target

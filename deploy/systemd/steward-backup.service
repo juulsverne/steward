@@ -1,0 +1,12 @@
+[Unit]
+Description=Steward backup: consistent SQLite copy plus image tarball to the private S3 bucket
+After=network-online.target
+Wants=network-online.target
+RequiresMountsFor=/var/lib/steward
+
+[Service]
+Type=oneshot
+User=steward
+Group=steward
+EnvironmentFile=/etc/steward/backup.env
+ExecStart=/usr/local/bin/steward-backup.sh

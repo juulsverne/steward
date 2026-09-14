@@ -1,0 +1,56 @@
+{
+  "CallerReference": "__CALLER_REFERENCE__",
+  "Comment": "Steward hackathon judging front (HTTPS) for the single EC2 origin",
+  "Enabled": true,
+  "HttpVersion": "http2and3",
+  "IsIPV6Enabled": true,
+  "PriceClass": "PriceClass_100",
+  "Origins": {
+    "Quantity": 1,
+    "Items": [
+      {
+        "Id": "steward-ec2",
+        "DomainName": "__ORIGIN_DOMAIN__",
+        "OriginPath": "",
+        "CustomHeaders": { "Quantity": 0 },
+        "CustomOriginConfig": {
+          "HTTPPort": 80,
+          "HTTPSPort": 443,
+          "OriginProtocolPolicy": "http-only",
+          "OriginSslProtocols": { "Quantity": 1, "Items": ["TLSv1.2"] },
+          "OriginReadTimeout": 60,
+          "OriginKeepaliveTimeout": 5
+        },
+        "ConnectionAttempts": 3,
+        "ConnectionTimeout": 10,
+        "OriginShield": { "Enabled": false }
+      }
+    ]
+  },
+  "DefaultCacheBehavior": {
+    "TargetOriginId": "steward-ec2",
+    "ViewerProtocolPolicy": "redirect-to-https",
+    "AllowedMethods": {
+      "Quantity": 7,
+      "Items": ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"],
+      "CachedMethods": { "Quantity": 2, "Items": ["GET", "HEAD"] }
+    },
+    "Compress": true,
+    "CachePolicyId": "4135ea2d-6df8-44a3-9df3-4b5a84be39ad",
+    "OriginRequestPolicyId": "216adef6-5c7f-47e4-b989-5492eafa07d3",
+    "SmoothStreaming": false,
+    "FieldLevelEncryptionId": "",
+    "LambdaFunctionAssociations": { "Quantity": 0 },
+    "FunctionAssociations": { "Quantity": 0 }
+  },
+  "CacheBehaviors": { "Quantity": 0 },
+  "CustomErrorResponses": { "Quantity": 0 },
+  "ViewerCertificate": {
+    "CloudFrontDefaultCertificate": true,
+    "MinimumProtocolVersion": "TLSv1"
+  },
+  "Restrictions": { "GeoRestriction": { "RestrictionType": "none", "Quantity": 0 } },
+  "Logging": { "Enabled": false, "IncludeCookies": false, "Bucket": "", "Prefix": "" },
+  "WebACLId": "",
+  "DefaultRootObject": ""
+}
