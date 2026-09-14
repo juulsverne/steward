@@ -1,7 +1,7 @@
 [project]
 name = "agents-for-humans"
 version = "0.1.0"
-description = "An AI agent built with the Strands Agents SDK for the AWS Agents for Humans Hackathon"
+description = "Steward: an autonomous neighborhood-operations agent on Strands Agents and Amazon Bedrock, built for the AWS Agents for Humans Hackathon"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }

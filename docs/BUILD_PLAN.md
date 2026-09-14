@@ -83,7 +83,7 @@ Reviewed local checkout `dd6c61e`, following `73d93e9`. Fresh verification durin
 
 The starter still registers `current_time` and `summarize_workload`. It is not yet the Steward operations agent. The foundation harness really saves **65 → 65 → 85 → 100**, including reopening SQLite, but deliberately leaves the issue **CANDIDATE**. It does not prove that the model chose to wait, dispatch, or settle.
 
-Retained live evidence: `.steward/bedrock-check-20260913T071054517582Z.json` and `.steward/vision-spike-20260913T071112411178Z.json`. Their passed fields were inspected in this review; [VISION_SPIKE.md](VISION_SPIKE.md) explains the dated results and limitations. This is evidence of those earlier runs, not a guarantee that credentials remain usable now.
+Retained live evidence: `.steward/bedrock-check-20260913T071054517582Z.json` and `.steward/vision-spike-20260913T071112411178Z.json`. Their passed fields were inspected in this review; [the vision spike report](evaluations/2026-09-13-vision-spike.md) explains the dated results and limitations. This is evidence of those earlier runs, not a guarantee that credentials remain usable now.
 
 ### What is ready, and what is not
 

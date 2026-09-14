@@ -396,7 +396,7 @@ Replays never masquerade as live inference. Public assets carry provenance and u
 | Assumption / risk | Required response | Build owner |
 |---|---|---|
 | Synthetic images and seeded identities simplify the case | Preserve source labels; test duplicates, mismatched scenes and unknown findings; publish fixture limitations | B3/B4/B7; P8/P9 |
-| A bounded vision result may be wrong | Keep prerequisite gates and deterministic scores; any false automatic acceptance blocks the affected unattended-verification claim | B7; VISION_SPIKE; P8 |
+| A bounded vision result may be wrong | Keep prerequisite gates and deterministic scores; any false automatic acceptance blocks the affected unattended-verification claim | B7; vision spike report; P8 |
 | Selected Bedrock access may expire or fail | Verify live inference for the candidate run; retain failure events and recover without fabricated observations | B11/B12; R1 |
 | A persona switcher can be mistaken for real identity verification | Label sandbox access; bind server sessions and enforce vendor/actor permissions; keep service credentials server-side | B2; P1; H4 |
 | Accepted events or money state can be lost or replayed during interruption | Persist triggers, revisions and once-only effects; test recovery, concurrent requests and interrupted closure | B1–B12 |
@@ -407,8 +407,8 @@ Replays never masquerade as live inference. Public assets carry provenance and u
 
 | Item | Position | Blocks |
 |---|---|---|
-| Vision spike | Component gate passed September 13: four before→completion pairings × three repeats, 12/12 expected outcomes, documented in [VISION_SPIKE.md](VISION_SPIKE.md). Rerun affected checks if images, model, prompt or verification logic change; prior results do not establish full workflow acceptance | No remaining blocker for the tested fixture spike; API/UI proof remains open |
-| App Runner and AgentCore specifics | Hosting durability conflict recorded in [DOCUMENT_REVIEW.md](DOCUMENT_REVIEW.md): App Runner local files cannot be the durable SQLite owner. Prepare H1's concrete storage/topology and real AWS cost recommendation at kickoff, before freezing storage assumptions. Implement and prove the selected hosted arrangement after tier 2 with the owner decision and spending ceiling recorded | Early design input; tier-3 implementation |
+| Vision spike | Component gate passed September 13: four before→completion pairings × three repeats, 12/12 expected outcomes, documented in [the vision spike report](evaluations/2026-09-13-vision-spike.md). Rerun affected checks if images, model, prompt or verification logic change; prior results do not establish full workflow acceptance | No remaining blocker for the tested fixture spike; API/UI proof remains open |
+| App Runner and AgentCore specifics | Hosting durability conflict recorded in [the September 13 document review](reviews/2026-09-13-document-review.md): App Runner local files cannot be the durable SQLite owner. Prepare H1's concrete storage/topology and real AWS cost recommendation at kickoff, before freezing storage assumptions. Implement and prove the selected hosted arrangement after tier 2 with the owner decision and spending ceiling recorded | Early design input; tier-3 implementation |
 | Model choice and cost | Initial eight-model tool screen and five-model photo screen recorded in MODEL_SELECTION.md. Cheaper text candidates are viable integrations, not qualified domain agents. Keep Sonnet for the current image prompt; build role settings and pass task/full-workflow gates before promotion | M0; B4/B7/B11–B13; P8 |
 | Tier-4 flags | Live 311, Amazon Location, plain-model evaluation arm; only after tier 3 | Nothing required |
 

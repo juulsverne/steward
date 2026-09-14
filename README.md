@@ -10,12 +10,13 @@ Built for the **Good Neighbor Agents** track of the AWS Agents for Humans Hackat
 
 The hackathon scope is locked in [PRD.md](docs/PRD.md). This public **Steward OSS** reference implementation is being built to prove one couch resolution; the future private commercial platform is described separately in [VISION.md](docs/VISION.md).
 
-Implemented: the generic Strands/Bedrock starter; SQLite signals, issue links, scoring and audit events; the persisted 65 → 65 → 85 → 100 service-record/dispute sequence; five labeled synthetic images; image fingerprints; strict verification gates; a bounded Strands preflight and single-call Bedrock vision spike runner. The full Steward agent workflow now runs end to end through the API: on September 14 the sixteen-step couch acceptance passed live with real Sonnet text and vision in two independently seeded runs (see [DEMO.md](docs/DEMO.md) and the B13 receipt in [BUILD_PLAN.md](docs/BUILD_PLAN.md)). The operations UI (Board, Issue Detail, Operator Inbox, Crew Form, Resident intake) is implemented and was walked on September 14 against a live-driven database; see [the UI walk](docs/evaluations/2026-09-14-ui-walk.md). After AWS login, the live Strands round trip and all twelve vision comparisons passed on September 13. Tier 1B has started with a pure policy module and seeded district/vendor/address fixtures; policy is not yet wired into mutation endpoints. See [vision readiness](docs/VISION_SPIKE.md) and [document review](docs/DOCUMENT_REVIEW.md).
+Implemented: the generic Strands/Bedrock starter; SQLite signals, issue links, scoring and audit events; the persisted 65 → 65 → 85 → 100 service-record/dispute sequence; five labeled synthetic images; image fingerprints; strict verification gates; a bounded Strands preflight and single-call Bedrock vision spike runner. The full Steward agent workflow now runs end to end through the API: on September 14 the sixteen-step couch acceptance passed live with real Sonnet text and vision in two independently seeded runs (see [DEMO.md](docs/DEMO.md) and the B13 receipt in [BUILD_PLAN.md](docs/BUILD_PLAN.md)). The operations UI (Board, Issue Detail, Operator Inbox, Crew Form, Resident intake) is implemented and was walked on September 14 against a live-driven database; see [the UI walk](docs/evaluations/2026-09-14-ui-walk.md). After AWS login, the live Strands round trip and all twelve vision comparisons passed on September 13. Tier 1B has started with a pure policy module and seeded district/vendor/address fixtures; policy is not yet wired into mutation endpoints. See [vision readiness](docs/evaluations/2026-09-13-vision-spike.md) and [document review](docs/reviews/2026-09-13-document-review.md).
 
 The competition proof is one couch: wait at evidence score 65; corroborate at 85; dispute a completed service record when newer physical evidence disagrees; dispatch an authorized $72 cleanup; block payment at verification score 90; resume after operator-requested rework; verify at 100; simulate payment and resolve.
 
 ## Build documents
 
+- [Documentation index: what each document is and when to read it](docs/README.md)
 - [Product requirements: goals, users, stories, agent behavior, data/API and quality](docs/PRD.md)
 - [Architecture, data, tools, policy, and deployment contract](docs/ARCHITECTURE.md)
 - [Build guide: complete scope, task order, coding-agent models, ownership and verification](docs/BUILD_PLAN.md)
@@ -93,16 +94,22 @@ uv run --no-sync python -m agent.bedrock_check
 uv run --no-sync python -m agent.vision_spike --images data/images --repeats 3
 ```
 
-The preflight requires a successful tool result and final model reply. The spike requires twelve expected outcomes, including partial score 90, complete score 100, and scene/reuse rejection. The preflight resolves `BEDROCK_TEXT_MODEL_ID`; the spike resolves `BEDROCK_VISION_MODEL_ID`; each falls back to `BEDROCK_MODEL_ID` and then Sonnet. Leave both role overrides blank for the default run. For candidate comparisons, use the role-explicit commands in [MODEL_SELECTION.md](docs/MODEL_SELECTION.md#7-reproduce-the-current-screen). Results and failures are retained under `.steward/`; [VISION_SPIKE.md](docs/VISION_SPIKE.md) reports the Sonnet qualification, and [MODEL_SELECTION.md](docs/MODEL_SELECTION.md) records the later multi-model component screen. These commands do not dispatch, pay, or resolve an issue.
+The preflight requires a successful tool result and final model reply. The spike requires twelve expected outcomes, including partial score 90, complete score 100, and scene/reuse rejection. The preflight resolves `BEDROCK_TEXT_MODEL_ID`; the spike resolves `BEDROCK_VISION_MODEL_ID`; each falls back to `BEDROCK_MODEL_ID` and then Sonnet. Leave both role overrides blank for the default run. For candidate comparisons, use the role-explicit commands in [MODEL_SELECTION.md](docs/MODEL_SELECTION.md#7-reproduce-the-current-screen). Results and failures are retained under `.steward/`; [the vision spike report](docs/evaluations/2026-09-13-vision-spike.md) reports the Sonnet qualification, and [MODEL_SELECTION.md](docs/MODEL_SELECTION.md) records the later multi-model component screen. These commands do not dispatch, pay, or resolve an issue.
 
 ## Project layout
 
 ```text
-src/agent/      Strands starter, store/scoring, image and vision helpers, verification, spike
-tests/          Offline foundation, image, model-contract and verification checks
-data/           Labeled foundation fixtures, synthetic images and scoring-policy manifest
-docs/           Locked specifications, acceptance, evaluation, submission
-scripts/        Existing environment/preflight helpers
+src/agent/          One flat package; the module map is in its __init__:
+                      runtime   config, core, cli, server, tools/
+                      domain    models, scoring, policy, verification, store
+                      vision    images, vision
+                      checks    foundation (offline), bedrock_check and vision_spike (live)
+tests/              Offline tests: scoring, store, policy, images, verification, model contracts, spike gates
+data/               Labeled fixtures, five synthetic images with provenance, scoring and dispatch policy manifest
+docs/               Locked specifications; docs/README.md is the index
+docs/evaluations/   Dated evidence: vision spike report, exported model-screen artifact
+docs/reviews/       Dated document reviews
+scripts/            Toolchain preflight, Markdown link checker, model-screen exporter
 ```
 
 Next: verify the foundation, prepare H1's early storage/cost recommendation, use M0's completed role-setting boundary and build B1's complete records, then follow the backend/agent tasks through the API gate. UI, evaluation and hosting follow the recorded dependencies. [BUILD_PLAN section 12](docs/BUILD_PLAN.md#12-handoff-and-delegation-how-someone-else-builds-from-this-guide) assigns coding sub-agents, models, shared ownership and review gates. Hosted-storage implementation remains conditional on the recorded architecture decision and deployment authorization.
