@@ -2,7 +2,7 @@
 
 Status: specification; no steps verified yet. An acceptance run must retain an event trace, resulting state, and actual model/tool outputs. Deterministic unit tests or prerecorded events alone do not prove a live Strands run.
 
-Foundation checkpoint, September 13: `uv run python -m agent.foundation --db .steward/foundation.sqlite3` verifies 65/65/85/100 scoring with a database reopen and six actual events. The first signal now references a real synthetic asset; links/geocode remain supplied fixture metadata. All five images and offline verification/spike code exist. Live Strands preflight and twelve vision inspections now pass (see VISION_SPIKE.md). Real couch agent decisions and financial/crew/operator behavior remain open. This is **not** the acceptance demo and closes no criterion below.
+Foundation checkpoint, September 13: `uv run python -m agent.foundation --db .steward/foundation.sqlite3` verifies 65/65/85/100 scoring with a database reopen and six actual events. The first signal now references a real synthetic asset; links/geocode remain supplied fixture metadata. All five images and offline verification/spike code exist. Live Strands preflight and twelve vision inspections now pass (see [the vision spike report](evaluations/2026-09-13-vision-spike.md)). Real couch agent decisions and financial/crew/operator behavior remain open. This is **not** the acceptance demo and closes no criterion below.
 
 ## Sixteen acceptance criteria
 

@@ -1,6 +1,6 @@
 # Document review — September 13, 2026
 
-This review reconciles Fable's handoff with the checkout. It is not evidence that the couch acceptance flow works. Scope remains [PRD.md](PRD.md); [ARCHITECTURE.md](ARCHITECTURE.md) defines the implementation contract; [DEMO.md](DEMO.md) supplies the sixteen acceptance criteria; [BUILD_PLAN.md](BUILD_PLAN.md) records gates and observed results.
+This review reconciles Fable's handoff with the checkout. It is not evidence that the couch acceptance flow works. Scope remains [PRD.md](../PRD.md); [ARCHITECTURE.md](../ARCHITECTURE.md) defines the implementation contract; [DEMO.md](../DEMO.md) supplies the sixteen acceptance criteria; [BUILD_PLAN.md](../BUILD_PLAN.md) records gates and observed results.
 
 ## Recovered work
 
@@ -21,7 +21,7 @@ The dated foundation plan is historical; its immediate service-match rule was su
 | Setup compared inference-profile IDs against foundation-model IDs | Inspect the configured inference profile separately; only real inference proves access. Preserve the selected model. |
 | Pydantic was only transitive | Declare the directly imported package; do not add another runtime framework. |
 
-AWS references checked for these corrections: [Converse API](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html), [inference profiles](https://docs.aws.amazon.com/bedrock/latest/userguide/inference-profiles-use.html), [model access](https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html). On this PC the only configured AWS profile was `default`; its session was expired. The user subsequently refreshed login; the real Strands check and all twelve vision comparisons passed. See VISION_SPIKE.md for retained results. Tier 1B policy/fixtures then started; the combined suite is 129 passing tests, with Ruff clean.
+AWS references checked for these corrections: [Converse API](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html), [inference profiles](https://docs.aws.amazon.com/bedrock/latest/userguide/inference-profiles-use.html), [model access](https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html). On this PC the only configured AWS profile was `default`; its session was expired. The user subsequently refreshed login; the real Strands check and all twelve vision comparisons passed. See [the vision spike report](../evaluations/2026-09-13-vision-spike.md) for retained results. Tier 1B policy/fixtures then started; the combined suite is 129 passing tests, with Ruff clean.
 
 ## Documents and remaining gates
 
@@ -34,9 +34,9 @@ AWS references checked for these corrections: [Converse API](https://docs.aws.am
 | `EVALUATION.md` | Twenty-two scenarios, no claimed results. Repeats and comparison remain as specified here. |
 | `SUBMISSION.md` | Release checklist remains open. Account registration, public access, rights, video, and submission are not inferred from local code. |
 | `VISION.md` | Future commercial work stays outside the critical path. |
-| Local `MODEL-ROUTING-PLAN.md` | Historical, outside V1. Replace the broken scope link with PRD; access observations remain dated. |
-| Local `AGENT-ENGINEERING-CHECKLIST.md` | Advisory only: remove stale document names, twenty-case wording, mandatory extra eval repeats, and lower priority assigned to in-scope hosting. No Jaeger/cache/extra-model prerequisite is added. |
-| Local `MAC-REMOTE.md` | Historical machine setup, not a current remote checkout audit. No Mac synchronization or service changes performed in this continuation. |
+| Local `local/MODEL-ROUTING-PLAN.md` | Historical, outside V1. Replace the broken scope link with PRD; access observations remain dated. |
+| Local `local/AGENT-ENGINEERING-CHECKLIST.md` | Advisory only: remove stale document names, twenty-case wording, mandatory extra eval repeats, and lower priority assigned to in-scope hosting. No Jaeger/cache/extra-model prerequisite is added. |
+| Local `local/MAC-REMOTE.md` | Historical machine setup, not a current remote checkout audit. No Mac synchronization or service changes performed in this continuation. |
 | Local plans and `.superpowers` ledger | Retain handoff evidence and record continuation status; do not treat expected outputs as observed results. |
 
 ## Tier 3 blocker: App Runner storage
@@ -54,7 +54,7 @@ This is a hosting-contract conflict, not a reason to redesign the local couch. K
 
 ## End-to-end build-guide review — September 13
 
-Reviewed checkout `dd6c61e` and replaced the short tier checklist in [BUILD_PLAN.md](BUILD_PLAN.md) with a complete guide for learning and handoff. Each task explains what is built, why, its dependencies/connections, implementation files, construction steps and inspectable completion evidence. The guide includes plain-language AWS service roles, data/workflow/build graphs, trigger-specific context, all presentation/hosting/optional/release work, and PRD/demo coverage tables. Historical checkpoints and decisions are retained.
+Reviewed checkout `dd6c61e` and replaced the short tier checklist in [BUILD_PLAN.md](../BUILD_PLAN.md) with a complete guide for learning and handoff. Each task explains what is built, why, its dependencies/connections, implementation files, construction steps and inspectable completion evidence. The guide includes plain-language AWS service roles, data/workflow/build graphs, trigger-specific context, all presentation/hosting/optional/release work, and PRD/demo coverage tables. Historical checkpoints and decisions are retained.
 
 Fresh verification: `uv run --no-sync pytest -q` returned **129 passed in 2.15s**; `uv run --no-sync ruff check .` returned **All checks passed**. The installed environment required access outside the restricted shell. Source inspection confirms `core.py` still has the starter prompt/registry, `server.py` only the starter health/ask routes, and `store.py` only the schema-1 foundation. The retained September 13 preflight and vision artifacts have passed results; they were inspected, not rerun. This review did not change application code, call Bedrock, audit the Mac, push, or deploy.
 
@@ -105,9 +105,9 @@ Documentation verification: `git diff --check` passed; all **45 relative file li
 
 ## Model cost and capability review — September 13
 
-The owner explicitly replaced the earlier Sonnet-only design choice with evaluation for cost efficiency and workable task performance. PRD v3.2, AGENTS, architecture, README and the build guide now permit independently selected text/image models while retaining one Strands agent and all deterministic authority/payment gates. [MODEL_SELECTION.md](MODEL_SELECTION.md) maps the entire journey to text, images or no AI, provides dated pricing assumptions and records the promotion protocol. M0 adds a build owner, configuration contract, dependencies and checks; role configuration is not implemented by this documentation change.
+The owner explicitly replaced the earlier Sonnet-only design choice with evaluation for cost efficiency and workable task performance. PRD v3.2, AGENTS, architecture, README and the build guide now permit independently selected text/image models while retaining one Strands agent and all deterministic authority/payment gates. [MODEL_SELECTION.md](../MODEL_SELECTION.md) maps the entire journey to text, images or no AI, provides dated pricing assumptions and records the promotion protocol. M0 adds a build owner, configuration contract, dependencies and checks; role configuration is not implemented by this documentation change.
 
-The live Bedrock catalog/profile read and bounded inference screen used `us-west-2`. Eight models completed one real Strands tool round trip each. Five image-capable candidates also received all four unchanged synthetic photo pairings once: Sonnet matched 4/4, the other four matched 3/4. Nova Lite, Haiku and Ministral falsely marked partial cleanup payable; Nova 2 Lite kept it blocked but returned incorrect/unknown findings. No business mutation or payment ran. Results, prompts, usage and source/fixture hashes are in the [public screen artifact](evaluations/2026-09-13-model-screen.json). This was 36 successful model requests, not a full Steward acceptance run. The earlier Sonnet 12/12 qualification remains separate.
+The live Bedrock catalog/profile read and bounded inference screen used `us-west-2`. Eight models completed one real Strands tool round trip each. Five image-capable candidates also received all four unchanged synthetic photo pairings once: Sonnet matched 4/4, the other four matched 3/4. Nova Lite, Haiku and Ministral falsely marked partial cleanup payable; Nova 2 Lite kept it blocked but returned incorrect/unknown findings. No business mutation or payment ran. Results, prompts, usage and source/fixture hashes are in the [public screen artifact](../evaluations/2026-09-13-model-screen.json). This was 36 successful model requests, not a full Steward acceptance run. The earlier Sonnet 12/12 qualification remains separate.
 
 The model-selection comparison keeps the system fixed; the optional tier-4 plain-model comparison removes tools and persistence. EVALUATION now distinguishes them and specifies equal initial-image preprocessing when the selected text model cannot read photos. The architecture diagram also stops drawing durable SQLite inside App Runner; H1 still owns that unresolved hosting decision. Nothing in this review chooses a new storage service.
 

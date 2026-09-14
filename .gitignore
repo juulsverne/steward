@@ -36,13 +36,10 @@ research/
 # Local Steward state (fixtures remain tracked in data/)
 .steward/
 
-# Local-only working notes and machine setup (not for the public repo)
-docs/PRD_REVIEW.md
-docs/MAC-REMOTE.md
-scripts/mac-session.sh
-docs/AGENT-ENGINEERING-CHECKLIST.md
-docs/MODEL-ROUTING-PLAN.md
+# Local-only notes, historical plans and machine setup (not for the public repo)
+docs/local/
 docs/plans/
+scripts/mac-session.sh
 
 # Subagent-driven-development scratch (ledger, briefs, review packages)
 .superpowers/

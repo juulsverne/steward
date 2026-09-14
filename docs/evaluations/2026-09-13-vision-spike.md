@@ -23,7 +23,7 @@ The earlier failed attempt (`LoginRefreshRequired`, zero tool calls) is retained
 
 ## Fixtures and consistency
 
-See [provenance and exact generation prompts](../data/images/PROVENANCE.md), [fingerprints](../data/images/manifest.json), and [seeded consistency inputs](../data/images/consistency.json).
+See [provenance and exact generation prompts](../../data/images/PROVENANCE.md), [fingerprints](../../data/images/manifest.json), and [seeded consistency inputs](../../data/images/consistency.json).
 
 - Reused→after dHash distance **1** (threshold **6**); file SHA-256 values differ.
 - Fresh after→prior middle dHash distance **7**; no reuse detected. The one-bit margin limits confidence for recompressed/cropped variants.

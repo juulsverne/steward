@@ -17,7 +17,7 @@ from pydantic import BaseModel
 
 from .core import build_agent
 
-app = FastAPI(title="Agents for Humans")
+app = FastAPI(title="Steward")
 
 
 class Ask(BaseModel):
