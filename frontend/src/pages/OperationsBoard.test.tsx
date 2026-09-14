@@ -12,7 +12,7 @@ const board = {
   budget: { budget_id: "b", initial_cents: 50000, reserved_cents: 0, spent_cents: 7200, available_cents: 42800 },
   markers: [
     { issue_id: "demo-couch", status: "RESOLVED", marker_state: "resolved", latitude: 41.86, longitude: -87.62, accuracy_m: 5, location_provenance: "seeded", location_unknown_reason: null, label: "Couch at 1200 S Wabash", current_job_id: null, payment_id: "pay-1", simulated: true },
-    { issue_id: "iss-2", status: "CANDIDATE", marker_state: "watching", latitude: null, longitude: null, accuracy_m: null, location_provenance: null, location_unknown_reason: "address not in seeded set", label: "Mattress near 9th", current_job_id: null, payment_id: null, simulated: null },
+    { issue_id: "iss-2", status: "CANDIDATE", marker_state: "watching", latitude: null, longitude: null, accuracy_m: null, location_provenance: null, location_unknown_reason: "NO_MATCH", label: "Mattress near 9th", current_job_id: null, payment_id: null, simulated: null },
   ],
 };
 const envelope = (data: unknown) => new Response(JSON.stringify({ outcome: "OK", reason_code: null, data, unmet: [], allowed_next: [], evidence_ids: [], event_ids: [] }), { status: 200, headers: { "content-type": "application/json" } });
@@ -41,7 +41,7 @@ describe("OperationsBoard", () => {
     render(<MemoryRouter><OperationsBoard /></MemoryRouter>);
     expect(await screen.findByRole("link", { name: /Couch at 1200 S Wabash/ })).toHaveAttribute("href", "/issues/demo-couch");
     expect(screen.getByText("Location not resolved")).toBeInTheDocument();
-    expect(screen.getByText(/address not in seeded set/)).toBeInTheDocument();
+    expect(screen.getByText("No match")).toBeInTheDocument();
     expect(screen.getByText("Resolved", { selector: "span.badge--resolved" })).toHaveClass("badge--resolved");
     expect(screen.getByText(/Paid, simulated/)).toBeInTheDocument();
   });
