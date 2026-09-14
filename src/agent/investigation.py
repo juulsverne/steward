@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from . import contracts as c
-from .actors import AccessBoundary, Action
+from .actors import AccessBoundary, AccessError, Action
 from .adapters import GeocodeResult, ServiceResult
 from .config import settings
 from .images import ImageStorage
@@ -59,6 +59,14 @@ def _invocation_cause(store: Store, invocation_id: str):
     return invocation, trigger
 
 
+class InvocationScopeError(AccessError, ValueError):
+    """The invocation's saved cause does not cover the requested case: a fixed refusal, not malformed input."""
+
+    def __init__(self, message: str):
+        AccessError.__init__(self, 403, "INVOCATION_SCOPE")
+        self.args = (message,)
+
+
 def _validated_cause(store: Store, context: c.MutationContext, *,
                      issue_id: str | None, signal_id: str | None, job_id: str | None = None,
                      submission_id: str | None = None) -> c.EventRecord | None:
@@ -71,30 +79,30 @@ def _validated_cause(store: Store, context: c.MutationContext, *,
         return None
     invocation, trigger = _invocation_cause(store, context.invocation_id)
     if job_id is not None and invocation.job_id is not None and invocation.job_id != job_id:
-        raise ValueError("invocation cause does not belong to job")
+        raise InvocationScopeError("invocation cause does not belong to job")
     if job_id is not None and trigger.job_id is not None and trigger.job_id != job_id:
-        raise ValueError("trigger cause does not belong to job")
+        raise InvocationScopeError("trigger cause does not belong to job")
     if (trigger.event_type == "PROOF_SUBMITTED" and submission_id is not None
             and trigger.payload.submission_id != submission_id):
-        raise ValueError("proof invocation does not name requested submission")
+        raise InvocationScopeError("proof invocation does not name requested submission")
     linked = store.issue_for_signal(signal_id) if signal_id is not None else None
     target_issue = issue_id if issue_id is not None else linked.id if linked is not None else None
     if invocation.issue_id != target_issue:
-        raise ValueError("invocation cause does not belong to issue")
+        raise InvocationScopeError("invocation cause does not belong to issue")
     if linked is not None and linked.id != target_issue:
-        raise ValueError("requested signal contradicts invocation cause target")
+        raise InvocationScopeError("requested signal contradicts invocation cause target")
     cause_issue = trigger.issue_id
     if trigger.signal_id is not None:
         canonical = store.issue_for_signal(trigger.signal_id)
         canonical_issue = canonical.id if canonical is not None else None
         if canonical_issue != target_issue:
-            raise ValueError("invocation cause signal does not belong to issue")
+            raise InvocationScopeError("invocation cause signal does not belong to issue")
         if trigger.issue_id is None and trigger.event_type == "SIGNAL_RECEIVED":
             cause_issue = canonical_issue
     if cause_issue != target_issue:
-        raise ValueError("invocation cause does not belong to issue")
+        raise InvocationScopeError("invocation cause does not belong to issue")
     if target_issue is None and signal_id is not None and trigger.signal_id != signal_id:
-        raise ValueError("invocation cause does not belong to signal")
+        raise InvocationScopeError("invocation cause does not belong to signal")
     return trigger
 
 
@@ -493,6 +501,15 @@ _APPLIED_DECISION_TYPES = frozenset(("MONITOR", "MARK_ACTIONABLE",
                                      "DISPUTE_OFFICIAL_STATUS", "ROUTE_EXTERNAL"))
 
 
+class DecisionGateUnmet(ValueError):
+    """A well-formed proposal that current facts do not permit. The caller may choose another intent."""
+
+    def __init__(self, gate: str, unmet: tuple[str, ...], message: str):
+        super().__init__(message)
+        self.gate = gate
+        self.unmet = unmet
+
+
 def _decision_gates(store: Store, issue: c.IssueRecord,
                     proposed_type: c.DecisionType) -> tuple[tuple[c.GateRecord, ...], str, str]:
     """Validate one requested B4 decision. Several safe intents can be valid together."""
@@ -522,14 +539,16 @@ def _decision_gates(store: Store, issue: c.IssueRecord,
         if issue.evidence_score < 70:
             unmet.append("evidence_threshold")
         if unmet:
-            raise ValueError("MARK_ACTIONABLE gate failed: " + ",".join(unmet))
+            raise DecisionGateUnmet("actionable", tuple(unmet), "MARK_ACTIONABLE gate failed: " + ",".join(unmet))
         return (c.GateRecord(name="actionable", allowed=True),), "service", "build_resolution_plan"
     if proposed_type == "ROUTE_EXTERNAL":
         if classification is None or jurisdiction is None or route != "city" or jurisdiction.responsibility != "city":
-            raise ValueError("ROUTE_EXTERNAL requires current city routing facts")
+            raise DecisionGateUnmet("external_route", ("current_city_routing_facts",),
+                                    "ROUTE_EXTERNAL requires current city routing facts")
         return (c.GateRecord(name="external_route", allowed=True),), "service", "route_external"
     if service is None or service.status != "COMPLETED" or not dispute_supported(store._signals(issue.id), service):
-        raise ValueError("DISPUTE_OFFICIAL_STATUS requires two independent newer observations")
+        raise DecisionGateUnmet("official_dispute", ("two_independent_newer_observations",),
+                                "DISPUTE_OFFICIAL_STATUS requires two independent newer observations")
     return (c.GateRecord(name="official_dispute", allowed=True),), "service", "record_official_dispute"
 
 

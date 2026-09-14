@@ -406,9 +406,21 @@ def test_decision_http_requires_a_proposal_and_returns_its_persisted_event(tmp_p
     headers = {"Authorization": f"Bearer {TOKEN}", "Idempotency-Key": "decision",
                "X-Steward-Expected-Revision": str(initial_revision)}
     with TestClient(app, base_url=ORIGIN) as client:
+        # A well-formed proposal that current facts do not permit is a recoverable denial for the
+        # agent loop (it may choose another intent), never a fatal validation error.
         rejected = client.post("/api/issues/issue/decisions", headers=headers,
             json={"decision_type": "MARK_ACTIONABLE", "summary": "claim action", "evidence_ids": []})
-        assert rejected.status_code == 422
+        assert rejected.status_code == 403, rejected.text
+        assert rejected.json()["outcome"] == "DENIED"
+        assert rejected.json()["reason_code"] == "DECISION_GATE_UNMET"
+        assert "evidence_threshold" in rejected.json()["unmet"] and rejected.json()["event_ids"] == []
+        premature = client.post("/api/issues/issue/decisions", headers={**headers, "Idempotency-Key": "dispute"},
+            json={"decision_type": "DISPUTE_OFFICIAL_STATUS", "summary": "one photo is not enough", "evidence_ids": []})
+        assert premature.status_code == 403 and premature.json()["outcome"] == "DENIED"
+        assert premature.json()["unmet"] == ["two_independent_newer_observations"]
+        malformed = client.post("/api/issues/issue/decisions", headers={**headers, "Idempotency-Key": "malformed"},
+            json={"decision_type": "MONITOR", "summary": "bad evidence", "evidence_ids": ["not-an-issue-image"]})
+        assert malformed.status_code == 422 and malformed.json()["outcome"] == "ERROR"
         accepted = client.post("/api/issues/issue/decisions", headers={**headers, "Idempotency-Key": "monitor"},
             json={"decision_type": "MONITOR", "summary": "needs more evidence", "evidence_ids": []})
     payload = accepted.json()

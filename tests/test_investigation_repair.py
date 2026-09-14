@@ -555,6 +555,29 @@ def test_real_saved_invocation_cause_is_validated_before_replay(tmp_path):
             inv.decide(store, issue_id="issue", proposed_type="MONITOR", summary="wait", evidence_ids=(), context=bad)
 
 
+def test_out_of_scope_invocation_request_is_a_denied_refusal_not_a_server_error(tmp_path):
+    """An invocation reaching past its own cause is fenced with DENIED so the agent can adapt."""
+    from agent.actors import AccessError
+
+    with Store(tmp_path / "b4.sqlite3") as store:
+        first = photo(store, tmp_path, "first")
+        second = photo(store, tmp_path, "second")
+        store.create_issue("issue", "unclassified", first.reported_location)
+        store.link_signal("issue", first.id)
+        foreign = store.invocation_for_signal(second.id).id
+        with pytest.raises(AccessError, match="cause") as refusal:
+            inv.inspect_intake_photo(store, signal_id=first.id, image_root=tmp_path / "images",
+                inspector=lambda _: None, context=context("inspect", "scope").model_copy(update={"invocation_id": foreign}))
+        assert (refusal.value.status, refusal.value.reason) == (403, "INVOCATION_SCOPE")
+    with client_for(tmp_path) as client:
+        response = client.post(f"/api/signals/{first.id}/intake-inspection",
+            headers={**headers("scope"), "X-Steward-Invocation-Id": foreign})
+    assert response.status_code == 403, response.text
+    assert response.json()["outcome"] == "DENIED" and response.json()["reason_code"] == "INVOCATION_SCOPE"
+    with Store(tmp_path / "b4.sqlite3") as store:
+        assert store.intake_inspections_for_signal(first.id) == []
+
+
 def test_applied_dispute_survives_same_record_but_not_new_authoritative_record(tmp_path):
     with linked_store(tmp_path)[0] as store:
         completed_at = datetime(2026, 9, 11, tzinfo=UTC)

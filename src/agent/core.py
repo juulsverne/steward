@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import math
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -28,6 +29,8 @@ from .case_contracts import CaseContext
 from .config import settings
 from .contracts import ModelUsage, Record, Text
 from .prompts import PROMPT_VERSION, SYSTEM_PROMPT, case_prompt
+
+logger = logging.getLogger(__name__)
 from .tools.lifecycle import LifecycleUncertainty, UncertaintyKind
 from .tools.protocol import OPERATIONS, SCHEMA_VERSION, Command, build_command
 from .tools.session import InvocationToolSession
@@ -369,7 +372,10 @@ async def invoke_case(agent: Agent) -> CaseExecutionResult:
     except asyncio.CancelledError:
         agent.cancel()
         raise
-    except Exception:  # noqa: BLE001 - no raw provider/SDK errors in public execution results
+    except Exception as failure:  # noqa: BLE001 - no raw provider/SDK errors in public execution results
+        # The public result stays opaque; the operator log keeps the provider/SDK failure class for diagnosis.
+        logger.warning("invocation %s agent execution failed: %s: %s",
+                       hooks.invocation_id, type(failure).__name__, failure)
         error = "AGENT_EXECUTION_FAILED"
     finally:
         hooks.provider.close()

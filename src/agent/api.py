@@ -89,6 +89,7 @@ from .images import (
 )
 from .intake import persist_signal, resident_signal
 from .investigation import (
+    DecisionGateUnmet,
     apply_investigation_decision,
     create_issue_from_signal,
     decide,
@@ -706,6 +707,8 @@ def create_app(settings: ApiSettings | None = None,
             body = PersonaRequest.model_validate_json(bytes(raw))
         except IdempotencyConflict:
             raise
+        except AccessError:
+            raise
         except ValueError:
             raise AccessError(422, "VALIDATION_ERROR") from None
         actor, cookie = app.state.sessions.select(body.persona_id)
@@ -897,6 +900,8 @@ def create_app(settings: ApiSettings | None = None,
             receipt = await to_thread(operation)
         except IdempotencyConflict:
             raise
+        except AccessError:
+            raise
         except ValueError:
             raise AccessError(422, "VALIDATION_ERROR") from None
         return result_response(receipt.result, status=201)
@@ -985,6 +990,8 @@ def create_app(settings: ApiSettings | None = None,
             result = await to_thread(operation)
         except (IdempotencyConflict, RevisionConflict):
             raise
+        except AccessError:
+            raise
         except ValueError:
             raise AccessError(422, "VALIDATION_ERROR") from None
         return result_response(result, status=201 if result.outcome == "OK" else
@@ -1013,6 +1020,8 @@ def create_app(settings: ApiSettings | None = None,
             result = await to_thread(operation)
         except (IdempotencyConflict, RevisionConflict):
             raise
+        except AccessError:
+            raise
         except ValueError:
             raise AccessError(422, "VALIDATION_ERROR") from None
         return result_response(result, status=201 if result.outcome == "OK" else
@@ -1038,6 +1047,8 @@ def create_app(settings: ApiSettings | None = None,
             result = await to_thread(operation)
         except (IdempotencyConflict, RevisionConflict):
             raise
+        except AccessError:
+            raise
         except ValueError:
             raise AccessError(422, "VALIDATION_ERROR") from None
         return result_response(result)
@@ -1057,6 +1068,8 @@ def create_app(settings: ApiSettings | None = None,
                         claimed_at=body.claimed_at, context=context).result
             result = await to_thread(operation)
         except (IdempotencyConflict, RevisionConflict):
+            raise
+        except AccessError:
             raise
         except ValueError:
             raise AccessError(422, "VALIDATION_ERROR") from None
@@ -1127,6 +1140,8 @@ def create_app(settings: ApiSettings | None = None,
             result = await to_thread(operation)
         except (IdempotencyConflict, RevisionConflict):
             raise
+        except AccessError:
+            raise
         except (UploadError, ValueError):
             raise AccessError(422, "VALIDATION_ERROR") from None
         return result_response(result, status=202)
@@ -1145,6 +1160,8 @@ def create_app(settings: ApiSettings | None = None,
                         inspector=app.state.completion_inspector)
             result = await to_thread(operation)
         except (IdempotencyConflict, RevisionConflict):
+            raise
+        except AccessError:
             raise
         except (KeyError, ValueError):
             raise AccessError(422, "VALIDATION_ERROR") from None
@@ -1221,6 +1238,8 @@ def create_app(settings: ApiSettings | None = None,
             result = await to_thread(operation)
         except (IdempotencyConflict, RevisionConflict):
             raise
+        except AccessError:
+            raise
         except (KeyError, ValueError):
             raise AccessError(422, "VALIDATION_ERROR") from None
         return result_response(result, status=202)
@@ -1241,6 +1260,8 @@ def create_app(settings: ApiSettings | None = None,
                         context=context, policy_path=settings.policy_path).result
             result = await to_thread(operation)
         except (IdempotencyConflict, RevisionConflict):
+            raise
+        except AccessError:
             raise
         except (KeyError, ValueError):
             raise AccessError(422, "VALIDATION_ERROR") from None
@@ -1294,6 +1315,8 @@ def create_app(settings: ApiSettings | None = None,
             result = await to_thread(operation)
         except (IdempotencyConflict, RevisionConflict):
             raise
+        except AccessError:
+            raise
         except (KeyError, ValueError):
             raise AccessError(422, "VALIDATION_ERROR") from None
         return result_response(result, status=202)
@@ -1316,6 +1339,8 @@ def create_app(settings: ApiSettings | None = None,
                         policy_path=settings.policy_path).result
             result = await to_thread(operation)
         except (IdempotencyConflict, RevisionConflict):
+            raise
+        except AccessError:
             raise
         except (KeyError, ValueError):
             raise AccessError(422, "VALIDATION_ERROR") from None
@@ -1340,6 +1365,8 @@ def create_app(settings: ApiSettings | None = None,
             raise
         except IdempotencyConflict:
             raise
+        except AccessError:
+            raise
         except (KeyError, ValueError):
             raise AccessError(422, "VALIDATION_ERROR") from None
         return result_response(result)
@@ -1363,6 +1390,8 @@ def create_app(settings: ApiSettings | None = None,
             raise
         except IdempotencyConflict:
             raise
+        except AccessError:
+            raise
         except (KeyError, ValueError):
             raise AccessError(422, "VALIDATION_ERROR") from None
         return result_response(result)
@@ -1385,6 +1414,8 @@ def create_app(settings: ApiSettings | None = None,
         except RevisionConflict:
             raise
         except IdempotencyConflict:
+            raise
+        except AccessError:
             raise
         except (KeyError, ValueError):
             raise AccessError(422, "VALIDATION_ERROR") from None
@@ -1418,6 +1449,8 @@ def create_app(settings: ApiSettings | None = None,
             raise
         except IdempotencyConflict:
             raise
+        except AccessError:
+            raise
         except (KeyError, ValueError):
             raise AccessError(422, "VALIDATION_ERROR") from None
         return result_response(result)
@@ -1447,6 +1480,8 @@ def create_app(settings: ApiSettings | None = None,
             raise
         except IdempotencyConflict:
             raise
+        except AccessError:
+            raise
         except (KeyError, ValueError):
             raise AccessError(422, "VALIDATION_ERROR") from None
         return result_response(result)
@@ -1469,6 +1504,11 @@ def create_app(settings: ApiSettings | None = None,
         except RevisionConflict:
             raise
         except IdempotencyConflict:
+            raise
+        except DecisionGateUnmet as gate:
+            # Policy said "not yet", not "malformed": nothing is saved and the caller may choose another intent.
+            return result_response(c.ToolResult(outcome="DENIED", reason_code="DECISION_GATE_UNMET", unmet=gate.unmet))
+        except AccessError:
             raise
         except (KeyError, ValueError):
             raise AccessError(422, "VALIDATION_ERROR") from None
@@ -1494,6 +1534,8 @@ def create_app(settings: ApiSettings | None = None,
             result = await to_thread(operation)
         except (IdempotencyConflict, RevisionConflict):
             raise
+        except AccessError:
+            raise
         except (KeyError, ValueError):
             raise AccessError(422, "VALIDATION_ERROR") from None
         return result_response(result)
@@ -1516,6 +1558,11 @@ def create_app(settings: ApiSettings | None = None,
         except RevisionConflict:
             raise
         except IdempotencyConflict:
+            raise
+        except DecisionGateUnmet as gate:
+            # The saved intent is no longer permitted by current facts; the caller may propose again.
+            return result_response(c.ToolResult(outcome="DENIED", reason_code="DECISION_GATE_UNMET", unmet=gate.unmet))
+        except AccessError:
             raise
         except (KeyError, ValueError):
             raise AccessError(422, "VALIDATION_ERROR") from None
@@ -1542,6 +1589,11 @@ def create_app(settings: ApiSettings | None = None,
         except RevisionConflict:
             raise
         except IdempotencyConflict:
+            raise
+        except DecisionGateUnmet as gate:
+            # The saved intent is no longer permitted by current facts; the caller may propose again.
+            return result_response(c.ToolResult(outcome="DENIED", reason_code="DECISION_GATE_UNMET", unmet=gate.unmet))
+        except AccessError:
             raise
         except (KeyError, ValueError):
             raise AccessError(422, "VALIDATION_ERROR") from None

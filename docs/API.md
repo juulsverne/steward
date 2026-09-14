@@ -91,7 +91,7 @@ before the 20-result bound and return `truncated` when further matches exist.
 | POST `/api/issues` | Service-only creation from one stored unlinked physical-observation signal and concise rationale |
 | POST `/api/issues/{id}/geocode`, `/service-records/search` | Service-only trusted seeded adapter facts keyed to a stored linked signal |
 | POST `/api/issues/{id}/sources` | Service-only explicit link of one stored signal to a case, with a saved match rationale |
-| POST `/api/issues/{id}/classification`, `/jurisdiction`, `/decisions` | Service-only saved B4 proposals and gate-validated investigation decision intents; decision intent alone does not mutate lifecycle state |
+| POST `/api/issues/{id}/classification`, `/jurisdiction`, `/decisions` | Service-only saved B4 proposals and gate-validated investigation decision intents; decision intent alone does not mutate lifecycle state. A well-formed proposal (or later `/investigation-action` / `/official-dispute` apply) that current facts do not permit returns 403 `DENIED` with `DECISION_GATE_UNMET` and the unmet gate names, saves nothing, and leaves the agent free to choose another intent; malformed input still returns 422 |
 | POST `/api/issues/{id}/operational-decisions` | Service-only durable operational proposal with typed saved basis and current server gates; it never dispatches, settles, reworks, or closes |
 | POST `/api/issues/{id}/investigation-action`, `/official-dispute` | Service-only, revision-checked application of an eligible saved investigation decision |
 | POST `/api/signals/{id}/intake-inspection` | Service-only configured image inspection of stored evidence; exact-version results are cached |
@@ -197,8 +197,10 @@ idempotency key and returns B1's `MutationContext`; `request.state.request_id` s
 transport-only identifier. Route code supplies the operation and validated revision,
 never a caller-supplied ActorContext. A service request may supply one
 `X-Steward-Invocation-Id`; duplicate header values are rejected, human requests cannot
-supply it, and the domain validates its persisted cause. It is not a lease or fence;
-B12 adds those current-claim checks later.
+supply it, and the domain validates its persisted cause. A request whose saved cause does
+not cover the requested issue, signal, job or submission returns 403 `DENIED` with
+`INVOCATION_SCOPE` (nothing saved), so the agent can stay inside its own case rather than
+fail the invocation. It is not a lease or fence; B12 adds those current-claim checks later.
 
 Use `with request_store(request) as store:` **inside one synchronous route/worker call**.
 It opens and closes one SQLite connection on that thread, including failure paths.
