@@ -1,0 +1,10 @@
+.crew-job { max-width: 720px; }
+.steps { list-style: none; margin: 24px 0 0; padding: 0; display: grid; gap: 16px; }
+.step--locked .card { opacity: 0.7; }
+.step--current .card { border-color: var(--action); }
+.reqs { margin: 0; padding-left: 18px; }
+.coords { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+@media (max-width: 639px) { .coords { grid-template-columns: 1fr; } }
+.job-cards { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.job-card__link { font-weight: 600; color: var(--ink); }
+@media (max-width: 767px) { .step--current .btn--primary { position: sticky; bottom: 12px; width: 100%; box-shadow: var(--shadow-menu); } }
