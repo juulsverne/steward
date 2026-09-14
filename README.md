@@ -63,6 +63,8 @@ Build once, then the API serves it at `/`:
     cd frontend && npm install && npm run build && cd ..
     uv run --no-sync uvicorn agent.server:app --port 8000
 
+The built UI is served only when the API is started from the environment (`ApiSettings.from_env`, the default for `agent.server:app`) or when `frontend_dist` is set explicitly; constructing `ApiSettings` directly (as tests and scripts do) never mounts it unless asked.
+
 Development with hot reload runs Vite on port 5173 and proxies `/api` to the API. Add `STEWARD_DEVELOPMENT_ORIGINS=http://localhost:5173` to `.env`, start the API as above, then in `frontend/` run `npm run dev` and open `http://localhost:5173` (not 127.0.0.1). After changing API models run `uv run --no-sync python scripts/export_openapi.py` and `npm run types`.
 
 ## Run the offline foundation

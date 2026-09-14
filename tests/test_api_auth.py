@@ -433,6 +433,7 @@ def test_actual_server_exposes_only_sandbox_routes_with_explicit_setup(config, m
     monkeypatch.setenv("STEWARD_LOCAL_HTTP", "true")
     monkeypatch.setenv("STEWARD_SESSION_SECRET", SIGNING)
     monkeypatch.setenv("STEWARD_SERVICE_TOKEN", TOKEN)
+    monkeypatch.setenv("STEWARD_FRONTEND_DIST", "")
     server = importlib.import_module("agent.server")
     monkeypatch.setattr(server, "build_agent", forbidden_model, raising=False)
     with TestClient(server.app, base_url=ORIGIN) as client:

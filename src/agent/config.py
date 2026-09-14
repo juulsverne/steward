@@ -81,7 +81,7 @@ class ApiSettings:
     runtime_enabled: bool = False
     fixture_root: Path = Path("data")
     fixture_scenario: str = "baseline"
-    frontend_dist: Path | None = Path("frontend/dist")
+    frontend_dist: Path | None = None
 
     @classmethod
     def from_env(cls) -> ApiSettings:
