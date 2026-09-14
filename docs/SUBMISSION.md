@@ -29,7 +29,7 @@ Requirements checked against the [official rules](https://agentsforhumans.devpos
 
 ## Tiers 3 and 4 after the core and presentation are stable
 
-AgentCore Runtime, Observability, and Gateway plus the App Runner judging URL are tier 3; live 311, Amazon Location, and the plain-Sonnet evaluation arm are tier 4. Optional builder.aws content may describe the actual build. None of these displaces the working couch, evaluation, README, diagram, or video. The previous three-post quota is removed.
+AgentCore Runtime, Observability, and Gateway plus the App Runner judging URL are tier 3; live 311, Amazon Location, and the plain-model evaluation arm are tier 4. EVALUATION.md defines equal model/input conditions and how any separate Sonnet arm must disclose its differences. Optional builder.aws content may describe the actual build. None of these displaces the working couch, evaluation, README, diagram, or video. The previous three-post quota is removed.
 
 The AWS credit request deadline was September 11 at noon Pacific and has passed; it is not an open build prerequisite.
 

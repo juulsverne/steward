@@ -1,6 +1,12 @@
 # Small internal evaluation
 
-Status: planned, no results yet. Run twenty-two frozen, labeled scenarios through Steward and publish counts (tier 2 in the [PRD build order](PRD.md)). A plain-Sonnet comparison arm using the same model version is tier 4; if it runs, follow the fair-comparison rules below. This is a small internal evaluation, not a scientific benchmark.
+Status: the twenty-two-scenario workflow evaluation is planned, with no results yet. The separate live component screen in [MODEL_SELECTION.md](MODEL_SELECTION.md) has results; it closes none of these scenarios. Run twenty-two frozen, labeled scenarios through Steward and publish counts (tier 2 in the [PRD build order](PRD.md)). A plain-model comparison arm using the selected text-model version is tier 4; if it runs, follow the fair-comparison rules below. This is a small internal evaluation, not a scientific benchmark.
+
+## Model selection within the same system
+
+M0 compares cheaper text/image configurations against the current baseline while keeping Steward's tools, context construction, policy and fixtures fixed. That comparison is required before promoting a cheaper configuration; it is separate from the optional no-tools comparison below. Record both model IDs/profiles, role-specific settings and all calls including retries and inspections. Change one role at a time while diagnosing failures, then qualify the proposed combined configuration through all sixteen API criteria and these twenty-two cases. Use identical repeat counts and preserve every run. A failed case disqualifies that configuration from being called fully qualified until a versioned fix and rerun satisfy the gate.
+
+Measure expected judgments and executed effects separately, and compare total cost per correct completed case, not only token rates. Include legitimate uncertainty, unnecessary escalation, false accepts, usage, latency and errors. A basic `current_time` round trip is not a domain-quality test. The four-pair photo screen and twelve-inspection qualification retain their own denominators. See MODEL_SELECTION.md for the frozen initial results and promotion protocol.
 
 ## Scenario set
 
@@ -29,9 +35,11 @@ Status: planned, no results yet. Run twenty-two frozen, labeled scenarios throug
 
 ## Fair comparison and logging
 
-Freeze expected route, merge outcome, authorized action, and escalation requirement before runs. Give both conditions the same operating policy and structured response schema. Plain Sonnet receives a single request with the initial scenario context and has no retrieval, tools, or persisted workflow. Steward starts with that same initial context and may retrieve the scenario's supporting facts through tools. Report this information-access difference explicitly: the comparison evaluates the whole system, not an isolated model improvement.
+Freeze expected route, merge outcome, authorized action, and escalation requirement before runs. Give both conditions the same operating policy and structured response schema. The plain-model arm receives a single request with the initial scenario context and has no retrieval, tools, or persisted workflow. Steward starts with that same initial context and may retrieve the scenario's supporting facts through tools. Report this information-access difference explicitly: the comparison evaluates the whole system, not an isolated model improvement.
 
 Use the same image assets where the initial input contains images. Record exact prompts, model ID, configuration, fixtures, outputs, tool traces, errors, and latency. Missing facts should allow the baseline to abstain. Score proposed actions for both conditions, and separately record which forbidden actions Steward's policy actually blocked. Never compare baseline recommendations to Steward executed actions as if they were the same measure.
+
+If the selected text model cannot read images, generate the initial-image observations once with the selected image adapter and give that identical structured packet to both arms. Freeze its provenance and disclose/count preprocessing separately; do not give either arm future proof or extra facts. Later evidence retrieval remains available only to Steward as specified above. A separate plain-Sonnet arm is allowed only with an explicit model/capability-difference label; it cannot support a same-model causal claim.
 
 ## Metrics
 

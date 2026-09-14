@@ -18,14 +18,15 @@ The competition proof is one couch: wait at evidence score 65; corroborate at 85
 
 - [Product requirements: goals, users, stories, agent behavior, data/API and quality](docs/PRD.md)
 - [Architecture, data, tools, policy, and deployment contract](docs/ARCHITECTURE.md)
-- [Build guide: what, why, how, AWS connections, task order and verification](docs/BUILD_PLAN.md)
+- [Build guide: complete scope, task order, coding-agent models, ownership and verification](docs/BUILD_PLAN.md)
 - [Sixteen acceptance criteria and demo script](docs/DEMO.md)
 - [Internal evaluation protocol](docs/EVALUATION.md)
+- [Model choices: each step, costs, live comparison and qualification gates](docs/MODEL_SELECTION.md)
 - [Submission checklist](docs/SUBMISSION.md)
 - [Post-competition company vision](docs/VISION.md)
 - [Coding-agent instructions](AGENTS.md)
 
-Deadline: Monday, September 14, 2026 at **5 PM Pacific / 7 PM Chicago**. Internal submission target is two hours earlier. One Strands agent, Bedrock Sonnet, deterministic policy. Build order: core proof through the API, then the React surfaces and evaluation, then AgentCore Runtime with App Runner hosting, then optional flags.
+Deadline: Monday, September 14, 2026 at **5 PM Pacific / 7 PM Chicago**. Internal submission target is two hours earlier. One Strands agent, evaluated Bedrock models, deterministic policy. Sonnet remains the current default; cheaper text candidates passed a basic tool screen, but the tested cheaper vision candidates failed the partial-cleanup case. Separate role configuration and domain qualification remain planned. Build order: core proof through the API, then the React surfaces and evaluation, then AgentCore Runtime with App Runner hosting, then optional flags.
 
 ## Run the existing starter
 
@@ -79,7 +80,7 @@ uv run --no-sync python -m agent.bedrock_check
 uv run --no-sync python -m agent.vision_spike --images data/images --repeats 3
 ```
 
-The preflight requires a successful tool result and final model reply. The spike requires twelve expected outcomes, including partial score 90, complete score 100, and scene/reuse rejection. It uses the same configured Sonnet through Converse without constructing another agent. Results and failures are retained under `.steward/`; [VISION_SPIKE.md](docs/VISION_SPIKE.md) reports actual status. These commands do not dispatch, pay, or resolve an issue.
+The preflight requires a successful tool result and final model reply. The spike requires twelve expected outcomes, including partial score 90, complete score 100, and scene/reuse rejection. It currently uses `BEDROCK_MODEL_ID` through Converse without constructing another agent. Results and failures are retained under `.steward/`; [VISION_SPIKE.md](docs/VISION_SPIKE.md) reports the Sonnet qualification, and [MODEL_SELECTION.md](docs/MODEL_SELECTION.md) records the later multi-model component screen. These commands do not dispatch, pay, or resolve an issue.
 
 ## Project layout
 
@@ -91,7 +92,7 @@ docs/           Locked specifications, acceptance, evaluation, submission
 scripts/        Existing environment/preflight helpers
 ```
 
-Next: wire the tested policy module into transactional jobs/reservations/settlement, then build the event API and HTTP agent tools. Evaluation, UI and hosting follow the existing gates. The App Runner persistence conflict is recorded in [ARCHITECTURE.md](docs/ARCHITECTURE.md); it must be resolved before hosting.
+Next: verify the foundation, prepare H1's early storage/cost recommendation, add M0's separate model settings and B1's complete records, then follow the backend/agent tasks through the API gate. UI, evaluation and hosting follow the recorded dependencies. [BUILD_PLAN section 12](docs/BUILD_PLAN.md#12-handoff-and-delegation-how-someone-else-builds-from-this-guide) assigns coding sub-agents, models, shared ownership and review gates. Hosted-storage implementation remains conditional on the recorded architecture decision and deployment authorization.
 
 ## Demo boundaries and license
 

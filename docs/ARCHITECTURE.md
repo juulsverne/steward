@@ -6,17 +6,17 @@ Implemented foundation: `models.py`, `scoring.py`, `store.py`, and the explicitl
 
 The JSON-compatible YAML `data/policy.yaml` now contains the v3 seeded scoring and dispatch configuration, validated by `policy.py`. Pure dispatch/settlement predicates exist; mutation endpoints and a ledger do not. The demo precision threshold is 30m; the harness seeds a 10m accuracy fact. Ten seeded addresses and the demo service boundary exist. Full job/ledger tables, actor event handlers, HTTP tool integration, and couch model/tool traces belong to subsequent slices. Tier 1A recorded live preflight/vision artifacts in [VISION_SPIKE.md](VISION_SPIKE.md). Raw adapter facts in the store are not exposed as model-authoritative HTTP inputs. See [data provenance](../data/README.md).
 
-One Strands agent using Bedrock Sonnet chooses tools based on evidence and persisted context. API events start bounded invocations. Python code supplies facts and enforces permissions. SQLite is the V1 persistence default; no new cloud database is required for the couch proof.
+One Strands agent using a selected Bedrock text model chooses tools based on evidence and persisted context. A separately configurable Bedrock image model supplies structured findings through the API's trusted inspection service. [MODEL_SELECTION.md](MODEL_SELECTION.md) defines candidates, observed results and qualification gates; Sonnet remains the current single-model default until the role settings and replacement gates are implemented. API events start bounded invocations. Python code supplies facts and enforces permissions. SQLite is the local V1 persistence default; hosted durability is the separate H1 decision.
 
 ```mermaid
 flowchart TD
     subgraph AR[AWS App Runner container]
         UI[React/Vite static: Board / Issue Detail / Inbox / Crew Form / Resident intake] --> API[FastAPI: validated events, policy at every mutation]
-        API --> DB[(SQLite: state, evidence, events, ledger)]
-        DB --> UI
     end
+    API --> DB[(Durable owner: H1 decision; SQLite locally)]
     API -->|InvokeAgentRuntime per reasoning-bearing event| A[Strands Steward agent on AgentCore Runtime]
-    A <--> B[Amazon Bedrock Sonnet + structured image inspection]
+    A <--> B[Bedrock: selected text model]
+    API -->|Trusted image inspection| V[Bedrock: selected image model]
     A -->|HTTP tools with service token: facts, policy results, gated mutations| API
     A -.-> O[AgentCore Observability: CloudWatch traces]
     A -.->|tier 3, after Runtime works| GW[AgentCore Gateway: MCP tools from the API's OpenAPI]
@@ -32,7 +32,7 @@ Export the final, implementation-accurate diagram to `architecture.png` before s
 - **AgentCore Observability**: traces and metrics to CloudWatch; the live trace for the sixteen-step run is retained as evidence.
 - **AgentCore Gateway** (last in tier 3): an OpenAPI target against the App Runner service exposes the same operations as MCP tools. Tool names and schemas come from the FastAPI routes, so Gateway changes transport, not authority.
 
-Build order and gates are in [PRD.md](PRD.md) section 4.5 and [BUILD_PLAN.md](BUILD_PLAN.md).
+Build order and gates are in [PRD.md](PRD.md) section 4.5 and [BUILD_PLAN.md](BUILD_PLAN.md). H1's topology/storage recommendation starts at kickoff before database-specific assumptions are fixed; cloud implementation and proof still wait for tier 2 and the recorded owner decision. Local SQLite implementation stays behind the Store/API boundary while the hosted choice is reviewed.
 
 ## Boundaries
 
@@ -58,7 +58,7 @@ Tool calls return source facts, structured findings, or policy results. They do 
 | `close_issue` | Resolution only when current accepted evidence and job outcome permit it |
 | `escalate_to_operator` | Persist exception and required decision; end invocation |
 
-Persist signal linking, score updates, monitoring decisions, and official disputes through narrow validated state tools/helpers as needed. Tool names do not justify extra model calls; interpretation may occur in the orchestrator itself. Do not introduce a second agent or model for symmetry.
+Persist signal linking, score updates, monitoring decisions, and official disputes through narrow validated state tools/helpers as needed. Tool names do not justify extra model calls; interpretation may occur in the orchestrator itself. Use one text model for an invocation and the qualified image model for inspection; do not create a model call for each named tool. Model/profile selection is server configuration, never a model-supplied tool argument. Save actual role/model/prompt IDs with findings and decisions. Missing/invalid findings remain unresolved; no automatic retry-until-approved model cascade.
 
 ## Minimal data contract
 

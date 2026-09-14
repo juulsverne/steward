@@ -1,31 +1,27 @@
-# Steward — Product Requirements Document (v3.1)
+# Steward — Product Requirements Document (v3.2)
 
 **Autonomous neighborhood operations. Steward manages reality, not tickets.**
+
+Steward turns neighborhood reports into verified cleanup, coordinating approved providers and permitting simulated payment only after accepted proof.
 
 | Document control | Value |
 |---|---|
 | Status | Locked hackathon scope; intended behavior, not an implementation-complete claim |
-| Version / reviewed | 3.1 / September 13, 2026 |
+| Version / reviewed | 3.2 / September 13, 2026 |
 | Product owner | Elijah |
 | Release | AWS Agents for Humans hackathon, Good Neighbor Agents track |
 | Deadline | Monday, September 14, 2026, 5 PM Pacific / 7 PM Chicago; internal target two hours earlier |
-| Change in this version | Make the existing scope easier to build: user goals, acceptance examples, data/API overview, quality requirements, success measures and explicit open decisions |
+| Change in this version | Owner-directed cost optimization: evaluate Bedrock models by role instead of requiring Sonnet everywhere; preserve v3.1 user stories, build contracts and all product gates |
 
 This document is the scope authority. [ARCHITECTURE.md](ARCHITECTURE.md) owns the code and deployment contract; [DEMO.md](DEMO.md) owns the sixteen acceptance criteria and required negative cases; [BUILD_PLAN.md](BUILD_PLAN.md) owns task order, interfaces, engineering defaults and progress receipts; [EVALUATION.md](EVALUATION.md) owns the evaluation protocol; [SUBMISSION.md](SUBMISSION.md) owns release requirements. [VISION.md](VISION.md) contains post-competition ideas. The [README](../README.md) reports what is actually implemented.
 
 **How to read this PRD.** Sections 1–5 explain purpose, scope and users; 6–9 describe journeys, screens and agent/failure behavior; 10–13 define acceptance, success, truth labels and risks; 14–16 summarize data/API contracts, quality requirements and the builder handoff. Existing section numbers and PR-01–PR-14 IDs are preserved so build references stay valid. Where a summary and its owning document diverge, reconcile them before implementing the affected behavior; do not silently weaken a product rule or acceptance gate.
 
-**Contents:** [Purpose and goals](#1-what-we-are-building) · [Principles](#2-principles) · [Vocabulary](#3-vocabulary) · [Scope](#4-scope) · [Users](#5-actors-and-permissions) · [Journey](#6-the-couch-journey) · [Screens](#7-surfaces) · [Agent](#8-agent-behavior) · [Failures](#9-failure-behavior) · [Requirements and stories](#10-requirements) · [Done and success](#11-definition-of-done) · [Truth labels](#12-truth-labels) · [Risks and decisions](#13-risks-assumptions-and-open-items) · [Data and API](#14-data-lifecycle-and-api-contracts) · [Quality](#15-non-functional-requirements) · [Build handoff](#16-build-handoff-and-change-control).
+**Contents:** [Product overview](#1-product-overview) · [Principles](#2-principles) · [Vocabulary](#3-vocabulary) · [Scope](#4-scope) · [Users](#5-actors-and-permissions) · [Journey](#6-the-couch-journey) · [Screens](#7-surfaces) · [Agent](#8-agent-behavior) · [Failures](#9-failure-behavior) · [Requirements and stories](#10-requirements) · [Done and success](#11-definition-of-done) · [Truth labels](#12-truth-labels) · [Risks and decisions](#13-risks-assumptions-and-open-items) · [Data and API](#14-data-lifecycle-and-api-contracts) · [Quality](#15-non-functional-requirements) · [Build handoff](#16-build-handoff-and-change-control).
 
-## 1. What we are building
+## 1. Product overview
 
 Steward is an autonomous neighborhood operations agent. A district supplies a service area, an operating policy, a budget, approved providers, and explicit authority. Steward listens to authorized community signals and public service data, investigates whether a physical issue exists, reconciles conflicting evidence, determines responsibility, dispatches approved providers when policy allows, verifies that the condition actually changed, and settles (simulated) only on accepted proof. It brings the operator the decisions it cannot make. Its unit of responsibility is an unresolved physical condition, not a message, a ticket, or a contractor task.
-
-The hackathon proves this with one dumped couch near 1530 S Michigan Ave in the South Loop Demo District, using real agent execution and real vision against seeded district and provider data, with simulated dispatch and settlement. Three judgments must be visible:
-
-1. **Wait.** The first signal scores 65 evidence points against an actionable threshold of 70. The 311 lookup finds a COMPLETED city record, which does not count as corroboration. Steward records the conflict and waits.
-2. **Dispute.** A second independent report raises the score to 85. Two observations newer than the official completion confirm the dispute; the record is credited and the score is 100. The issue stays open despite the city's closed record.
-3. **Block payment.** After authorized dispatch at $72, the crew's partial cleanup scores 90 verification points against 95 required. The settlement tool denies payment. The operator requests completion; fresh proof scores 100; one simulated $72 settlement occurs and the issue resolves.
 
 ### 1.1 Problem and product value
 
@@ -44,6 +40,14 @@ Steward's proposed value is continuity of responsibility from observation to ver
 | G-05 Make the result reproducible | Saved state survives interruption; a documented reset reproduces the flow; evaluation publishes actual outcomes | PR-13; DEMO 16/negatives; EVALUATION |
 
 These are build outcomes. They introduce no adoption targets, new analytics product or additional release checklist.
+
+### 1.3 Hackathon proof
+
+The hackathon proves this with one dumped couch near 1530 S Michigan Ave in the South Loop Demo District, using real agent execution and real vision against seeded district and provider data, with simulated dispatch and settlement. Three judgments must be visible:
+
+1. **Wait.** The first signal scores 65 evidence points against an actionable threshold of 70. The 311 lookup finds a COMPLETED city record, which does not count as corroboration. Steward records the conflict and waits.
+2. **Dispute.** A second independent report raises the score to 85. Two observations newer than the official completion confirm the dispute; the record is credited and the score is 100. The issue stays open despite the city's closed record.
+3. **Block payment.** After authorized dispatch at $72, the crew's partial cleanup scores 90 verification points against 95 required. The settlement tool denies payment. The operator requests completion; fresh proof scores 100; one simulated $72 settlement occurs and the issue resolves.
 
 ## 2. Principles
 
@@ -131,9 +135,11 @@ Prerequisites before any score counts: target present in the before image, same 
 
 A persona switcher in the header selects Operator, Crew (per vendor), or Resident. It is a labeled sandbox, not authentication. The server binds every event to the selected actor context.
 
+The confirmed visual direction is professional, credible and contemporary, with both light and dark themes and light as the default. Evidence, readable decisions and usable mobile forms lead the design. BUILD_PLAN P1 owns shared styles, component interfaces and technical verification; a visual study does not constitute a working application or close the API gate.
+
 ### 4.4 Stack and deployment
 
-- One Strands agent on Amazon Bedrock Sonnet, with Bedrock vision for image inspection. No second agent or model.
+- One Strands agent on Amazon Bedrock, with models selected by measured task quality and total cost. Text reasoning and image inspection may use different models; no second autonomous agent. [MODEL_SELECTION.md](MODEL_SELECTION.md) maps every workflow step to its model need, candidate costs, actual component results and promotion gates. Sonnet is the current baseline, not a permanent requirement for every call. Existing configuration still uses one model until separate role settings are implemented.
 - A FastAPI service owns local SQLite state, enforces policy at every mutation, and serves the built React/Vite frontend as static files. App Runner is the hosting target, conditional on the durable-state decision in section 13; its container filesystem is not an approved durable database or image store.
 - The agent runs on Amazon Bedrock AgentCore Runtime with AgentCore Observability (traces to CloudWatch). Agent tools are HTTP clients of the API, always: localhost in development, the App Runner URL with a service token in deployment. AgentCore Gateway exposes the same API operations as MCP tools once Runtime works.
 - Seeded geocoding: the ten addresses ship with coordinates. Live geocoding behind a flag is tier 4.
@@ -145,7 +151,7 @@ Each tier starts only after the previous tier passes. Nothing below is cut; lowe
 1. **Core proof**: all sixteen [acceptance steps](DEMO.md) pass locally through the API with real Bedrock, the fixture 311 record, and seeded coordinates.
 2. **Presentation**: the four surfaces plus resident intake and persona switcher; the [evaluation](EVALUATION.md) scenarios run through Steward with published counts; README, architecture diagram, video.
 3. **AgentCore and hosting**: agent on AgentCore Runtime with Observability, UI and API on App Runner with a public judging URL, then Gateway. Gateway is the first item to slip.
-4. **If time remains**: live 311 lookup behind a flag, Amazon Location geocoding behind a flag, plain-Sonnet comparison arm of the evaluation.
+4. **If time remains**: live 311 lookup behind a flag, Amazon Location geocoding behind a flag, plain-model comparison arm of the evaluation using the selected text model. A separate Sonnet comparison must disclose model differences.
 
 ### 4.6 Exclusions
 
@@ -213,6 +219,8 @@ The operator selects **Request completion**. The decision is saved once; repeate
 **F. Verify, settle, resolve.** Fresh proof passes prerequisites and scores 100. Steward requests settlement; the tool pays $72 exactly once (simulated) and the issue resolves on accepted proof. The Board marker turns green. The timeline keeps the denied first attempt and the operator's decision. A retry of closure after payment never pays again.
 
 ## 7. Surfaces
+
+**Visual direction.** Professional, modern civic software that a government agency could plausibly use. Support both light and dark themes, with light as the default. Emphasize readable evidence, precise hierarchy, calm status communication and a clear next action. [.impeccable.md](../.impeccable.md) records the design principles and proposed visual treatment; exact colors, typography and composition remain reviewable. A design study does not satisfy the API gate or constitute an implemented frontend.
 
 **Operations Board.** Answers "what needs me, what is Steward handling, what is actually resolved." Review is a count of pending exceptions, not a lifecycle bucket. Available budget reflects reservations and settled spending. Zero exceptions reads "No decisions waiting", never "Everything resolved". MONITORING stays visibly open with its unlock conditions. An external route never shows a green marker. If the map fails to load, the issue list still navigates. Every color has a text label.
 
@@ -400,8 +408,9 @@ Replays never masquerade as live inference. Public assets carry provenance and u
 | Item | Position | Blocks |
 |---|---|---|
 | Vision spike | Component gate passed September 13: four before→completion pairings × three repeats, 12/12 expected outcomes, documented in [VISION_SPIKE.md](VISION_SPIKE.md). Rerun affected checks if images, model, prompt or verification logic change; prior results do not establish full workflow acceptance | No remaining blocker for the tested fixture spike; API/UI proof remains open |
-| App Runner and AgentCore specifics | Hosting durability conflict recorded in [DOCUMENT_REVIEW.md](DOCUMENT_REVIEW.md): App Runner local files cannot be the durable SQLite owner. Resolve persistence/hosting before deployment, then container build, service token, Runtime entrypoint, Observability, Gateway; record actual commands | Tier 3 |
-| Tier-4 flags | Live 311, Amazon Location, plain-Sonnet evaluation arm; only after tier 3 | Nothing required |
+| App Runner and AgentCore specifics | Hosting durability conflict recorded in [DOCUMENT_REVIEW.md](DOCUMENT_REVIEW.md): App Runner local files cannot be the durable SQLite owner. Prepare H1's concrete storage/topology and real AWS cost recommendation at kickoff, before freezing storage assumptions. Implement and prove the selected hosted arrangement after tier 2 with the owner decision and spending ceiling recorded | Early design input; tier-3 implementation |
+| Model choice and cost | Initial eight-model tool screen and five-model photo screen recorded in MODEL_SELECTION.md. Cheaper text candidates are viable integrations, not qualified domain agents. Keep Sonnet for the current image prompt; build role settings and pass task/full-workflow gates before promotion | M0; B4/B7/B11–B13; P8 |
+| Tier-4 flags | Live 311, Amazon Location, plain-model evaluation arm; only after tier 3 | Nothing required |
 
 Routine parameters are decided in the build documentation with evidence. No open item permits changing thresholds, scope, or labels silently.
 
@@ -472,9 +481,9 @@ The local prototype has no production uptime, throughput or geographic-coverage 
 ## 16. Build handoff and change control
 
 1. Read AGENTS.md, this PRD, ARCHITECTURE, DEMO and BUILD_PLAN. Check the actual branch, working tree and current implementation before choosing the first unfinished task.
-2. For that task, identify its PR/story/NFR IDs, input/output contracts, mutation/actor rules and named success/failure evidence. BUILD_PLAN owns B/P/H/O/R task packets and the full coverage map.
+2. For that task, identify its PR/story/NFR IDs, input/output contracts, mutation/actor rules and named success/failure evidence. BUILD_PLAN owns M/B/P/H/O/R task packets, coding-worker/reviewer model assignments and the full coverage map. The owner has requested delegated development once the build starts; one implementation writer owns the shared checkout at a time.
 3. Preserve the four-tier sequence: sixteen outcomes through the API before surfaces, UI/evaluation/presentation before hosting, then optional flags. A unit test, spike or planned command does not close a later gate.
 4. Record changed files/interfaces, actual commands/results and remaining limits in the task receipt; update README/build status only when evidence supports it. Keep requirement changes synchronized across their owning documents.
 5. Resolve routine engineering choices within the existing scope and record them. New product ideas go to VISION; threshold/authority changes or the H1 hosting adjustment need an explicit recorded decision. Publishing, deployment and submission retain their separate authorization gates.
 
-The September 13 checkpoint remains component-level: Tier 1A is verified and pure Tier 1B policy/fixtures exist; the complete event API, financial workflow, Steward prompt/tools, UI, evaluation and hosting are unfinished. Continue with BUILD_PLAN B1 after checking for newer work. The Mac mini is the SSH development host for persistent headless coding, separate from the AWS judging host; source handoff and remote runtime readiness must be verified independently.
+The September 13 checkpoint remains component-level: Tier 1A is verified and pure Tier 1B policy/fixtures exist; the complete event API, financial workflow, Steward prompt/tools, UI, evaluation and hosting are unfinished. At kickoff verify B0, prepare H1's early recommendation, implement M0's model-setting boundaries and continue with B1. The Mac mini is the SSH development host for persistent headless coding, separate from the AWS judging host; source handoff and remote runtime readiness must be verified independently.
