@@ -6,7 +6,11 @@ import { ActionButton } from "./ActionButton";
 import { ErrorNotice, SavedState } from "./States";
 
 export function ProofForm({ job, onSubmitted }: { job: CrewJobView; onSubmitted: () => void }) {
-  const rework = job.status === "REWORK_REQUIRED";
+  // Freeze the rework mode for this submission's lifetime: a successful submit moves
+  // job.status off REWORK_REQUIRED right away (while this form is still showing its
+  // disabled saved/polling state), and re-deriving from the live prop would flip the
+  // finished form back to asking for a "before" photo it never needed.
+  const [rework] = useState(() => job.status === "REWORK_REQUIRED");
   const [before, setBefore] = useState<File | null>(null); const [after, setAfter] = useState<File | null>(null);
   const [beforeAt, setBeforeAt] = useState(""); const [afterAt, setAfterAt] = useState("");
   const [phase, setPhase] = useState<"idle" | "sending" | "received" | "polling" | "exhausted" | "error">("idle");
