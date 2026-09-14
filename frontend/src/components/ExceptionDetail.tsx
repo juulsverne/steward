@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
-import { ApiError, mutate, newIdempotencyKey, pollUntil, read } from "../api/client";
+import { ApiError, mutate, newIdempotencyKey, pollUntil, read, type Envelope } from "../api/client";
 import { exceptionKind, exceptionStatus, invocationIsTerminal, requirementLabel } from "../api/labels";
 import type { BudgetAvailability, ExceptionDetail, InvocationStatus, PendingEntityResult, RuntimeStatus } from "../types";
 import { ActionButton } from "./ActionButton";
-import { EvidenceImage } from "./EvidenceImage";
+import { ProofPair } from "./EvidenceComparison";
 import { KeyValue } from "./KeyValue";
 import { Money } from "./Money";
 import { Notice } from "./Notice";
@@ -12,49 +12,50 @@ import { Points } from "./Points";
 import { ErrorNotice, PendingState, SavedState } from "./States";
 import { StatusBadge } from "./StatusBadge";
 
-export function ProofPair({ beforeId, afterId, jobId, beforeObservedAt, afterObservedAt }: { beforeId: string | null; afterId: string | null; jobId: string | null; beforeObservedAt?: string | null; afterObservedAt?: string | null }) {
-  return (
-    <div className="proof-pair">
-      {beforeId ? <EvidenceImage evidenceId={beforeId} role="Before" observedAt={beforeObservedAt ?? null} jobId={jobId} /> : <p className="muted">No before photo</p>}
-      {afterId ? <EvidenceImage evidenceId={afterId} role="After" observedAt={afterObservedAt ?? null} jobId={jobId} /> : <p className="muted">No after photo</p>}
-    </div>
-  );
-}
-
-type Submit = { phase: "idle" | "sending" | "saved" | "processing" | "exhausted" | "stale" | "error"; status: InvocationStatus | null; error: unknown; eventIds: number[] };
+type Submit = { phase: "idle" | "sending" | "saved" | "processing" | "exhausted" | "stale" | "error"; status: InvocationStatus | null; error: unknown; eventIds: number[]; pollError: unknown };
 
 export function ExceptionDetailPanel({ exceptionId, onChanged }: { exceptionId: string; onChanged: () => void }) {
   const [state, setState] = useState<{ status: "pending" | "ready" | "error"; data: ExceptionDetail | null; error: unknown }>({ status: "pending", data: null, error: null });
   const [budget, setBudget] = useState<BudgetAvailability | null>(null);
-  const [submit, setSubmit] = useState<Submit>({ phase: "idle", status: null, error: null, eventIds: [] });
+  const [submit, setSubmit] = useState<Submit>({ phase: "idle", status: null, error: null, eventIds: [], pollError: null });
   const key = useRef<string | null>(null);
   const load = useCallback(async () => {
     try { const data = await read<ExceptionDetail>(`/api/exceptions/${encodeURIComponent(exceptionId)}`); setState({ status: "ready", data, error: null });
       if (data.kind === "budget") setBudget(await read<BudgetAvailability>("/api/budget").catch(() => null)); }
     catch (error) { setState((s) => ({ status: "error", data: s.data, error: error instanceof ApiError ? error : new Error(String(error)) })); }
   }, [exceptionId]);
-  useEffect(() => { key.current = null; setSubmit({ phase: "idle", status: null, error: null, eventIds: [] }); void load(); }, [load]);
+  useEffect(() => { key.current = null; setSubmit({ phase: "idle", status: null, error: null, eventIds: [], pollError: null }); void load(); }, [load]);
 
   const requestCompletion = async (ex: ExceptionDetail) => {
     if (!ex.submission_id || ex.job_revision === null || ex.job_revision === undefined) return;
     key.current ??= newIdempotencyKey("request-completion");
-    setSubmit({ phase: "sending", status: null, error: null, eventIds: [] });
+    setSubmit({ phase: "sending", status: null, error: null, eventIds: [], pollError: null });
+    let result: Envelope<PendingEntityResult>;
     try {
-      const result = await mutate<PendingEntityResult>(`/api/exceptions/${encodeURIComponent(ex.id)}/request-completion`,
+      result = await mutate<PendingEntityResult>(`/api/exceptions/${encodeURIComponent(ex.id)}/request-completion`,
         { submission_id: ex.submission_id, expected_job_revision: ex.job_revision }, { idempotencyKey: key.current, expectedRevision: ex.state_revision });
-      setSubmit({ phase: "saved", status: null, error: null, eventIds: result.event_ids });
-      onChanged();
-      const invocationId = result.data?.invocation_id;
-      if (invocationId) {
-        setSubmit((s) => ({ ...s, phase: "processing" }));
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409) { setSubmit({ phase: "stale", status: null, error, eventIds: [], pollError: null }); key.current = null; void load(); onChanged(); }
+      else setSubmit({ phase: "error", status: null, error, eventIds: [], pollError: null });
+      return;
+    }
+    // The decision is already durably saved server-side at this point, so a
+    // failure while polling for the resumed invocation's status must not be
+    // reported as "not saved" - it keeps phase "saved" and surfaces a
+    // separate, recoverable notice instead.
+    setSubmit({ phase: "saved", status: null, error: null, eventIds: result.event_ids, pollError: null });
+    onChanged();
+    const invocationId = result.data?.invocation_id;
+    if (invocationId) {
+      setSubmit((s) => ({ ...s, phase: "processing" }));
+      try {
         const polled = await pollUntil(() => read<RuntimeStatus>(`/api/invocations/${encodeURIComponent(invocationId)}`), (v) => invocationIsTerminal(v.status), { maxMs: 90000 });
         setSubmit((s) => ({ ...s, phase: polled.exhausted ? "exhausted" : "processing", status: polled.value.status }));
+      } catch (error) {
+        setSubmit((s) => ({ ...s, phase: "saved", status: null, pollError: error }));
       }
-      void load();
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 409) { setSubmit({ phase: "stale", status: null, error, eventIds: [] }); key.current = null; void load(); onChanged(); }
-      else setSubmit({ phase: "error", status: null, error, eventIds: [] });
     }
+    void load();
   };
 
   if (state.status === "pending" && !state.data) return <PendingState />;
@@ -95,6 +96,11 @@ export function ExceptionDetailPanel({ exceptionId, onChanged }: { exceptionId: 
         <div className="stack-2">
           <SavedState phase="saved" detail={<><span>Decision saved</span>{submit.eventIds.length ? <span className="muted small">, event {submit.eventIds.join(", ")}</span> : null}</>} />
           {submit.phase !== "saved" && <SavedState phase={submit.phase === "exhausted" ? "exhausted" : "processing"} status={submit.status} detail="Processing resumed" onRefresh={() => void load()} />}
+          {submit.phase === "saved" && Boolean(submit.pollError) && (
+            <Notice tone="warning" title="Saved; could not confirm processing status">
+              <ActionButton variant="quiet" onClick={() => void load()}>Refresh</ActionButton>
+            </Notice>
+          )}
         </div>
       )}
       {ex.kind === "completion" && ex.status === "PENDING" && (

@@ -57,4 +57,31 @@ describe("OperatorInbox", () => {
     expect((await screen.findAllByText("Handled"))[0]).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Request completion" })).toBeNull();
   });
+  it("merges the HANDLED list into the decided group even when the default call omits it", async () => {
+    const handledOnly = { ...decided, id: "exc-9" };
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = String(input);
+      if (url.includes("status=HANDLED")) return Promise.resolve(envelope({ exceptions: [handledOnly], pending_count: 1, decided_count: 1 }));
+      if (url.includes("status=CANCELLED")) return Promise.resolve(envelope({ exceptions: [], pending_count: 1, decided_count: 1 }));
+      if (url.startsWith("/api/exceptions")) return Promise.resolve(envelope({ exceptions: [pending], pending_count: 1, decided_count: 1 }));
+      return Promise.resolve(envelope({ sandbox: true, notice: "", actor: { actor_id: "o", actor_type: "operator", label: "District operator (seeded)" }, personas: [] }));
+    });
+    render(<MemoryRouter initialEntries={["/inbox"]}><OperatorInbox /></MemoryRouter>);
+    expect(await screen.findByText("Decided and handled (1)")).toBeInTheDocument();
+  });
+  it("keeps the saved decision visible when the status poll fails", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+      const url = String(input);
+      if (init?.method === "POST" && url.includes("request-completion")) return Promise.resolve(envelope({ record_id: "exc-1", state_revision: 4, invocation_id: "inv-9" }, 202));
+      if (url.startsWith("/api/invocations/")) return Promise.reject(new Error("network down"));
+      if (url.startsWith("/api/exceptions/exc-1")) return Promise.resolve(envelope(pending));
+      if (url.startsWith("/api/exceptions")) return Promise.resolve(envelope({ exceptions: [pending, decided], pending_count: 1, decided_count: 1 }));
+      return Promise.resolve(envelope({ sandbox: true, notice: "", actor: { actor_id: "o", actor_type: "operator", label: "District operator (seeded)" }, personas: [] }));
+    });
+    mount();
+    await userEvent.click(await screen.findByRole("button", { name: "Request completion" }));
+    expect(await screen.findByText("Decision saved")).toBeInTheDocument();
+    expect(screen.queryByText("Request not saved")).toBeNull();
+    expect(screen.getByRole("button", { name: "Request completion" })).toBeDisabled();
+  });
 });

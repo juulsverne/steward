@@ -38,8 +38,18 @@ function InboxContent() {
   const [params] = useSearchParams(); const selected = params.get("exception");
   const [list, setList] = useState<{ status: "pending" | "ready" | "error"; data: ExceptionListPage | null; error: unknown }>({ status: "pending", data: null, error: null });
   const load = useCallback(async () => {
-    try { setList({ status: "ready", data: await read<ExceptionListPage>("/api/exceptions?limit=50"), error: null }); }
-    catch (error) { setList((s) => ({ status: "error", data: s.data, error: error instanceof ApiError ? error : new Error(String(error)) })); }
+    try {
+      // The default list only returns PENDING and DECIDED items; fetch HANDLED
+      // and CANCELLED separately so the "Decided and handled" group is complete.
+      const [base, handled, cancelled] = await Promise.all([
+        read<ExceptionListPage>("/api/exceptions?limit=50"),
+        read<ExceptionListPage>("/api/exceptions?status=HANDLED&limit=50"),
+        read<ExceptionListPage>("/api/exceptions?status=CANCELLED&limit=50"),
+      ]);
+      const merged = new Map<string, ExceptionDetail>();
+      for (const e of [...base.exceptions, ...handled.exceptions, ...cancelled.exceptions]) merged.set(e.id, e);
+      setList({ status: "ready", data: { ...base, exceptions: Array.from(merged.values()) }, error: null });
+    } catch (error) { setList((s) => ({ status: "error", data: s.data, error: error instanceof ApiError ? error : new Error(String(error)) })); }
   }, []);
   useEffect(() => { void load(); }, [load]);
   const data = list.data;
