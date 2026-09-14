@@ -36,7 +36,7 @@ function IssueContent() {
   const load = useCallback(async () => {
     try { setDetail({ status: "ready", data: await read<IssueDetailView>(`/api/issues/${encodeURIComponent(issueId)}`), error: null }); }
     catch (error) { setDetail((s) => ({ status: "error", data: s.data, error: error instanceof ApiError ? error : new Error(String(error)) })); }
-    try { setEvents({ status: "ready", data: await read<IssueTimelineView>(`/api/issues/${encodeURIComponent(issueId)}/events?limit=100`), error: null }); }
+    try { setEvents({ status: "ready", data: await read<IssueTimelineView>(`/api/issues/${encodeURIComponent(issueId)}/events?limit=50`), error: null }); }
     catch (error) { setEvents((s) => ({ status: "error", data: s.data, error: error instanceof ApiError ? error : new Error(String(error)) })); }
   }, [issueId]);
   useEffect(() => { void load(); }, [load]);
@@ -67,7 +67,7 @@ function IssueContent() {
           <SectionCard id="decision" title="Decision and policy"><DecisionCard detail={d} /></SectionCard>
           <SectionCard id="timeline" title="Timeline">
             {events.status === "pending" ? <PendingState /> : events.data ? <DecisionTimeline events={events.data.events} /> : <ErrorNotice error={events.error} onRetry={() => void load()} />}
-            {events.data && events.data.events.length >= 100 && <p className="small muted">Showing the first 100 events.</p>}
+            {events.data && events.data.events.length >= 50 && <p className="small muted">Showing the first 50 events.</p>}
           </SectionCard>
         </div>
         <aside className="issue__aside stack-6">
