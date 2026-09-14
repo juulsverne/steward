@@ -58,6 +58,7 @@ function IntakeContent() {
         <KeyValue items={[{ label: "Receipt", value: <code>{receipt.receipt_id}</code> }, { label: "Received", value: <Timestamp value={receipt.received_at} /> }]} />
         <SavedState phase={phase === "exhausted" ? "exhausted" : "processing"} status={status ?? receipt.processing as InvocationStatus} detail="Steward is reviewing the report" onRefresh={() => void refresh()} />
         {reason && /LOCAT|GEOCODE|ADDRESS/i.test(reason) && <Notice tone="info" title="Received, not yet located">The address is outside the demo set, so it is saved without a location until it can be resolved.</Notice>}
+        <p className="small muted">If the address was outside the demo set, the report is still saved but will not show a location on the map until it can be resolved.</p>
         <p className="small muted">No further status page exists. Nothing about other reporters is shown.</p>
       </div></div>
     </div>
