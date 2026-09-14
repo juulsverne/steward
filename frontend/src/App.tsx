@@ -5,7 +5,12 @@ import { actorType, loadSession, useSession } from "./api/session";
 import { ErrorNotice } from "./components/States";
 import { PersonaSwitcher } from "./components/PersonaSwitcher";
 import { ThemeToggle } from "./components/ThemeToggle";
-import { CrewJob, CrewJobs, IssueDetail, OperationsBoard, OperatorInbox, ResidentIntake } from "./pages/shells";
+import { OperationsBoard } from "./pages/OperationsBoard";
+import { IssueDetail } from "./pages/IssueDetail";
+import { OperatorInbox } from "./pages/OperatorInbox";
+import { CrewJobs } from "./pages/CrewJobs";
+import { CrewJob } from "./pages/CrewJob";
+import { ResidentIntake } from "./pages/ResidentIntake";
 
 const DISTRICT = "South Loop Demo District";
 
