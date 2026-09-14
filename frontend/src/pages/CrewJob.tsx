@@ -22,22 +22,34 @@ export function CrewJob() {
   // root, but this page can also be exercised on its own (route-level tests, deep
   // links before App mounts), and RequirePersona never loads the session itself.
   useEffect(() => { void loadSession(); }, []);
-  return <RequirePersona allow={["crew"]}><JobContent /></RequirePersona>;
+  const { jobId = "" } = useParams();
+  return <RequirePersona allow={["crew"]}><JobContent key={jobId} /></RequirePersona>;
 }
 
 function JobContent() {
   const { jobId = "" } = useParams();
   const [state, setState] = useState<{ status: "pending" | "ready" | "error"; data: CrewJobView | null; error: unknown }>({ status: "pending", data: null, error: null });
-  const load = useCallback(async () => {
-    try { setState({ status: "ready", data: await read<CrewJobView>(`/api/jobs/${encodeURIComponent(jobId)}`), error: null }); }
-    catch (error) { setState((s) => ({ status: "error", data: s.data, error: error instanceof ApiError ? error : new Error(String(error)) })); }
+  const load = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const data = await read<CrewJobView>(`/api/jobs/${encodeURIComponent(jobId)}`, { signal });
+      if (!signal?.aborted) setState({ status: "ready", data, error: null });
+    } catch (error) {
+      if (!signal?.aborted) setState((s) => ({ status: "error", data: s.data, error: error instanceof ApiError ? error : new Error(String(error)) }));
+    }
   }, [jobId]);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { const controller = new AbortController(); void load(controller.signal); return () => controller.abort(); }, [load]);
   const [busy, setBusy] = useState<"accept" | "checkin" | null>(null); const [actionError, setActionError] = useState<unknown>(null);
-  const acceptKey = useRef<string | null>(null); const checkinKey = useRef<string | null>(null);
+  const acceptKey = useRef<string | null>(null); const checkinAttempt = useRef<{ key: string; body: { latitude: number; longitude: number; accuracy_m: number | null; claimed_at: string }; expectedRevision: number } | null>(null); const locationRequest = useRef(0);
   const [lat, setLat] = useState(""); const [lon, setLon] = useState(""); const [acc, setAcc] = useState("");
   const [pendingException, setPendingException] = useState(false);
-  useEffect(() => { if (!jobId) return; read<{ jobs: Array<{ id: string; pending_exception_status: string | null }> }>("/api/crew/jobs?limit=50").then((v) => setPendingException(v.jobs.find((j) => j.id === jobId)?.pending_exception_status === "PENDING")).catch(() => setPendingException(false)); }, [jobId, state.data?.state_revision]);
+  useEffect(() => {
+    if (!jobId) return;
+    const controller = new AbortController();
+    read<{ jobs: Array<{ id: string; pending_exception_status: string | null }> }>("/api/crew/jobs?limit=50", { signal: controller.signal })
+      .then((v) => { if (!controller.signal.aborted) setPendingException(v.jobs.find((j) => j.id === jobId)?.pending_exception_status === "PENDING"); })
+      .catch(() => { if (!controller.signal.aborted) setPendingException(false); });
+    return () => controller.abort();
+  }, [jobId, state.data?.state_revision]);
   // The proof step stays mounted through its own submission: submitting proof moves the
   // job's status off CHECKED_IN/REWORK_REQUIRED as soon as the reload below lands, which
   // would otherwise unmount ProofForm mid-flight and lose the "received"/polling receipt
@@ -66,14 +78,29 @@ function JobContent() {
     setBusy(which); setActionError(null);
     try {
       if (which === "accept") { acceptKey.current ??= newIdempotencyKey("accept"); await mutate<EntityResult>(`/api/jobs/${encodeURIComponent(job.id)}/accept`, undefined, { idempotencyKey: acceptKey.current, expectedRevision: job.state_revision }); }
-      else { checkinKey.current ??= newIdempotencyKey("checkin");
-        await mutate<EntityResult>(`/api/jobs/${encodeURIComponent(job.id)}/check-in`, { latitude: Number(lat), longitude: Number(lon), accuracy_m: acc ? Number(acc) : null, claimed_at: new Date().toISOString() }, { idempotencyKey: checkinKey.current, expectedRevision: job.state_revision }); }
+      else {
+        locationRequest.current += 1;
+        checkinAttempt.current ??= { key: newIdempotencyKey("checkin"), expectedRevision: job.state_revision, body: { latitude: Number(lat), longitude: Number(lon), accuracy_m: acc ? Number(acc) : null, claimed_at: new Date().toISOString() } };
+        const attempt = checkinAttempt.current;
+        await mutate<EntityResult>(`/api/jobs/${encodeURIComponent(job.id)}/check-in`, attempt.body, { idempotencyKey: attempt.key, expectedRevision: attempt.expectedRevision });
+      }
       await load();
-    } catch (error) { setActionError(error); if (error instanceof ApiError && error.status === 409) { (which === "accept" ? acceptKey : checkinKey).current = null; await load(); } }
+    } catch (error) { setActionError(error); if (error instanceof ApiError && error.status === 409) { if (which === "accept") acceptKey.current = null; else checkinAttempt.current = null; await load(); } }
     finally { setBusy(null); }
   };
-  const useMyLocation = () => navigator.geolocation?.getCurrentPosition((p) => { setLat(String(p.coords.latitude)); setLon(String(p.coords.longitude)); setAcc(String(Math.round(p.coords.accuracy))); }, () => setActionError(new Error("Location permission denied; enter coordinates.")));
-  const useDispatch = () => { if (job.dispatch_location) { setLat(String(job.dispatch_location.lat)); setLon(String(job.dispatch_location.lon)); setAcc(String(job.dispatch_location.accuracy_m ?? 5)); } };
+  const discardCheckinAttempt = () => { locationRequest.current += 1; checkinAttempt.current = null; };
+  const useMyLocation = () => {
+    // Choosing a new device location is an edit after a failed attempt, so it
+    // must intentionally start a fresh payload/key rather than retain stale
+    // coordinates or leave the helper inert.
+    discardCheckinAttempt();
+    const request = ++locationRequest.current;
+    navigator.geolocation?.getCurrentPosition((p) => {
+      if (request !== locationRequest.current || checkinAttempt.current) return;
+      setLat(String(p.coords.latitude)); setLon(String(p.coords.longitude)); setAcc(String(Math.round(p.coords.accuracy)));
+    }, () => { if (request === locationRequest.current && !checkinAttempt.current) setActionError(new Error("Location permission denied; enter coordinates.")); });
+  };
+  const useDispatch = () => { if (job.dispatch_location) { discardCheckinAttempt(); setLat(String(job.dispatch_location.lat)); setLon(String(job.dispatch_location.lon)); setAcc(String(job.dispatch_location.accuracy_m ?? 5)); } };
   const reqs = Object.entries(job.proof_requirements).filter(([, v]) => v).map(([k]) => requirementLabel(k));
   return (
     <div className="page crew-job">
@@ -92,11 +119,11 @@ function JobContent() {
         <li className={`step ${checkedIn ? "step--done" : accepted ? "step--current" : "step--locked"}`}><SectionCard id="checkin" title="2. Check in">
           {checkedIn ? <p><StatusBadge label="Checked in" tone="active" /> <Timestamp value={job.checked_in_at} /></p> : accepted ? (
             <div className="stack-3">
-              <div className="row"><ActionButton variant="secondary" onClick={useMyLocation}>Use my location</ActionButton>{job.dispatch_location && <ActionButton variant="secondary" onClick={useDispatch}>Use dispatch coordinates, demo</ActionButton>}</div>
+              <div className="row"><ActionButton variant="secondary" onClick={useMyLocation} disabled={busy === "checkin"}>Use my location</ActionButton>{job.dispatch_location && <ActionButton variant="secondary" onClick={useDispatch} disabled={busy === "checkin"}>Use dispatch coordinates, demo</ActionButton>}</div>
               <div className="coords">
-                <div className="field"><label htmlFor="lat">Latitude</label><input id="lat" type="number" step="any" value={lat} onChange={(e) => setLat(e.target.value)} /></div>
-                <div className="field"><label htmlFor="lon">Longitude</label><input id="lon" type="number" step="any" value={lon} onChange={(e) => setLon(e.target.value)} /></div>
-                <div className="field"><label htmlFor="acc">Accuracy (m)</label><input id="acc" type="number" step="any" value={acc} onChange={(e) => setAcc(e.target.value)} /></div>
+                <div className="field"><label htmlFor="lat">Latitude</label><input id="lat" type="number" step="any" value={lat} onChange={(e) => { discardCheckinAttempt(); setLat(e.target.value); }} disabled={busy === "checkin"} /></div>
+                <div className="field"><label htmlFor="lon">Longitude</label><input id="lon" type="number" step="any" value={lon} onChange={(e) => { discardCheckinAttempt(); setLon(e.target.value); }} disabled={busy === "checkin"} /></div>
+                <div className="field"><label htmlFor="acc">Accuracy (m)</label><input id="acc" type="number" step="any" value={acc} onChange={(e) => { discardCheckinAttempt(); setAcc(e.target.value); }} disabled={busy === "checkin"} /></div>
               </div>
               <p className="small muted">Check-in is a claimed location recorded on the job. Dispatch coordinates are a demo convenience and are labeled as such.</p>
               <ActionButton onClick={() => void act("checkin")} pending={busy === "checkin"}>Check in</ActionButton>

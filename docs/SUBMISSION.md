@@ -16,7 +16,7 @@ A neighborhood operator hears about the same dumped couch three times: a communi
 
 **Who it is for.** District operators (business improvement districts, neighborhood associations, community-benefit organizations) who already pay approved providers for supplemental cleanup and who today reconcile reports, records and crew photos by hand. Residents report without knowing jurisdiction or contractor categories. Crews see exactly what remains after a rejection.
 
-**What was proven and what was not.** The sixteen-step couch acceptance passed live through the API in two independently seeded runs on September 14 with real Bedrock text and vision, and the same journey was driven again and read back on every screen (`docs/DEMO.md`, `docs/evaluations/2026-09-14-ui-walk.md`). 703 offline tests pass; a twelve-comparison vision check scored 12/12. The twenty-two-scenario internal evaluation has **not** run, so no accuracy or reliability figure is claimed. Hosted for judging on EC2 + CloudFront (deployed September 14; acceptance evidence: docs/evaluations/2026-09-14-hosted-acceptance.md). The hosted acceptance run and restart durability proof were still in progress when this was written; that evidence file records the result. AgentCore Runtime, Observability and Gateway are not deployed. The district, budget, providers, addresses, reporter identities, community feed and 311 record are seeded fixtures; the photos are synthetic images generated for this project with published prompts; dispatch and settlement are simulated. No real money or municipal work is involved.
+**What was proven and what was not.** The sixteen-step couch acceptance passed live through the API in two independently seeded runs on September 14 with real Bedrock text and vision, and its rendered states were inspected afterward (`docs/DEMO.md`, `docs/evaluations/2026-09-14-ui-walk.md`). 706 offline tests passed on clean-install candidate `57e7e27`; a twelve-comparison vision check scored 12/12. The twenty-two-scenario internal evaluation has **not** run, so no accuracy or reliability figure is claimed. Hosted for judging on EC2 + CloudFront (deployed September 14; acceptance evidence: docs/evaluations/2026-09-14-hosted-acceptance.md). The hosted candidate `57e7e27` passed criteria 1–15 and service restart/reboot checks. Hosted criterion 16, instance replacement and backup restoration remain unverified; later local UI fixes are not deployed. AgentCore Runtime, Observability and Gateway are not deployed. The district, budget, providers, addresses, reporter identities, community feed and 311 record are seeded fixtures; the photos are synthetic images generated for this project with published prompts; dispatch and settlement are simulated. No real money or municipal work is involved.
 
 ## Judging access
 
@@ -29,10 +29,10 @@ A neighborhood operator hears about the same dumped couch three times: a communi
 | Area | State |
 |---|---|
 | One Strands agent with typed HTTP tools, bounded invocations, journaled claims/retries/resume | Implemented, verified live (B10–B13) |
-| FastAPI policy owner: scoring, authority, quotes, ledger, verification gates, idempotent settlement, closure, cancellation | Implemented, 703 offline tests (B1–B9) |
+| FastAPI policy owner: scoring, authority, quotes, ledger, verification gates, idempotent settlement, closure, cancellation | Implemented; 706-test clean-install suite on `57e7e27` |
 | Trusted Bedrock vision inspection for intake and completion proof | Implemented; 12/12 spike, requalified September 14 |
-| Five screens with persona sandbox, light/dark themes, 360 px layouts, keyboard access | Implemented; walked September 14 (P1–P7) |
-| Sixteen-step acceptance through the API and on the screens | Passed (two API runs, one UI-read run, criterion 16 by comparison) |
+| Five screens with persona sandbox, light/dark themes, 360 px layouts, keyboard access | P1–P6 implemented; rendered-state UI walk recorded; P7 browser repeat open |
+| Sixteen-step acceptance | API repeat passed; rendered UI states inspected; complete browser-driven P7 repeat remains open |
 | Reset/reseed and reproducible isolated acceptance runs (`scripts/acceptance_run.sh`) | Implemented |
 | Synthetic images with prompts and fingerprints; supplemental evaluation images | Implemented and documented |
 | Twenty-two-scenario internal evaluation (`python -m agent.evaluate`) | **Not run; command not built (P8)** |
@@ -40,14 +40,14 @@ A neighborhood operator hears about the same dumped couch three times: a communi
 | AgentCore Runtime / Observability / Gateway | **Not deployed** (tier 3); the agent runs in-process next to the API, locally and on the hosted instance |
 | Hosted API and screens with a public judging URL | Hosted for judging on EC2 + CloudFront (deployed September 14; acceptance evidence: docs/evaluations/2026-09-14-hosted-acceptance.md); decision in [HOSTING_DECISION.md](HOSTING_DECISION.md) |
 | Live Chicago 311 lookup, Amazon Location geocoding | Not built (tier 4, flags); seeded fixtures are used |
-| Clean-install proof from a fresh clone with recorded commands | In progress (R1) on September 14; not yet recorded here |
+| Clean-install proof from a fresh clone with recorded commands | Passed on candidate `57e7e27`; [706-test clean-install receipt](evaluations/2026-09-14-clean-install.md) |
 | Real payments, identity verification, policy editor, multiple agents | Excluded by design (PRD 4.6) |
 
 ## Required release work
 
 - [x] Detectable MIT license with a named copyright holder ([LICENSE](../LICENSE)).
 - [x] README with setup, run, reset, demo and recovery instructions ([README.md](../README.md)).
-- [x] Architecture diagram matching the implementation: `architecture.png` (source `docs/architecture.svg`), hosted targets labeled planned.
+- [x] Architecture diagram matching the implementation: `architecture.png` (source `docs/architecture.svg`), deployed EC2/CloudFront distinguished from unbuilt AgentCore components.
 - [x] Project description explaining functionality, audience and value (above).
 - [x] Recording script for a demo of at most five minutes ([DEMO.md](DEMO.md#recording-script--maximum-5-minutes)).
 - [x] Disclosure of incorporated pre-existing work and third-party rights (below).
@@ -60,9 +60,9 @@ A neighborhood operator hears about the same dumped couch three times: a communi
 ## Steward release checks
 
 - [x] All sixteen [acceptance steps](DEMO.md) pass through the API (September 14, runs 16 and 20).
-- [x] All sixteen steps read back on the UI ([walk](evaluations/2026-09-14-ui-walk.md)); criteria 2 and 16 are proven by the driver artifact, criterion 11's live Inbox click by tests, the rest on screen.
+- [ ] Complete browser-driven P7 run and repeat. The [walk](evaluations/2026-09-14-ui-walk.md) covers rendered states; criteria 2/16 use driver evidence and criterion 11 uses tests.
 - [x] Negative policy/verification cases and retry idempotency pass in the offline suite; the live run contains the real 90/95 denial.
-- [ ] Clean install from scratch with recorded commands and results (R1, in progress).
+- [x] [Clean install](evaluations/2026-09-14-clean-install.md): candidate `57e7e27`, 706 backend tests, frontend tests/typecheck/build and live preflight.
 - [x] Real/seeded/synthetic/simulated labels match runtime behavior, screenshots and the recording script.
 - [ ] Evaluation counts, denominators, failures and limitations — **not available; the evaluation has not run.** The video and description say so.
 - [x] No secrets or credentials in the tree or history; two low-sensitivity local-path disclosures remain and are named in the rights section below, flagged for the owner.
@@ -88,4 +88,4 @@ AgentCore Runtime, Observability and Gateway are the remaining tier 3 items (the
 - Judging access and instructions: `https://d1uke66gfefpu4.cloudfront.net` (hosted, see above); clone-and-run fallback in [README.md](../README.md#run-it-yourself)
 - Public video: pending owner recording and upload
 - Devpost submission: pending owner action
-- Clean-install/acceptance run evidence: local acceptance in [DEMO.md](DEMO.md#run-artifacts) and the [UI walk](evaluations/2026-09-14-ui-walk.md); hosted acceptance in `docs/evaluations/2026-09-14-hosted-acceptance.md` (written by the hosting worker); clean install in the R1 report, pending integration
+- Clean-install/acceptance run evidence: local acceptance in [DEMO.md](DEMO.md#run-artifacts) and the [UI walk](evaluations/2026-09-14-ui-walk.md); hosted acceptance in `docs/evaluations/2026-09-14-hosted-acceptance.md` (written by the hosting worker); clean install in the [R1 report](evaluations/2026-09-14-clean-install.md)

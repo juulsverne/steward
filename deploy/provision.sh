@@ -17,27 +17,37 @@ export AWS_PROFILE="${AWS_PROFILE:-default}" AWS_PAGER=""
 REGION=us-west-2
 ACCOUNT=589354718907
 BUCKET=steward-hackathon-589354718907
-COMMIT="${COMMIT:-57e7e27}"
+COMMIT="${COMMIT:-HEAD}"             # select a reviewed commit containing deploy/
 VPC_ID=vpc-0766ae2ae8d7b658b            # default VPC
 SUBNET_ID=subnet-01cc4e95cc7cfe51f      # default subnet, us-west-2a (the data volume lives in this AZ)
 CF_PREFIX_LIST=pl-82a045eb              # com.amazonaws.global.cloudfront.origin-facing
-AMI_ID="$(aws ssm get-parameter --region $REGION --name /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64 --query Parameter.Value --output text)"   # ami-03db3415e6524c5d2 on 2026-09-14
 TAGS_KV='Key=Project,Value=steward Key=Owner,Value=hackathon'
 cd "$(dirname "$0")/.."
+
+# Prepare and verify everything locally before creating any cloud resources. Never upload
+# arbitrary contents of an existing output directory or reuse a dirty working-tree SPA.
+COMMIT="$(git rev-parse --verify "$COMMIT^{commit}")"
+ARTIFACT_DIR="$(pwd)/.steward/artifacts"
+ARTIFACT_OUT="$ARTIFACT_DIR" bash deploy/build-artifact.sh "$COMMIT" "$BUCKET" --prepare-only
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+tar -xzf "$ARTIFACT_DIR/deploy-bundle-$COMMIT.tar.gz" -C "$WORK"
+DEPLOY="$WORK/deploy"
+AMI_ID="$(aws ssm get-parameter --region $REGION --name /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64 --query Parameter.Value --output text)"   # ami-03db3415e6524c5d2 on 2026-09-14
 
 # ---------------------------------------------------------------- 1. S3 bucket (private, versioned, SSE-S3, TLS-only)
 aws s3api create-bucket --region $REGION --bucket $BUCKET --create-bucket-configuration LocationConstraint=$REGION --object-ownership BucketOwnerEnforced
 aws s3api put-public-access-block --region $REGION --bucket $BUCKET --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
 aws s3api put-bucket-versioning --region $REGION --bucket $BUCKET --versioning-configuration Status=Enabled
 aws s3api put-bucket-encryption --region $REGION --bucket $BUCKET --server-side-encryption-configuration '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"},"BucketKeyEnabled":false}]}'
-sed "s/__BUCKET__/$BUCKET/g" deploy/s3-bucket-policy.json > /tmp/bucket-policy.json
+sed "s/__BUCKET__/$BUCKET/g" "$DEPLOY/s3-bucket-policy.json" > /tmp/bucket-policy.json
 aws s3api put-bucket-policy --region $REGION --bucket $BUCKET --policy file:///tmp/bucket-policy.json
 aws s3api put-bucket-tagging --region $REGION --bucket $BUCKET --tagging 'TagSet=[{Key=Project,Value=steward},{Key=Owner,Value=hackathon}]'
 
 # ---------------------------------------------------------------- 2. Instance role + profile
-aws iam create-role --role-name steward-instance-role --assume-role-policy-document file://deploy/iam/instance-trust-policy.json --tags $TAGS_KV
+aws iam create-role --role-name steward-instance-role --assume-role-policy-document "file://$DEPLOY/iam/instance-trust-policy.json" --tags $TAGS_KV
 aws iam attach-role-policy --role-name steward-instance-role --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
-sed -e "s/__BUCKET__/$BUCKET/g" -e "s/__ACCOUNT__/$ACCOUNT/g" deploy/iam/instance-policy.json > /tmp/instance-policy.json
+sed -e "s/__BUCKET__/$BUCKET/g" -e "s/__ACCOUNT__/$ACCOUNT/g" "$DEPLOY/iam/instance-policy.json" > /tmp/instance-policy.json
 aws iam put-role-policy --role-name steward-instance-role --policy-name steward-instance-access --policy-document file:///tmp/instance-policy.json
 aws iam create-instance-profile --instance-profile-name steward-instance-profile --tags $TAGS_KV
 aws iam add-role-to-instance-profile --instance-profile-name steward-instance-profile --role-name steward-instance-role
@@ -53,16 +63,19 @@ EIP_IP="$(echo "$EIP_JSON" | python -c 'import json,sys;print(json.load(sys.stdi
 ORIGIN_DOMAIN="ec2-${EIP_IP//./-}.$REGION.compute.amazonaws.com"
 
 # ---------------------------------------------------------------- 5. CloudFront distribution (deploys in the background, ~5-10 min)
-sed -e "s/__CALLER_REFERENCE__/steward-h4-$(date +%s)/" -e "s/__ORIGIN_DOMAIN__/$ORIGIN_DOMAIN/" deploy/cloudfront-distribution.json > /tmp/cf-config.json
+sed -e "s/__CALLER_REFERENCE__/steward-h4-$(date +%s)/" -e "s/__ORIGIN_DOMAIN__/$ORIGIN_DOMAIN/" "$DEPLOY/cloudfront-distribution.json" > /tmp/cf-config.json
 CF_JSON="$(aws cloudfront create-distribution-with-tags --distribution-config-with-tags "{\"DistributionConfig\": $(cat /tmp/cf-config.json), \"Tags\": {\"Items\": [{\"Key\":\"Project\",\"Value\":\"steward\"},{\"Key\":\"Owner\",\"Value\":\"hackathon\"}]}}" --output json)"   # E35BM8K25UCHPV / d1uke66gfefpu4.cloudfront.net
 CF_DOMAIN="$(echo "$CF_JSON" | python -c 'import json,sys;print(json.load(sys.stdin)["Distribution"]["DomainName"])')"
 
 # ---------------------------------------------------------------- 6. Artifacts (git archive of the exact commit + locally built SPA + deploy bundle)
-# Prerequisite: cd frontend && npm ci && npm run build && cd ..
-ARTIFACT_OUT=.steward/artifacts deploy/build-artifact.sh "$COMMIT" "$BUCKET"
+# Upload only the prepared, checksum-verified files; do not rebuild after resource creation.
+( cd "$ARTIFACT_DIR" && sha256sum --check --strict "artifacts-$COMMIT.sha256" )
+for FILE in "steward-$COMMIT.tar.gz" "frontend-dist-$COMMIT.tar.gz" "deploy-bundle-$COMMIT.tar.gz" "artifacts-$COMMIT.sha256"; do
+  aws s3 cp --region "$REGION" "$ARTIFACT_DIR/$FILE" "s3://$BUCKET/artifacts/$COMMIT/$FILE" --only-show-errors
+done
 
 # ---------------------------------------------------------------- 7. Instance (root 20 GiB gp3 encrypted; data 10 GiB gp3 encrypted, retained)
-sed -e "s/__BUCKET__/$BUCKET/g" -e "s/__COMMIT__/$COMMIT/g" -e "s/__CF_DOMAIN__/$CF_DOMAIN/g" deploy/user-data.sh > .steward/artifacts/user-data-rendered.sh
+sed -e "s/__BUCKET__/$BUCKET/g" -e "s/__COMMIT__/$COMMIT/g" -e "s/__CF_DOMAIN__/$CF_DOMAIN/g" "$DEPLOY/user-data.sh" > .steward/artifacts/user-data-rendered.sh
 INSTANCE_ID="$(aws ec2 run-instances --region $REGION \
   --image-id "$AMI_ID" --instance-type t3.small \
   --subnet-id $SUBNET_ID --security-group-ids "$SG_ID" \

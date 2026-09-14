@@ -13,6 +13,7 @@ export class ApiError extends Error {
 export interface Envelope<T> extends ToolResult<T> { status: number }
 export interface MutateOptions { idempotencyKey: string; expectedRevision?: number | null }
 export interface PollOptions { intervalMs?: number; maxMs?: number; backoff?: number; signal?: AbortSignal }
+export interface ReadOptions { signal?: AbortSignal }
 
 export function newIdempotencyKey(prefix: string): string {
   const uuid = globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}-${Math.random().toString(36).slice(2, 10)}`;
@@ -39,12 +40,12 @@ async function send<T>(path: string, init: RequestInit): Promise<Envelope<T>> {
   return { ...envelope, status: response.status };
 }
 
-export async function readEnvelope<T>(path: string): Promise<Envelope<T>> {
-  return send<T>(path, { method: "GET", headers: { Accept: "application/json" } });
+export async function readEnvelope<T>(path: string, opts: ReadOptions = {}): Promise<Envelope<T>> {
+  return send<T>(path, { method: "GET", headers: { Accept: "application/json" }, signal: opts.signal });
 }
 
-export async function read<T>(path: string): Promise<T> {
-  const envelope = await readEnvelope<T>(path);
+export async function read<T>(path: string, opts: ReadOptions = {}): Promise<T> {
+  const envelope = await readEnvelope<T>(path, opts);
   if (envelope.data === null || envelope.data === undefined) throw new ApiError(envelope.status, { ...envelope, outcome: "ERROR", reason_code: "EMPTY_DATA" });
   return envelope.data;
 }

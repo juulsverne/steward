@@ -134,4 +134,21 @@ describe("OperatorInbox", () => {
     expect(screen.queryByText("Request not saved")).toBeNull();
     expect(screen.getByRole("button", { name: "Request completion" })).toBeDisabled();
   });
+  it("retries the saved invocation status instead of reposting the decision", async () => {
+    let statusReads = 0; let posts = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+      const url = String(input);
+      if (init?.method === "POST" && url.includes("request-completion")) { posts += 1; return Promise.resolve(envelope({ record_id: "exc-1", state_revision: 4, invocation_id: "inv-9" }, 202)); }
+      if (url.startsWith("/api/invocations/")) { statusReads += 1; return statusReads === 1 ? Promise.reject(new Error("network down")) : Promise.resolve(envelope({ invocation_id: "inv-9", trigger_event_id: 7, status: "WAITING", state_revision: 4, episode_count: 1, model_cycles: 1, tool_requests: 1, logical_requests: 1, transport_attempts: 1, error_code: null, trace: [] })); }
+      if (url.startsWith("/api/exceptions/exc-1")) return Promise.resolve(envelope(pending));
+      if (url.startsWith("/api/exceptions")) return Promise.resolve(envelope({ exceptions: [pending], pending_count: 1, decided_count: 1 }));
+      return Promise.resolve(envelope({ sandbox: true, notice: "", actor: { actor_id: "o", actor_type: "operator", label: "District operator (seeded)" }, personas: [] }));
+    });
+    mount();
+    await userEvent.click(await screen.findByRole("button", { name: "Request completion" }));
+    expect(await screen.findByText("Saved; could not confirm processing status")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    await waitFor(() => expect(screen.getByText("WAITING")).toBeInTheDocument());
+    expect(statusReads).toBe(2); expect(posts).toBe(1);
+  });
 });

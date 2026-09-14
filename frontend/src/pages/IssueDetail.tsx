@@ -26,20 +26,31 @@ function nextText(d: IssueDetailView): string {
   return d.current.allowed_next.length ? `Allowed next: ${d.current.allowed_next.map(requirementLabel).join(", ")}.` : "No action pending.";
 }
 
-export function IssueDetail() { return <RequirePersona allow={["operator"]}><IssueContent /></RequirePersona>; }
+export function IssueDetail() {
+  const { issueId = "" } = useParams();
+  return <RequirePersona allow={["operator"]}><IssueContent key={issueId} /></RequirePersona>;
+}
 
 function IssueContent() {
   const { issueId = "" } = useParams();
   const session = useSession(); const who = actorType(session);
   const [detail, setDetail] = useState<{ status: "pending" | "ready" | "error"; data: IssueDetailView | null; error: unknown }>({ status: "pending", data: null, error: null });
   const [events, setEvents] = useState<{ status: "pending" | "ready" | "error"; data: IssueTimelineView | null; error: unknown }>({ status: "pending", data: null, error: null });
-  const load = useCallback(async () => {
-    try { setDetail({ status: "ready", data: await read<IssueDetailView>(`/api/issues/${encodeURIComponent(issueId)}`), error: null }); }
-    catch (error) { setDetail((s) => ({ status: "error", data: s.data, error: error instanceof ApiError ? error : new Error(String(error)) })); }
-    try { setEvents({ status: "ready", data: await read<IssueTimelineView>(`/api/issues/${encodeURIComponent(issueId)}/events?limit=50`), error: null }); }
-    catch (error) { setEvents((s) => ({ status: "error", data: s.data, error: error instanceof ApiError ? error : new Error(String(error)) })); }
+  const load = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const data = await read<IssueDetailView>(`/api/issues/${encodeURIComponent(issueId)}`, { signal });
+      if (!signal?.aborted) setDetail({ status: "ready", data, error: null });
+    } catch (error) {
+      if (!signal?.aborted) setDetail((s) => ({ status: "error", data: s.data, error: error instanceof ApiError ? error : new Error(String(error)) }));
+    }
+    try {
+      const data = await read<IssueTimelineView>(`/api/issues/${encodeURIComponent(issueId)}/events?limit=50`, { signal });
+      if (!signal?.aborted) setEvents({ status: "ready", data, error: null });
+    } catch (error) {
+      if (!signal?.aborted) setEvents((s) => ({ status: "error", data: s.data, error: error instanceof ApiError ? error : new Error(String(error)) }));
+    }
   }, [issueId]);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { const controller = new AbortController(); void load(controller.signal); return () => controller.abort(); }, [load]);
 
   if (detail.status === "pending") return <div className="page"><PageHeader title="Issue" /><PendingState /></div>;
   const d = detail.data;

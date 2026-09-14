@@ -51,4 +51,37 @@ describe("session", () => {
     expect(screen.getByTestId("probe")).toHaveTextContent("ready:Resident 2 (seeded):Persona forbidden");
     expect((screen.getByLabelText("Persona") as HTMLSelectElement).value).toBe("resident-2");
   });
+
+  it("fails closed when the persona mutation succeeds but its session read fails", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(envelope(view({ actor_id: "r", actor_type: "resident", label: "Resident 2 (seeded)" })))
+      .mockResolvedValueOnce(envelope(view(null)))
+      .mockResolvedValueOnce(envelope(null, "ERROR", "NETWORK", 503));
+    render(<><Probe /><PersonaSwitcher /></>);
+    await act(() => loadSession());
+    await userEvent.selectOptions(screen.getByLabelText("Persona"), "operator");
+    await waitFor(() => expect(screen.getByTestId("probe")).toHaveTextContent("error:none:Network"));
+  });
+  it("does not let a route session load interrupt an in-progress persona confirmation", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(envelope(view({ actor_id: "r", actor_type: "resident", label: "Resident 2 (seeded)" })));
+    render(<Probe />); await act(() => loadSession());
+    let resolvePost: ((response: Response) => void) | null = null;
+    vi.spyOn(globalThis, "fetch").mockImplementation((_input, init) => {
+      if (init?.method === "POST") return new Promise<Response>((resolve) => { resolvePost = resolve; });
+      return Promise.resolve(envelope(view({ actor_id: "o", actor_type: "operator", label: "District operator (seeded)" })));
+    });
+    const switching = switchPersona("operator");
+    await act(() => loadSession());
+    resolvePost!(envelope(view(null)));
+    await act(() => switching);
+    expect(screen.getByTestId("probe")).toHaveTextContent("ready:District operator (seeded):");
+  });
+  it("fails closed when a persona POST has an ambiguous network outcome", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(envelope(view({ actor_id: "r", actor_type: "resident", label: "Resident 2 (seeded)" })))
+      .mockRejectedValueOnce(new Error("network down"));
+    render(<><Probe /><PersonaSwitcher /></>); await act(() => loadSession());
+    await userEvent.selectOptions(screen.getByLabelText("Persona"), "operator");
+    await waitFor(() => expect(screen.getByTestId("probe")).toHaveTextContent("error:none:Network"));
+  });
 });

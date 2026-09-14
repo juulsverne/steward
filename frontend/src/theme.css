@@ -65,6 +65,7 @@ p { margin: 0; }
 a { color: var(--action); text-underline-offset: 2px; }
 a:hover { color: var(--action-hover); }
 button, input, select, textarea { font: inherit; color: inherit; }
+input[type="file"] { max-width: 100%; min-width: 0; }
 img { max-width: 100%; display: block; }
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 2px; }
 ::selection { background: var(--action-soft); }

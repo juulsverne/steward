@@ -25,11 +25,30 @@ pause)
   echo "paused: start again with: aws ec2 start-instances --region $REGION --instance-ids $INSTANCE_ID (EIP stays associated)"
   ;;
 destroy)
-  # 1. Final consistent backup to s3://$BUCKET/backups/<stamp>/ while the instance still runs.
+  # 1. Fence application writes and scheduled backups, then retain the final snapshot.
+  # Any failure leaves the instance/volume intact with the service stopped for inspection.
   CMD="$(aws ssm send-command --region $REGION --instance-ids $INSTANCE_ID --document-name AWS-RunShellScript \
-        --parameters 'commands=["sudo -u steward env STEWARD_BACKUP_BUCKET='"$BUCKET"' /usr/local/bin/steward-backup.sh"]' --query Command.CommandId --output text)"
-  sleep 20; aws ssm get-command-invocation --region $REGION --command-id "$CMD" --instance-id $INSTANCE_ID --query '{status:Status,out:StandardOutputContent}' --output text
-  aws s3 ls --region $REGION "s3://$BUCKET/backups/" | tail -n 3
+        --parameters 'commands=["set -e","systemctl stop steward","systemctl stop steward-backup.timer steward-backup.service","sudo -u steward env STEWARD_BACKUP_BUCKET='"$BUCKET"' /usr/local/bin/steward-backup.sh"]' --query Command.CommandId --output text)"
+  aws ssm wait command-executed --region $REGION --command-id "$CMD" --instance-id $INSTANCE_ID
+  STATUS="$(aws ssm get-command-invocation --region $REGION --command-id "$CMD" --instance-id $INSTANCE_ID --query Status --output text)"
+  test "$STATUS" = Success
+  OUTPUT="$(aws ssm get-command-invocation --region $REGION --command-id "$CMD" --instance-id $INSTANCE_ID --query StandardOutputContent --output text)"
+  PREFIX="$(printf '%s\n' "$OUTPUT" | sed -n 's/^steward-backup: uploaded //p')"
+  STAMP="${PREFIX#s3://$BUCKET/backups/}"
+  STAMP="${STAMP%/}"
+  [[ "$STAMP" =~ ^[0-9]{8}T[0-9]{6}Z$ ]]
+  test "$PREFIX" = "s3://$BUCKET/backups/$STAMP/"
+  VERIFY_DIR="$(mktemp -d)"
+  trap 'rm -rf "$VERIFY_DIR"' EXIT
+  for FILE in "manifest-$STAMP.sha256" "steward-$STAMP.sqlite3" "images-$STAMP.tar.gz"; do
+    aws s3 cp --region "$REGION" "$PREFIX$FILE" "$VERIFY_DIR/$FILE" --only-show-errors
+  done
+  # Require exactly these two local filenames before letting sha256sum read the manifest.
+  MANIFEST="$VERIFY_DIR/manifest-$STAMP.sha256"
+  test "$(wc -l < "$MANIFEST")" -eq 2
+  grep -Ex "[0-9a-f]{64}  \\./steward-$STAMP\\.sqlite3" "$MANIFEST"
+  grep -Ex "[0-9a-f]{64}  \\./images-$STAMP\\.tar\\.gz" "$MANIFEST"
+  ( cd "$VERIFY_DIR" && sha256sum --check --strict "manifest-$STAMP.sha256" )
   # 2. Compute and network.
   aws ec2 terminate-instances --region $REGION --instance-ids $INSTANCE_ID
   aws ec2 wait instance-terminated --region $REGION --instance-ids $INSTANCE_ID
