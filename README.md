@@ -4,118 +4,152 @@
 
 Steward turns scattered community signals into verified physical resolutions. It investigates evidence, reconciles contradictory service records, dispatches approved supplemental providers within explicit policy, and verifies completion before simulated settlement. It brings neighborhood operators the exceptions that need human judgment.
 
-Built for the **Good Neighbor Agents** track of the AWS Agents for Humans Hackathon.
+Built for the **Good Neighbor Agents** track of the AWS Agents for Humans Hackathon. One Strands agent on Amazon Bedrock chooses what to do next through typed HTTP tools; a FastAPI service owns policy, scores, prices, budget, verification and settlement in SQLite; a trusted Bedrock vision call inspects photos and returns findings that code scores. The design is in [ARCHITECTURE.md](docs/ARCHITECTURE.md) and [architecture.png](architecture.png).
 
-## Status
+## Status, September 14, 2026
 
-The hackathon scope is locked in [PRD.md](docs/PRD.md). This public **Steward OSS** reference implementation is being built to prove one couch resolution; the future private commercial platform is described separately in [VISION.md](docs/VISION.md).
+**Done and verified locally.** The full couch journey runs end to end with real Bedrock inference: the sixteen-step acceptance passed through the API in two independently seeded live runs (Sonnet text and vision, `us-west-2`; B13 receipt in [BUILD_PLAN.md](docs/BUILD_PLAN.md#b13-completion-receipt--september-14)), and the same journey was driven again on September 14 and read back on the operations UI — Board, Issue Detail, Operator Inbox, Crew Form and Resident intake — with screenshots per criterion in [the UI walk](docs/evaluations/2026-09-14-ui-walk.md). The offline suite is 703 tests; the twelve-comparison vision check is 12/12 ([vision spike](docs/evaluations/2026-09-13-vision-spike.md)); the model screen is in [MODEL_SELECTION.md](docs/MODEL_SELECTION.md).
 
-Implemented: the generic Strands/Bedrock starter; SQLite signals, issue links, scoring and audit events; the persisted 65 → 65 → 85 → 100 service-record/dispute sequence; five labeled synthetic images; image fingerprints; strict verification gates; a bounded Strands preflight and single-call Bedrock vision spike runner. The full Steward agent workflow now runs end to end through the API: on September 14 the sixteen-step couch acceptance passed live with real Sonnet text and vision in two independently seeded runs (see [DEMO.md](docs/DEMO.md) and the B13 receipt in [BUILD_PLAN.md](docs/BUILD_PLAN.md)). The operations UI (Board, Issue Detail, Operator Inbox, Crew Form, Resident intake) is implemented and was walked on September 14 against a live-driven database; see [the UI walk](docs/evaluations/2026-09-14-ui-walk.md). After AWS login, the live Strands round trip and all twelve vision comparisons passed on September 13. Tier 1B has started with a pure policy module and seeded district/vendor/address fixtures; policy is not yet wired into mutation endpoints. See [vision readiness](docs/evaluations/2026-09-13-vision-spike.md) and [document review](docs/reviews/2026-09-13-document-review.md).
+**Hosted.** Hosted for judging on EC2 + CloudFront (deployed September 14; acceptance evidence: docs/evaluations/2026-09-14-hosted-acceptance.md). Public URL: `https://d1uke66gfefpu4.cloudfront.net` — one EC2 `t3.small` in `us-west-2` with a retained EBS volume for SQLite and images, private S3 backups, nginx + uvicorn and the in-process Strands runtime, behind CloudFront; the decision is in [HOSTING_DECISION.md](docs/HOSTING_DECISION.md). The hosted acceptance run and restart durability proof were in progress when this was written; the evidence file records their result. AgentCore Runtime, Observability and Gateway are **not deployed**.
 
-The competition proof is one couch: wait at evidence score 65; corroborate at 85; dispute a completed service record when newer physical evidence disagrees; dispatch an authorized $72 cleanup; block payment at verification score 90; resume after operator-requested rework; verify at 100; simulate payment and resolve.
+**Not done.** The twenty-two-scenario internal evaluation ([EVALUATION.md](docs/EVALUATION.md)) has not run, so no evaluation counts are published. Clean-install proof from a fresh clone was recorded separately (R1) and is pending integration; the run below was verified on the developers' machines. Judging access is the hosted URL, with clone-and-run using your own AWS Bedrock access as the fallback ([SUBMISSION.md](docs/SUBMISSION.md)).
+
+**What the demo is.** A driven live run: the agent and vision calls are real Bedrock calls; the district, authority, budget, providers, addresses, reporter identities, community feed and the 311 record are seeded fixtures; the five photos are synthetic images with published prompts ([provenance](data/images/PROVENANCE.md)); dispatch and settlement are simulated. No real money or municipal work is authorized. Labels travel with the records and are shown on the screens.
+
+The competition proof is one couch: wait at evidence score 65; corroborate at 85; dispute a completed service record when newer physical evidence disagrees; dispatch an authorized $72 cleanup; block payment at verification score 90; resume after operator-requested rework; verify at 100; simulate payment and resolve. [DEMO.md](docs/DEMO.md) lists the sixteen criteria and the recording script.
+
+## Run it yourself
+
+You need: Python 3.11+, [uv](https://docs.astral.sh/uv/), Node.js 22 or newer with npm (`npm ci` prints an `EBADENGINE` warning but still installs under Node 24.12–24.14 because of the frontend's `jsdom` devDependency), the AWS CLI, and an AWS account with Amazon Bedrock model access to `global.anthropic.claude-sonnet-4-6` (a cross-region inference profile; the client binds to `us-west-2`). Each full run makes five agent invocations plus the photo inspections (about 574k input tokens in the recorded run); you pay for that inference. The recorded runs were made on Windows 11 in Git Bash; nothing in the commands is Windows-specific.
+
+### 1. Install
+
+```bash
+git clone <this repository> && cd agents-for-humans
+uv sync --locked --extra dev --extra web
+cd frontend && npm ci && npm run build && cd ..
+```
+
+`npm ci` is the locked, reproducible install (`frontend/package-lock.json` is committed). The frontend build lands in `frontend/dist`, which the API serves at `/`.
+
+### 2. Configure
+
+Copy `.env.example` to `.env` (it is gitignored) and set:
+
+| Setting | Value |
+|---|---|
+| `AWS_PROFILE`, `AWS_REGION` | your authenticated profile and `us-west-2` |
+| `BEDROCK_MODEL_ID` | `global.anthropic.claude-sonnet-4-6` (leave `BEDROCK_TEXT_MODEL_ID` and `BEDROCK_VISION_MODEL_ID` blank; both fall back to it) |
+| `STEWARD_SESSION_SECRET`, `STEWARD_SERVICE_TOKEN` | two different values, each from `python -c "import secrets; print(secrets.token_hex(32))"`; the API refuses blank, equal or placeholder values and never generates them for you |
+| `STEWARD_STORE_PATH` | `.steward/steward.sqlite3` (create the `.steward` directory yourself) |
+| `STEWARD_ORIGIN`, `STEWARD_LOCAL_HTTP` | `http://localhost:8000`, `true` |
+| `STEWARD_RUNTIME_ENABLED` | `true` to run the agent; `false` keeps the API a read/write sandbox with no Bedrock calls |
+| `STEWARD_FRONTEND_DIST` | `frontend/dist` |
+
+Authenticate (`aws login --profile <profile>`, or `aws configure` with long-lived keys), then prove the same credential path the server uses:
+
+```bash
+uv run --no-sync python -m agent.bedrock_check
+```
+
+It must print a successful tool result and final model reply. `aws login` issues short-lived tokens that botocore refreshes through the sign-in endpoint of the profile's own region; Steward resolves credentials there and binds only the Bedrock client to `AWS_REGION` (`agent.aws_session.region_session`). If the preflight reports `CreateOAuth2Token ... authorization grant is invalid`, run `aws login` again. Keep credentials out of source control.
+
+### 3. Seed and start
+
+Seed a fresh named database before the first start; without it the Board is empty (no issue, $0 budget, no marker):
+
+```bash
+uv run --no-sync python -m agent.seed --db .steward/steward.sqlite3
+uv run --no-sync uvicorn agent.server:app --host 127.0.0.1 --port 8000 --no-proxy-headers
+```
+
+The seed writes the first labeled feed signal and photo (a 65-point candidate), the uncredited completed 311 fixture, three fictional providers and a $500.00 simulated budget, plus one pending invocation. With `STEWARD_RUNTIME_ENABLED=true` the API's startup scan runs that invocation immediately: one real Bedrock call, and the issue becomes MONITORING at 65. Open `http://localhost:8000/`, pick a persona in the header (Operator, a vendor's Crew, or Resident; it is a labeled sandbox, not authentication), and watch the Board and Issue Detail.
+
+### 4. Run the couch journey
+
+With the API running, drive the remaining resident, crew and operator actions through the same HTTP API the screens use:
+
+```bash
+uv run --no-sync python -m agent.demo --base-url http://localhost:8000 --out .steward/run.json --wait-seconds 240
+```
+
+It takes about three minutes, prints one line per criterion, and writes every API response and agent trace to the artifact. Refresh Issue Detail, the Inbox, the Crew Form and the Board as it goes; the end state is a RESOLVED issue, one PAID job at $72.00 (simulated), $428.00 available. Run one Bedrock workload at a time.
+
+The same journey can be walked by hand: the Report form submits the second resident report, the Crew Form accepts, checks in (a button fills the dispatch coordinates) and uploads `data/images/middle.jpg` then `data/images/after.jpg`, and the Inbox offers **Request completion** on the failed-proof exception. The verified end-to-end evidence today is the driver; the manual path is covered by the frontend tests and the walk's read-only screens, not by a recorded hand-driven run.
+
+### 5. Reset and rerun
+
+Stop the API, then reset the same marked store and start again:
+
+```bash
+uv run --no-sync python -m agent.seed --db .steward/steward.sqlite3 --reset
+```
+
+Reset refuses unmarked files and never touches `.env`. For an isolated, reproducible acceptance run on a private port (seed, serve on 8001, drive, stop, keep logs under `.steward/b13/`), use `bash scripts/acceptance_run.sh <tag> 8001`; pass a previous artifact as the third argument to close criterion 16 by comparison. Details in [DEMO.md](docs/DEMO.md#live-acceptance-procedure-b13-api-gate).
+
+### If something fails
+
+| Symptom | What it means | Do |
+|---|---|---|
+| API exits at startup naming a `STEWARD_*` setting | a secret is blank, equal to the other, or a placeholder; or `.steward` does not exist | fix `.env`, create the directory, restart |
+| `bedrock_check` fails with `authorization grant is invalid` | the `aws login` token expired | `aws login` again, rerun the preflight |
+| `AccessDeniedException` from Bedrock | the account lacks model access for the profile ID | enable the model in the Bedrock console for `us-west-2` |
+| An invocation ends `AGENT_EXECUTION_FAILED` with `ThrottlingException` | a second Bedrock workload ran at the same time; SDK retries are disabled on purpose | stop the other workload, reset, rerun |
+| The driver stops on `TOOL_REQUEST_FAILED` or times out | a transient tool/network failure inside the live run (seen once on September 14) | reset and rerun; do not edit the database |
+| `port 8000 already serves /health` from the acceptance script | another server owns the port | choose another port or stop it |
+| Screens load but every page shows the persona notice | no persona cookie yet | pick a persona in the header |
+| Issue Detail stays at 65 with no decision | the runtime is disabled | set `STEWARD_RUNTIME_ENABLED=true` and restart |
+
+Interrupted runs are safe to resume: pending work, claims and effects are journaled, and a restarted API resumes or fails them without duplicating a job, reservation or payment ([API.md](docs/API.md#durable-processing-and-recovery-b12)).
+
+## Offline checks
+
+No AWS credentials are needed for these:
+
+```bash
+uv run --no-sync pytest -q          # 703 passed on the B13 code
+uv run --no-sync ruff check .
+uv run --no-sync python scripts/check_docs.py
+uv run --no-sync python -m agent.foundation --db .steward/foundation.sqlite3   # 65/65/85/100 scoring harness
+cd frontend && npm run typecheck && npm test
+```
+
+The foundation harness prints **OFFLINE FOUNDATION CHECK** and proves scoring and persistence only; it is not the agent. `python -m agent.vision_spike --images data/images --repeats 3` reruns the live twelve-comparison vision check (costs inference). Development with hot reload: add `STEWARD_DEVELOPMENT_ORIGINS=http://localhost:5173` to `.env`, start the API, then `npm run dev` in `frontend/` and open `http://localhost:5173`. After changing API models run `uv run --no-sync python scripts/export_openapi.py` and `npm run types`.
 
 ## Build documents
 
 - [Documentation index: what each document is and when to read it](docs/README.md)
 - [Product requirements: goals, users, stories, agent behavior, data/API and quality](docs/PRD.md)
 - [Architecture, data, tools, policy, and deployment contract](docs/ARCHITECTURE.md)
-- [Build guide: complete scope, task order, coding-agent models, ownership and verification](docs/BUILD_PLAN.md)
-- [Sixteen acceptance criteria and demo script](docs/DEMO.md)
-- [Internal evaluation protocol](docs/EVALUATION.md)
+- [API identity boundary, endpoints, tool transport, recovery](docs/API.md)
+- [Build guide: complete scope, task order, ownership, verification receipts](docs/BUILD_PLAN.md)
+- [Sixteen acceptance criteria and the recording script](docs/DEMO.md)
+- [Internal evaluation protocol (not yet run)](docs/EVALUATION.md)
 - [Model choices: each step, costs, live comparison and qualification gates](docs/MODEL_SELECTION.md)
-- [Submission checklist](docs/SUBMISSION.md)
+- [Hosting decision (EC2 + CloudFront, deployed September 14)](docs/HOSTING_DECISION.md)
+- [Submission checklist and judging access](docs/SUBMISSION.md)
 - [Post-competition company vision](docs/VISION.md)
 - [Coding-agent instructions](AGENTS.md)
-
-Deadline: Monday, September 14, 2026 at **5 PM Pacific / 7 PM Chicago**. Internal submission target is two hours earlier. One Strands agent, evaluated Bedrock models, deterministic policy. Sonnet remains the current default; cheaper text candidates passed a basic tool screen, but the tested cheaper vision candidates failed the partial-cleanup case. Separate role configuration is implemented; domain qualification remains open. Build order: core proof through the API, then the React surfaces and evaluation, then AgentCore Runtime with App Runner hosting, then optional flags.
-
-## Run the existing starter
-
-Requires Python 3.11+, uv, and AWS credentials with access to the configured Bedrock model. Inspect `.env.example` for configuration. Keep credentials out of source control.
-
-```bash
-uv sync --extra dev --extra web
-cp .env.example .env
-# Configure .env and AWS credentials for your environment.
-uv run agent
-```
-
-For the starter HTTP endpoint:
-
-```bash
-uv run uvicorn agent.server:app --reload
-curl -N -X POST localhost:8000/ask -H 'content-type: application/json' \
-  -d '{"prompt":"what time is it?"}'
-```
-
-Starter checks:
-
-```bash
-uv run pytest
-uv run ruff check .
-```
-
-The agent/API commands still run the generic starter, not the planned Steward agent. Clean-install verification and full demo reset/seed commands remain open.
-
-## Run the operations UI
-
-Build once, then the API serves it at `/`:
-
-    cd frontend && npm install && npm run build && cd ..
-    uv run --no-sync uvicorn agent.server:app --port 8000
-
-The built UI is served only when the API is started from the environment (`ApiSettings.from_env`, the default for `agent.server:app`) or when `frontend_dist` is set explicitly; constructing `ApiSettings` directly (as tests and scripts do) never mounts it unless asked.
-
-Development with hot reload runs Vite on port 5173 and proxies `/api` to the API. Add `STEWARD_DEVELOPMENT_ORIGINS=http://localhost:5173` to `.env`, start the API as above, then in `frontend/` run `npm run dev` and open `http://localhost:5173` (not 127.0.0.1). After changing API models run `uv run --no-sync python scripts/export_openapi.py` and `npm run types`.
-
-## Run the offline foundation
-
-From the repository root, after installing the dependencies:
-
-```bash
-uv run python -m agent.foundation --db .steward/foundation.sqlite3
-```
-
-No AWS credentials are needed for this command. It prints **OFFLINE FOUNDATION CHECK**, stores the first report at 65 points, records the seeded COMPLETED service record as a pending conflict (still 65), reopens SQLite, adds an independent report to reach 85, and confirms the official-status dispute to reach 100. The issue stays CANDIDATE: a score is not a fabricated agent decision. An existing destination is refused; use a fresh database filename to repeat.
-
-The first image digest identifies the actual synthetic `data/images/before.jpg`; geocode accuracy and source observations remain **seeded metadata**. The harness performs no photo analysis or live geocoding. See [fixture provenance and limitations](data/README.md). This harness does not satisfy the sixteen-step live-agent acceptance run.
-
-Verified September 13: `uv run --no-sync pytest -q` — **129 passed**; `uv run --no-sync ruff check .` — **All checks passed**. Tests cover service-record/persistence scoring, source independence, restart/retry and transactional behavior, image reuse, strict verification, model-response validation, and spike failure gates. The foundation rerun retained six events and totals 65/65/85/100. This used the existing local Python environment; clean-install acceptance remains open.
-
-## Run the live Tier 1A checks
-
-Use your authenticated AWS profile (`aws login --profile default` refreshes the PC profile used for the verified run). Set `AWS_PROFILE` to that profile if a different value is in your environment or `.env`; never overwrite existing configuration blindly.
-
-`aws login` issues fifteen-minute access tokens that botocore refreshes through the sign-in endpoint of the session that resolved them. A session pinned to the Bedrock region (`us-west-2`) asks the wrong sign-in endpoint and fails with `CreateOAuth2Token ... authorization grant is invalid`, even though `aws sts get-caller-identity` still succeeds from the CLI. Steward therefore resolves credentials with the profile's own region and only binds the Bedrock client to `AWS_REGION` (`agent.aws_session.region_session`); the preflight below uses the same path, so a passing preflight now proves the refresh path the server uses. If the preflight itself reports that error, run `aws login` again. Then run:
-
-```powershell
-uv run --no-sync python -m agent.bedrock_check
-# Continue only after the round-trip check passes:
-uv run --no-sync python -m agent.vision_spike --images data/images --repeats 3
-```
-
-The preflight requires a successful tool result and final model reply. The spike requires twelve expected outcomes, including partial score 90, complete score 100, and scene/reuse rejection. The preflight resolves `BEDROCK_TEXT_MODEL_ID`; the spike resolves `BEDROCK_VISION_MODEL_ID`; each falls back to `BEDROCK_MODEL_ID` and then Sonnet. Leave both role overrides blank for the default run. For candidate comparisons, use the role-explicit commands in [MODEL_SELECTION.md](docs/MODEL_SELECTION.md#7-reproduce-the-current-screen). Results and failures are retained under `.steward/`; [the vision spike report](docs/evaluations/2026-09-13-vision-spike.md) reports the Sonnet qualification, and [MODEL_SELECTION.md](docs/MODEL_SELECTION.md) records the later multi-model component screen. These commands do not dispatch, pay, or resolve an issue.
 
 ## Project layout
 
 ```text
-src/agent/          One flat package; the module map is in its __init__:
-                      runtime   config, core, cli, server, tools/
-                      domain    models, scoring, policy, verification, store
-                      vision    images, vision
-                      checks    foundation (offline), bedrock_check and vision_spike (live)
-tests/              Offline tests: scoring, store, policy, images, verification, model contracts, spike gates
-data/               Labeled fixtures, five synthetic images with provenance, scoring and dispatch policy manifest
-docs/               Locked specifications; docs/README.md is the index
-docs/evaluations/   Dated evidence: vision spike report, exported model-screen artifact
-docs/reviews/       Dated document reviews
-scripts/            Toolchain preflight, Markdown link checker, model-screen exporter
+src/agent/          One flat package: config, aws_session, server (FastAPI), store (SQLite),
+                      policy, scoring, verification, vision, tools/ (HTTP tools and Strands
+                      session), runtime (invocations, claims, journal), seed, demo (driver),
+                      cli, foundation, bedrock_check, vision_spike
+frontend/           React/Vite screens: Board, Issue Detail, Inbox, Crew Form, Resident intake
+tests/              Offline tests (703): scoring, store, policy, API, tools, runtime, recovery
+data/               Seeded fixtures, five synthetic images with provenance, policy manifest
+docs/               Specifications, decisions, dated evidence (docs/README.md is the index)
+docs/evaluations/   Vision spike report, model-screen export, UI walk and screenshots
+scripts/            Acceptance runner, link checker, OpenAPI/model-screen exporters, preflight
 ```
 
-Next: verify the foundation, prepare H1's early storage/cost recommendation, use M0's completed role-setting boundary and build B1's complete records, then follow the backend/agent tasks through the API gate. UI, evaluation and hosting follow the recorded dependencies. [BUILD_PLAN section 12](docs/BUILD_PLAN.md#12-handoff-and-delegation-how-someone-else-builds-from-this-guide) assigns coding sub-agents, models, shared ownership and review gates. Hosted-storage implementation remains conditional on the recorded architecture decision and deployment authorization.
+Next: record the video from [DEMO.md](docs/DEMO.md), publish the repository and save the submission (owner actions in [SUBMISSION.md](docs/SUBMISSION.md)); keep the hosted instance up through October 8; then, after the deadline, the P8 evaluation and AgentCore Runtime/Observability/Gateway. Product thresholds, exclusions and labels do not change to make any of that easier.
 
 ## Demo boundaries and license
 
-Vendors, rates, budget, district authority, addresses, community feed and service records are seeded fixtures; they do not establish real authority or a live operational ledger. Dispatch and settlement will be simulated. Generated images carry synthetic provenance and exact prompts. No real money or municipal work is authorized by this demo.
+Vendors, rates, budget, district authority, addresses, community feed and service records are seeded fixtures; they do not establish real authority or a live operational ledger. Dispatch and settlement are simulated. The images are synthetic and carry their exact prompts. No real money or municipal work is authorized by this demo.
 
-MIT; see [LICENSE](LICENSE). Copyright attribution is still a starter placeholder and must be completed before public submission. All assets needed for the submitted functionality must have publishable provenance and usage rights.
+MIT; see [LICENSE](LICENSE). The repository incorporates the generic Strands/Bedrock starter it was scaffolded from (its first commit); everything else was written for this project. All assets needed for the submitted functionality have documented provenance ([data/README.md](data/README.md)).
