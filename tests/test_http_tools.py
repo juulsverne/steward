@@ -110,3 +110,63 @@ async def test_session_keeps_starter_registry_separate_from_domain_tools():
     assert {"find_related_signals", "inspect_completion", "release_payment", "cancel_job"} <= names
     assert {"accept_job", "check_in", "submit_proof", "summarize_workload"}.isdisjoint(names)
     await session.client.aclose()
+
+
+def test_investigation_tool_descriptions_state_gate_semantics():
+    """The model learns hazard/unknown meaning and permitted decision types from the tool contract."""
+    from agent.tools.protocol import OPERATIONS, SCHEMA_VERSION
+
+    assert SCHEMA_VERSION == "steward-http-tools-v2"
+    classify = OPERATIONS["classify_issue"].description
+    assert "hazards" in classify and "unknowns" in classify and "operator review" in classify
+    jurisdiction = OPERATIONS["determine_jurisdiction"].description
+    assert "unknowns" in jurisdiction
+    decide = OPERATIONS["record_investigation_decision"].description
+    for name in ("MONITOR", "MARK_ACTIONABLE", "DISPUTE_OFFICIAL_STATUS", "ROUTE_EXTERNAL", "REQUEST_OPERATOR"):
+        assert name in decide
+    assert "record_operational_decision" in decide
+    assert "escalate_to_operator" in decide
+    assert "authority" in OPERATIONS["escalate_to_operator"].description
+    plan = OPERATIONS["build_resolution_plan"].description
+    assert "inspection_unknowns" in plan and "REQUEST_OPERATOR" in plan
+    operational = OPERATIONS["record_operational_decision"].description
+    for kind in ("dispatch", "settlement", "completion_operator", "authority", "no_vendor", "budget", "rework", "resolve"):
+        assert kind in operational
+    rework = OPERATIONS["request_rework"].description
+    assert "operator's saved decision id" in rework and "get_exception" in rework
+
+
+def test_build_command_accepts_a_stringified_basis_object():
+    """Models sometimes serialize a nested basis as a JSON string; the intent is unambiguous."""
+    import json
+
+    from agent.tools.protocol import build_command
+
+    basis = {"kind": "dispatch", "plan_id": "plan-1", "vendor_id": "south_loop_services", "expected_issue_revision": 12}
+    values = {"issue_id": "demo-couch", "decision_type": "REQUEST_DISPATCH", "summary": "dispatch the closer vendor",
+              "evidence_ids": ["evidence-1"]}
+    direct = build_command("record_operational_decision", {**values, "basis": basis})
+    stringified = build_command("record_operational_decision", {**values, "basis": json.dumps(basis)})
+    assert stringified == direct
+    escalation = {"kind": "authority", "issue_id": "demo-couch", "expected_issue_revision": 12,
+                  "reason_code": "retained_hazards_require_operator_review"}
+    assert build_command("escalate_to_operator", {"basis": json.dumps(escalation)}) == build_command(
+        "escalate_to_operator", {"basis": escalation})
+    with pytest.raises(ValueError):
+        build_command("record_operational_decision", {**values, "basis": "not json"})
+    with pytest.raises(ValueError):
+        build_command("record_operational_decision", {**values, "basis": json.dumps(["kind", "dispatch"])})
+
+
+@pytest.mark.asyncio
+async def test_agent_tool_accepts_a_stringified_basis_before_transport():
+    import json
+
+    client = _Client()
+    tool = StewardAgentTool("record_operational_decision", client)
+    basis = {"kind": "dispatch", "plan_id": "plan-1", "vendor_id": "south_loop_services", "expected_issue_revision": 11}
+    result = await _result(tool, {"issue_id": "demo-couch", "decision_type": "REQUEST_DISPATCH",
+        "summary": "dispatch the closer vendor", "evidence_ids": ["evidence-1"], "basis": json.dumps(basis)})
+    assert result["status"] == "success"
+    assert json.loads(client.calls[0].body_json)["basis"] == basis
+    assert client.calls[0].expected_revision == 11

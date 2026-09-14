@@ -103,6 +103,8 @@ class CandidateContext(c.Record):
     summary: c.Text
     location: c.Text
     issue_id: c.Text | None = None
+    # Issue candidates carry the revision a link request must cite; signals have none.
+    state_revision: c.Nonnegative | None = None
 
 
 class ServiceStatusContext(c.Record):

@@ -144,6 +144,7 @@ class SimilarIssueView(c.Record):
     status: c.IssueStatus
     location: c.Text
     evidence_score: c.Nonnegative
+    state_revision: c.Nonnegative
 
 
 class SimilarIssuesView(c.Record):

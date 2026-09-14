@@ -178,7 +178,8 @@ def build_context(store: Store, trigger_event_id: int, *, actor: c.ActorContext,
                                        (imax, source.reported_location)):
                 candidate = boundary._issue(store, row[0])
                 candidates.append(v.CandidateContext(kind="issue", id=candidate.id,
-                    summary=f"{candidate.category}: {candidate.status}", location=candidate.location))
+                    summary=f"{candidate.category}: {candidate.status}", location=candidate.location,
+                    state_revision=candidate.state_revision))
         latest_effect = next((e for e in recent if e.event_type in EFFECTS | {"SIMULATED_SETTLEMENT"}), None)
         latest_denial = next((e for e in recent if e.outcome == "DENIED"), None)
         inspection_error = next((e for e in recent if e.event_type in {

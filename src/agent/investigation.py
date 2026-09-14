@@ -26,8 +26,17 @@ INTAKE_SCHEMA_VERSION = hashlib.sha256(
 ).hexdigest()[:16]
 INTAKE_SYSTEM_PROMPT = (
     "Inspect this intake photo. Report only visible objects, hazards, location clues, unknowns, "
-    "and concise observations through report_intake_findings. Do not infer authority, score, "
-    "price, identity, dispatch, or facts outside the image."
+    "and concise observations through report_intake_findings. visible_hazards lists only safety "
+    "hazards that need specialist handling before ordinary cleanup, such as exposed wiring or "
+    "electrical equipment, structural damage, chemicals or fuel, medical or biological waste, "
+    "sharps, fire or smoke. Furniture, bags, litter or debris that merely occupy or obstruct a "
+    "sidewalk are visible objects, not hazards, so leave visible_hazards empty for ordinary bulky "
+    "waste. unknowns lists only facts the image fails to show that are needed to name the object, "
+    "judge its amount or state the cleanup work, such as an object that cannot be identified or an "
+    "extent hidden from view; closed-bag contents, internal condition, ownership, timing, addresses "
+    "and other details that ordinary removal does not need are not unknowns, so leave unknowns "
+    "empty for clearly identifiable bulky waste. Do not infer authority, score, price, identity, "
+    "dispatch, or facts outside the image."
 )
 INTAKE_PROMPT_VERSION = hashlib.sha256(INTAKE_SYSTEM_PROMPT.encode()).hexdigest()[:16]
 INTAKE_MAX_TOKENS = 1024
@@ -534,8 +543,14 @@ def _decision_gates(store: Store, issue: c.IssueRecord,
             unmet.append("current_facts_missing")
         elif route != "autonomous" or jurisdiction.responsibility != "district":
             unmet.append("ordinary_cleanup_not_authorized")
-        elif facts.unresolved_hazards or classification.unknowns or jurisdiction.unknowns:
-            unmet.append("hazard_review_required")
+        else:
+            # Name each blocking fact so the caller can repair that one or ask an operator.
+            if facts.unresolved_hazards:
+                unmet.append("retained_hazards_require_operator_review")
+            if classification.unknowns:
+                unmet.append("classification_unknowns_unresolved")
+            if jurisdiction.unknowns:
+                unmet.append("jurisdiction_unknowns_unresolved")
         if issue.evidence_score < 70:
             unmet.append("evidence_threshold")
         if unmet:
@@ -609,6 +624,10 @@ def apply_investigation_decision(store: Store, *, issue_id: str, decision_id: st
         issue = tx.require_issue(issue_id, context.expected_revision)
         _action_lifecycle(store, issue)
         decision = store.get_decision(decision_id)
+        if decision.issue_id == issue_id and decision.decision_type == "REQUEST_OPERATOR":
+            # A saved operator intent is raised as an issue exception, not applied here.
+            raise DecisionGateUnmet("investigation_action", ("request_operator_uses_escalate_to_operator",),
+                                    "REQUEST_OPERATOR is raised through escalate_to_operator")
         if decision.issue_id != issue_id or decision.decision_type not in _APPLIED_DECISION_TYPES:
             raise ValueError("decision cannot be applied by investigation action")
         _decision_gates(store, issue, decision.decision_type)

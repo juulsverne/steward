@@ -252,11 +252,13 @@ class InvocationHooks(HookProvider):
             if event.tool_use["name"] not in OPERATIONS:
                 raise ValueError("unregistered model tool")
             command = build_command(event.tool_use["name"], event.tool_use["input"])
-        except (ValueError, KeyError, TypeError):
+        except (ValueError, KeyError, TypeError) as error:
             await self._authorize(ExecutionRequest("tool", self.tool_requests, self.invocation_id,
                 call_ref=event.tool_use.get("toolUseId"), case=self.case))
-            self.stopped = self.stopped or "INVALID_TOOL_INPUT"
-            event.cancel_tool = "INVALID_TOOL_INPUT"
+            # One malformed request spends its budget slot and returns its reason to the model; it
+            # does not end the invocation, which the cycle and request limits still bound.
+            reason = " ".join(str(error).split())[:300] or type(error).__name__
+            event.cancel_tool = f"INVALID_TOOL_INPUT: {reason}"
             return
         allowed = await self._authorize(ExecutionRequest("tool", self.tool_requests, self.invocation_id,
             call_ref=event.tool_use["toolUseId"], command=command, case=self.case))
@@ -312,8 +314,10 @@ def build_model() -> BedrockModel:
             connect_timeout=min(10, settings.provider_timeout_seconds),
             read_timeout=settings.provider_timeout_seconds, retries={"total_max_attempts": 1})}
     if settings.aws_profile:
-        import boto3
-        kwargs["boto_session"] = boto3.Session(profile_name=settings.aws_profile, region_name=settings.region)
+        from . import aws_session
+
+        # Credentials refresh in the profile's region; Bedrock calls stay in the configured region.
+        kwargs["boto_session"] = aws_session.region_session(settings.aws_profile, settings.region)
     else:
         kwargs["region_name"] = settings.region
     return BedrockModel(**kwargs)

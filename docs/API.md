@@ -87,11 +87,11 @@ before the 20-result bound and return `truncated` when further matches exist.
 | GET `/api/demo/session` | Safe human persona catalog, sandbox notice and selected actor or null |
 | POST `/api/demo/persona` | Strict `{persona_id: string}` selects one configured human, signs cookie |
 | POST `/api/signals` | Authenticated multipart resident intake; returns only the saved receipt ID and pending acknowledgment |
-| GET `/api/signals/related`, GET `/api/issues/similar` | Service-only bounded candidate summaries from stored IDs; no raw image bytes or references |
+| GET `/api/signals/related`, GET `/api/issues/similar` | Service-only bounded candidate summaries from stored IDs; no raw image bytes or references. Similar-issue candidates (and issue candidates in the case packet) carry the issue's current `state_revision`, the value a later `/sources` link must cite |
 | POST `/api/issues` | Service-only creation from one stored unlinked physical-observation signal and concise rationale |
 | POST `/api/issues/{id}/geocode`, `/service-records/search` | Service-only trusted seeded adapter facts keyed to a stored linked signal |
 | POST `/api/issues/{id}/sources` | Service-only explicit link of one stored signal to a case, with a saved match rationale |
-| POST `/api/issues/{id}/classification`, `/jurisdiction`, `/decisions` | Service-only saved B4 proposals and gate-validated investigation decision intents; decision intent alone does not mutate lifecycle state. A well-formed proposal (or later `/investigation-action` / `/official-dispute` apply) that current facts do not permit returns 403 `DENIED` with `DECISION_GATE_UNMET` and the unmet gate names, saves nothing, and leaves the agent free to choose another intent; malformed input still returns 422 |
+| POST `/api/issues/{id}/classification`, `/jurisdiction`, `/decisions` | Service-only saved B4 proposals and gate-validated investigation decision intents; decision intent alone does not mutate lifecycle state. A well-formed proposal (or later `/investigation-action` / `/official-dispute` apply) that current facts do not permit returns 403 `DENIED` with `DECISION_GATE_UNMET` and the unmet gate names, saves nothing, and leaves the agent free to choose another intent; malformed input still returns 422. `MARK_ACTIONABLE` names each blocking fact separately: `retained_hazards_require_operator_review`, `classification_unknowns_unresolved`, `jurisdiction_unknowns_unresolved` (plus `current_facts_missing`, `ordinary_cleanup_not_authorized`, `evidence_threshold`). A saved `REQUEST_OPERATOR` intent posted to `/investigation-action` is denied with `request_operator_uses_escalate_to_operator`; it is raised through `/exceptions` with kind `authority` |
 | POST `/api/issues/{id}/operational-decisions` | Service-only durable operational proposal with typed saved basis and current server gates; it never dispatches, settles, reworks, or closes |
 | POST `/api/issues/{id}/investigation-action`, `/official-dispute` | Service-only, revision-checked application of an eligible saved investigation decision |
 | POST `/api/signals/{id}/intake-inspection` | Service-only configured image inspection of stored evidence; exact-version results are cached |
@@ -170,7 +170,9 @@ preserve that key, original invocation, command and three-attempt allowance. A s
 result returns without HTTP. Only actual transient transport uncertainty or an inspection's
 live `503 ERROR / INSPECTION_IN_PROGRESS` can retry; terminal errors, malformed output and
 DENIED/NEEDS_REVIEW cannot. Separate legitimate calls with identical arguments retain separate
-identities. The private `session.recover(logical_request_id)` uses this same transport/parser.
+identities. A model tool call whose input fails the strict schema is cancelled before transport
+with `INVALID_TOOL_INPUT: <reason>` returned to the model; it spends one requested-tool slot and
+the invocation continues within its cycle and request limits rather than ending. The private `session.recover(logical_request_id)` uses this same transport/parser.
 
 The async lifecycle has `prepare(call_ref, command) -> PreparedRequest`,
 `load(logical_request_id) -> PreparedRequest`, `begin_attempt(logical_request_id) -> AttemptPermit`

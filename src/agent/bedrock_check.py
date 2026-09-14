@@ -41,6 +41,7 @@ def build_check_agent():
     from strands.models import BedrockModel
     from strands_tools import current_time
 
+    from .aws_session import region_session
     from .config import settings
 
     class TwoCycles(HookProvider):
@@ -57,7 +58,8 @@ def build_check_agent():
 
     return Agent(
         model=BedrockModel(
-            model_id=settings.resolved_text_model_id, region_name=settings.region, temperature=0, max_tokens=256,
+            model_id=settings.resolved_text_model_id, temperature=0, max_tokens=256,
+            boto_session=region_session(settings.aws_profile, settings.region),
             boto_client_config=Config(connect_timeout=10, read_timeout=60,
                                       retries={"mode": "standard", "total_max_attempts": 2}),
         ),

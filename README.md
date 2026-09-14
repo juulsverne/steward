@@ -10,7 +10,7 @@ Built for the **Good Neighbor Agents** track of the AWS Agents for Humans Hackat
 
 The hackathon scope is locked in [PRD.md](docs/PRD.md). This public **Steward OSS** reference implementation is being built to prove one couch resolution; the future private commercial platform is described separately in [VISION.md](docs/VISION.md).
 
-Implemented: the generic Strands/Bedrock starter; SQLite signals, issue links, scoring and audit events; the persisted 65 → 65 → 85 → 100 service-record/dispute sequence; five labeled synthetic images; image fingerprints; strict verification gates; a bounded Strands preflight and single-call Bedrock vision spike runner. The full Steward agent workflow, dispatch/payment policy tools, and operations UI are **not implemented yet**. After AWS login, the live Strands round trip and all twelve vision comparisons passed on September 13. Tier 1B has started with a pure policy module and seeded district/vendor/address fixtures; policy is not yet wired into mutation endpoints. See [vision readiness](docs/VISION_SPIKE.md) and [document review](docs/DOCUMENT_REVIEW.md).
+Implemented: the generic Strands/Bedrock starter; SQLite signals, issue links, scoring and audit events; the persisted 65 → 65 → 85 → 100 service-record/dispute sequence; five labeled synthetic images; image fingerprints; strict verification gates; a bounded Strands preflight and single-call Bedrock vision spike runner. The full Steward agent workflow now runs end to end through the API: on September 14 the sixteen-step couch acceptance passed live with real Sonnet text and vision in two independently seeded runs (see [DEMO.md](docs/DEMO.md) and the B13 receipt in [BUILD_PLAN.md](docs/BUILD_PLAN.md)). The operations UI is **not implemented yet**. After AWS login, the live Strands round trip and all twelve vision comparisons passed on September 13. Tier 1B has started with a pure policy module and seeded district/vendor/address fixtures; policy is not yet wired into mutation endpoints. See [vision readiness](docs/VISION_SPIKE.md) and [document review](docs/DOCUMENT_REVIEW.md).
 
 The competition proof is one couch: wait at evidence score 65; corroborate at 85; dispute a completed service record when newer physical evidence disagrees; dispatch an authorized $72 cleanup; block payment at verification score 90; resume after operator-requested rework; verify at 100; simulate payment and resolve.
 
@@ -72,7 +72,9 @@ Verified September 13: `uv run --no-sync pytest -q` — **129 passed**; `uv run 
 
 ## Run the live Tier 1A checks
 
-Use your authenticated AWS profile (`aws login --profile default` refreshes the PC profile used for the verified run). Set `AWS_PROFILE` to that profile if a different value is in your environment or `.env`; never overwrite existing configuration blindly. Then run:
+Use your authenticated AWS profile (`aws login --profile default` refreshes the PC profile used for the verified run). Set `AWS_PROFILE` to that profile if a different value is in your environment or `.env`; never overwrite existing configuration blindly.
+
+`aws login` issues fifteen-minute access tokens that botocore refreshes through the sign-in endpoint of the session that resolved them. A session pinned to the Bedrock region (`us-west-2`) asks the wrong sign-in endpoint and fails with `CreateOAuth2Token ... authorization grant is invalid`, even though `aws sts get-caller-identity` still succeeds from the CLI. Steward therefore resolves credentials with the profile's own region and only binds the Bedrock client to `AWS_REGION` (`agent.aws_session.region_session`); the preflight below uses the same path, so a passing preflight now proves the refresh path the server uses. If the preflight itself reports that error, run `aws login` again. Then run:
 
 ```powershell
 uv run --no-sync python -m agent.bedrock_check

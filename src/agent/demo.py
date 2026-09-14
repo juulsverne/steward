@@ -354,6 +354,8 @@ def main(argv=None) -> int:
             driver.record_pending("criterion-16", "first successful run retained; reset independently and pass it with --compare")
         else:
             prior = json.loads(args.compare.read_text(encoding="utf-8"))
+            # The sixteen-step flow is complete here; stamp completion before the repeat comparison reads it.
+            artifact.finished_at = datetime.now(UTC).isoformat()
             compare_successful_runs(prior, asdict(artifact))
             driver.assert_step("criterion-16", True,
                                "two independently seeded successful artifacts have equivalent required judgments")
@@ -361,7 +363,7 @@ def main(argv=None) -> int:
     except (DriverFailure, httpx.HTTPError, OSError) as error:
         artifact.steps.append({"name": "failure", "error": str(error), "at": datetime.now(UTC).isoformat()})
     finally:
-        artifact.finished_at = datetime.now(UTC).isoformat()
+        artifact.finished_at = artifact.finished_at or datetime.now(UTC).isoformat()
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(json.dumps(asdict(artifact), indent=2, sort_keys=True), encoding="utf-8")
         driver.close()
@@ -389,10 +391,17 @@ def _facts(artifact: dict) -> dict:
     detail, board = steps.get("detail-final"), steps.get("board-final")
     if not isinstance(detail, dict) or not isinstance(board, dict):
         raise DriverFailure("comparison artifact lacks final factual API projections")
+    evidence = detail.get("evidence", {}) or {}
+    history = (evidence.get("history", {}) or {}).get("items", []) or []
+    accepted = next((item for item in history if item.get("submission_id") == evidence.get("accepted_submission_id")), None)
     return {"issue_status": detail.get("issue", {}).get("status"),
             "job_status": detail.get("current", {}).get("job", {}).get("status"),
-            "payment_cents": detail.get("current", {}).get("payment", {}).get("amount_cents"),
-            "accepted_submission": detail.get("evidence", {}).get("accepted_submission_id"),
+            "payment_cents": (detail.get("current", {}).get("payment") or {}).get("amount_cents"),
+            # Submission IDs are unique per seeded run; the repeatable judgment is the proof history shape.
+            "accepted_proof": {"exists": evidence.get("accepted_submission_id") is not None,
+                               "total": accepted.get("total") if accepted else None,
+                               "submissions": len(history),
+                               "rejected_totals": sorted(item.get("total") for item in history if not item.get("accepted"))},
             "spent_cents": board.get("budget", {}).get("spent_cents"),
             "reserved_cents": board.get("budget", {}).get("reserved_cents")}
 

@@ -8,7 +8,7 @@ from strands.types._events import ToolResultEvent
 from strands.types.tools import AgentTool, ToolGenerator, ToolSpec, ToolUse
 
 from .client import StewardHttpClient
-from .protocol import OPERATIONS, Command, build_command, error, input_json
+from .protocol import OPERATIONS, Command, build_command, error, input_json, normalize_input
 
 
 class StewardAgentTool(AgentTool):
@@ -63,7 +63,8 @@ class StewardAgentTool(AgentTool):
                 or tool_use.get("name") != self.tool_name
             ):
                 raise ValueError("invalid tool identity")
-            value = self.operation.model.model_validate_json(input_json(tool_use.get("input")))
+            value = self.operation.model.model_validate_json(
+                input_json(normalize_input(tool_use.get("input"))))
             command = self._command(value.model_dump(mode="json", exclude_unset=True))
         except (ValueError, TypeError, RecursionError, OverflowError):
             pass

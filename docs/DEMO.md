@@ -1,6 +1,6 @@
 # Couch acceptance and demo runbook
 
-Status: specification; no steps verified yet. An acceptance run must retain an event trace, resulting state, and actual model/tool outputs. Deterministic unit tests or prerecorded events alone do not prove a live Strands run.
+Status: **API gate passed September 14, 2026** — criteria 1–15 in run 16 and all sixteen in the independently reseeded compare run 20 (`.steward/b13/run16-acceptance.json`, `.steward/b13/run20-acceptance.json`); the UI gate (P7) is not passed. An acceptance run must retain an event trace, resulting state, and actual model/tool outputs. Deterministic unit tests or prerecorded events alone do not prove a live Strands run.
 
 Foundation checkpoint, September 13: `uv run python -m agent.foundation --db .steward/foundation.sqlite3` verifies 65/65/85/100 scoring with a database reopen and six actual events. The first signal now references a real synthetic asset; links/geocode remain supplied fixture metadata. All five images and offline verification/spike code exist. Live Strands preflight and twelve vision inspections now pass (see VISION_SPIKE.md). Real couch agent decisions and financial/crew/operator behavior remain open. This is **not** the acceptance demo and closes no criterion below.
 
@@ -49,9 +49,22 @@ A blocked payment attempt is deliberate evidence of policy enforcement. The deni
 
 Target a final cut around 4:45 to allow margin. Show evidence and concise decisions, not private chain-of-thought. Clearly label seeded service records, synthetic/demo assets, simulated feed, and SIMULATED SETTLEMENT. Do not narrate a replay as live inference.
 
-## Run artifacts to fill after implementation
+## Live acceptance procedure (B13 API gate)
 
-- Exact setup/reset/seed/start commands and fixture version.
-- Model ID/region, policy version, event trace path, run date, pass/fail per step.
+One command seeds an isolated store, starts the API with the runtime dispatcher on a private port, drives `python -m agent.demo` and stops that server; nothing touches the default `.steward/steward.sqlite3`:
+
+```bash
+uv run --no-sync python -m agent.bedrock_check            # same credential path as the server
+bash scripts/acceptance_run.sh run-a 8001                 # first run: criteria 1-15, 16 pending
+bash scripts/acceptance_run.sh run-b 8001 .steward/b13/run-a-acceptance.json   # independent reseed, closes 16
+```
+
+Run one Bedrock workload at a time: the runtime disables SDK retries for honest attempt accounting, so a `ThrottlingException` caused by a concurrent vision spike or second acceptance run ends that invocation as `AGENT_EXECUTION_FAILED` (observed in run 15). Each run keeps `.steward/b13/<tag>-acceptance.json` (per-step API responses, every invocation's model/tool observations, usage and versions), `<tag>-server.log`, `<tag>-demo.log`, `<tag>-seed.log` and `<tag>.sqlite3`. Fixture: seed `south-loop-demo-b3`, image manifest `86b7f711a397c8404b3fa11e7a9ba47d3a3972f46e27b02d22746b8df4d59bed`, policy `south-loop-v3`. Models: `global.anthropic.claude-sonnet-4-6` for text and vision in `us-west-2` (credentials refresh in the profile's own region, see README). Versions: prompt `steward-investigator-v2`, tools `steward-http-tools-v2`, intake prompt `d7593b85983eb362`, intake schema `a547a431f79dbddf`, completion vision prompt `cea02b88fbad2ce3`, completion findings schema `6d1d3b188972ac46`.
+
+The intake photo contract now defines `visible_hazards` as specialist safety hazards and `unknowns` as scope-blocking gaps only; the couch fixture inspects to no hazards and no unknowns, and the supplemental `mixed-hazard.jpg` still reports the loose cable as a hazard (`.steward/b13/intake-negative-mixed-hazard.json`). The completion contract likewise defines `no_new_hazard` as a hazard introduced by the work, so leftover bags reduce `area_clear` (score 90) without also failing the hazard check; see VISION_SPIKE.md for the requalification.
+
+## Run artifacts still to fill
+
+- Pass/fail per step from the retained run receipts (see BUILD_PLAN section 14).
 - A clean-install result and any known fallback behavior.
 - Public video URL, screenshots, and accessible judging URL/test-build instructions.

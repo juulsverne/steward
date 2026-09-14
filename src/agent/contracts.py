@@ -1052,9 +1052,15 @@ class IntakePhotoFindings(Record):
     """Visible intake observations only; separate from completion verification findings."""
 
     visible_objects: tuple[Text, ...] = ()
-    visible_hazards: tuple[Text, ...] = ()
+    visible_hazards: tuple[Text, ...] = Field(default=(), description=(
+        "Safety hazards needing specialist handling before ordinary cleanup (electrical, structural, "
+        "chemical, biological, sharps, fire). Furniture, bags, litter or debris that merely obstruct "
+        "are objects, not hazards; empty for ordinary bulky waste."))
     location_clues: tuple[Text, ...] = ()
-    unknowns: tuple[Text, ...] = ()
+    unknowns: tuple[Text, ...] = Field(default=(), description=(
+        "Facts the image fails to show that are needed to name the object, judge its extent or state the "
+        "cleanup work. Closed-bag contents, internal condition, ownership, timing or address are not "
+        "unknowns; empty for clearly identifiable bulky waste."))
     observations: tuple[Text, ...] = ()
 
 

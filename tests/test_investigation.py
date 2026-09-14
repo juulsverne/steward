@@ -498,3 +498,15 @@ def test_api_interpretation_receipts_replay_and_preserve_seeded_evidence_provena
     classification_id = saved.json()["data"]["record_id"]
     with Store(db) as reopened:
         assert reopened.get_classification_fact(classification_id).provenance == "seeded"
+
+
+def test_intake_vision_contract_defines_hazards_as_specialist_conditions():
+    """Ordinary bulky waste must not be reported as a retained hazard by the photo inspector."""
+    from agent.investigation import INTAKE_SYSTEM_PROMPT
+
+    assert "visible_hazards" in INTAKE_SYSTEM_PROMPT and "not hazards" in INTAKE_SYSTEM_PROMPT
+    description = c.IntakePhotoFindings.model_fields["visible_hazards"].description or ""
+    assert "specialist" in description and "litter" in description
+    assert "unknowns" in INTAKE_SYSTEM_PROMPT and "not unknowns" in INTAKE_SYSTEM_PROMPT
+    unknowns = c.IntakePhotoFindings.model_fields["unknowns"].description or ""
+    assert "extent" in unknowns and "bag" in unknowns

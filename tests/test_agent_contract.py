@@ -386,3 +386,62 @@ def test_cli_service_configured_or_default_origin_uses_bound_destination(monkeyp
     monkeypatch.setattr(cli, "resume_case", read)
     assert cli.main(["--origin", origin, command, "inv-1"]) == (0 if command == "context" else 2)
     assert calls == [(origin, "ambient-private-service-token", "inv-1")]
+
+
+def test_malformed_tool_input_cancels_only_that_call_and_counts_against_budget(tmp_path, monkeypatch):
+    """A basis-kind slip returns its reason to the model instead of ending the invocation."""
+    from pathlib import Path
+
+    import httpx
+    from strands.agent.agent import Agent as OfflineAgent
+    from test_api_auth import ORIGIN, SIGNING, TOKEN
+
+    from agent import core
+    from agent.api import create_app
+    from agent.config import ApiSettings
+    from agent.seed import _seed
+    from agent.store import Store
+    from agent.tools.client import TrustedTransport
+    from agent.tools.session import build_steward_tool_session
+    path = tmp_path / "seed.sqlite3"
+    _seed(path, Path("data"))
+    with Store(path) as store:
+        invocation = store.pending_invocations()[0]
+    app = create_app(ApiSettings(store_path=path, origin=ORIGIN, local_http=True,
+                                service_token=TOKEN, session_secret=SIGNING))
+    seen = {}
+
+    def script(cycle, messages, prompt):
+        case = json.loads(prompt.split("<untrusted_case_json>\n")[1].split("\n</untrusted_case_json>")[0])
+        if cycle == 1:
+            return [("record_operational_decision", {"issue_id": "demo-couch", "decision_type": "REQUEST_OPERATOR",
+                "summary": "wrong basis kind", "evidence_ids": [], "basis": {"kind": "settlement", "job_id": "job",
+                "submission_id": "sub", "verification_id": "ver", "expected_job_revision": 1}})]
+        previous = next(b["toolResult"] for m in reversed(messages) for b in m["content"] if "toolResult" in b)
+        if cycle == 2:
+            seen["result"] = previous
+            return [("record_investigation_decision", {"issue_id": "demo-couch", "decision_type": "MONITOR",
+                "expected_issue_revision": case["issue"]["state_revision"], "summary": "Await an independent observation."})]
+        assert cycle == 3, messages[-1]
+        decision_id = previous["content"][0]["json"]["data"]["record_id"]
+        return [("apply_investigation_decision", {"issue_id": "demo-couch", "decision_id": decision_id,
+                    "expected_issue_revision": case["issue"]["state_revision"]})]
+    model = scripted_model(script)
+    monkeypatch.setattr(core, "Agent", OfflineAgent)
+
+    async def run():
+        async with build_steward_tool_session(TrustedTransport(ORIGIN, TOKEN, invocation.id),
+                                              lifecycle_factory=DurableLifecycle,
+                                              http_transport=httpx.ASGITransport(app=app)) as session:
+            await session.client.lifecycle.acquire()
+            agent = core.build_agent(session, model=model, lifecycle=session.client.lifecycle)
+            await agent.invoke_async("Process the saved trigger.")
+            assert agent.steward_hooks.stopped == "INVESTIGATION_ACTION_APPLIED"
+            assert agent.steward_hooks.model_cycles == 3
+            assert agent.steward_hooks.tool_requests == 3
+    asyncio.run(run())
+    rendered = json.dumps(seen["result"])
+    assert seen["result"]["status"] == "error"
+    assert "INVALID_TOOL_INPUT" in rendered and "does not match basis" in rendered
+    with Store(path) as store:
+        assert store.get_issue_record("demo-couch").status == "MONITORING"

@@ -14,7 +14,7 @@ from .. import http_contracts as h
 from ..case_contracts import CaseContext
 from ..http_protocol import OPERATION_IDS
 
-SCHEMA_VERSION = "steward-http-tools-v1"
+SCHEMA_VERSION = "steward-http-tools-v2"
 MAX_INPUT_BYTES = 128 * 1024
 ENVELOPE_FIELDS = {
     "outcome",
@@ -246,7 +246,12 @@ OPERATIONS = {
             h.ClassificationProposalRequest,
             c.EntityResult,
             "save_classification",
-            "Propose category, visible targets, complete scope, retained hazards and supporting evidence. Do not supply scores or authority.",
+            "Propose category, visible targets, complete cleanup scope and supporting evidence; do not supply scores or authority. "
+            "hazards lists only safety conditions that block ordinary cleanup and need specialist or operator review, such as "
+            "electrical, structural or hazardous_material danger; an ordinary obstruction, trip risk, bags or litter from bulky waste "
+            "is scope, not a hazard, and a recorded hazard is retained for the life of the issue. unknowns lists only missing facts "
+            "that prevent choosing the category or scope; leave it empty when the evidence supports them. Any hazard or unknown "
+            "routes the issue to operator review instead of autonomous cleanup.",
             revision="expected_issue_revision",
             issue_id=ID,
             expected_issue_revision=REV,
@@ -258,7 +263,9 @@ OPERATIONS = {
             h.JurisdictionProposalRequest,
             c.EntityResult,
             "save_jurisdiction",
-            "Propose responsibility from current classification and supporting facts; policy decides authority.",
+            "Propose responsibility from the current classification and supporting facts; policy decides authority. unknowns "
+            "lists only missing facts that prevent determining responsibility; leave it empty when the configured district facts "
+            "settle it, because any unknown blocks MARK_ACTIONABLE.",
             revision="expected_issue_revision",
             issue_id=ID,
             expected_issue_revision=REV,
@@ -270,7 +277,16 @@ OPERATIONS = {
             h.DecisionProposalRequest,
             c.EntityResult,
             "decide",
-            "Record an evidence-backed investigation intention. Use the separate action tool to apply a permitted decision.",
+            "Record an evidence-backed investigation intention, then apply it with apply_investigation_decision or "
+            "official_dispute. decision_type must be MONITOR (score below 70), MARK_ACTIONABLE (score 70 or more, autonomous "
+            "category, district responsibility, no retained hazard and no classification or jurisdiction unknowns; it leads to "
+            "build_resolution_plan), ROUTE_EXTERNAL (city responsibility), DISPUTE_OFFICIAL_STATUS (COMPLETED official record "
+            "plus two independent newer observations) or REQUEST_OPERATOR (blocked by a retained hazard or an unresolvable "
+            "unknown; after recording it, raise the exception with escalate_to_operator using an issue basis of kind "
+            "authority, never apply_investigation_decision). Dispatch, settlement, rework and resolution intents use "
+            "record_operational_decision instead. A DENIED "
+            "result names the unmet gate: repair that named fact with a fresh proposal or choose another permitted intent "
+            "rather than repeating the request.",
             revision="expected_issue_revision",
             issue_id=ID,
             expected_issue_revision=REV,
@@ -306,7 +322,14 @@ OPERATIONS = {
             h.OperationalDecisionProposalRequest,
             c.OperationalDecisionResult,
             "decide_operational",
-            "Record dispatch, settlement, escalation, rework or resolution intention using exact saved references. Its gate preview is not an executed action or settlement denial. The basis supplies the issue/job revision.",
+            "Record dispatch, settlement, escalation, rework or resolution intention using exact saved references. basis is a "
+            "JSON object (never a string) whose kind must match decision_type: dispatch {plan_id, vendor_id, "
+            "expected_issue_revision} for REQUEST_DISPATCH; settlement {job_id, submission_id, verification_id, "
+            "expected_job_revision} for REQUEST_SETTLEMENT; completion_operator {job_id, submission_id, verification_id, "
+            "denial_event_id, expected_job_revision} for REQUEST_OPERATOR after a settlement denial; authority or no_vendor "
+            "{expected_issue_revision} or budget {denial_event_id, expected_issue_revision} for a pre-job REQUEST_OPERATOR; "
+            "rework {operator_decision_id, expected_job_revision} for REQUEST_REWORK; resolve {job_id, payment_id, "
+            "submission_id, verification_id} for RESOLVE. Its gate preview is not an executed action or settlement denial.",
             issue_id=ID,
         ),
         _op(
@@ -316,7 +339,12 @@ OPERATIONS = {
             h.PlanRequest,
             c.EntityResult,
             "build_resolution_plan",
-            "Build a plan from current validated scope; the server derives the quote and policy checks.",
+            "Build a plan from current validated scope; the server derives the quote and policy checks. PLAN_DENIED "
+            "names each unmet fact: scope_incomplete, scope_unknowns, scope_evidence_missing, classification_not_current, "
+            "current_jurisdiction_missing, authority_unknowns and current_location_missing are repaired with one fresh "
+            "proposal or adapter lookup each; inspection_unknowns and successful_scope_inspection_missing come from the "
+            "trusted photo inspection and cannot be repaired by proposals, so record REQUEST_OPERATOR and escalate "
+            "(kind authority) instead of retrying the plan.",
             revision="expected_issue_revision",
             issue_id=ID,
             expected_issue_revision=REV,
@@ -398,7 +426,9 @@ OPERATIONS = {
             None,
             c.EntityResult,
             "request_rework",
-            "Apply the actual saved operator Request completion choice to the same job and quote; stop awaiting fresh proof.",
+            "Apply the actual saved operator Request completion choice to the same job and quote; stop awaiting fresh "
+            "proof. decision_id is the operator's saved decision id carried by the OPERATOR_DECISION trigger and by "
+            "get_exception, never one of your own operational decision ids.",
             revision="expected_job_revision",
             decision_id=ID,
             expected_job_revision=REV,
@@ -454,7 +484,8 @@ _ISSUE = Operation(
     h.IssueExceptionRequest,
     c.EntityResult,
     "escalate_to_operator",
-    "Record a supported authority, vendor or budget exception.",
+    "Record a supported authority, vendor or budget exception; kind authority covers retained hazards and unknown "
+    "responsibility after a REQUEST_OPERATOR intent.",
     revision="expected_issue_revision",
 )
 OPERATIONS["escalate_to_operator"] = Operation(
@@ -465,7 +496,9 @@ OPERATIONS["escalate_to_operator"] = Operation(
     None,
     c.EntityResult,
     "escalate_to_operator",
-    "Escalate a completion denial with its exact proof/verification/event, or a supported pre-job authority, vendor or budget problem. This cannot invent a human decision.",
+    "Escalate a completion denial with its exact proof/verification/event, or a supported pre-job authority, vendor or "
+    "budget problem (issue basis; kind authority for retained hazards or unknown responsibility, reason_code naming the "
+    "unmet gate). This cannot invent a human decision.",
 )
 ROUTES = {
     **{name: op for name, op in OPERATIONS.items() if op.path},
@@ -487,7 +520,29 @@ def operation_for(name: str) -> Operation:
     raise ValueError("unknown operation")
 
 
+def _object_from_string(values: dict, field: str) -> dict:
+    """Accept one nested object the model serialized as a JSON string; anything else stays as sent."""
+    raw = values.get(field)
+    if type(raw) is not str:
+        return values
+    try:
+        parsed = json.loads(raw)
+    except ValueError:
+        return values
+    if type(parsed) is not dict:
+        return values
+    return {**values, field: parsed}
+
+
+def normalize_input(values: Any) -> Any:
+    """Host-side repair of the one nested object models tend to stringify; other input is untouched."""
+    if type(values) is not dict:
+        return values
+    return _object_from_string(values, "basis")
+
+
 def build_command(name: str, values: dict) -> Command:
+    values = normalize_input(values)
     if name == "escalate_to_operator":
         value = EscalationInput.model_validate_json(input_json(values))
         basis = value.basis.model_dump(mode="json", exclude_unset=True)

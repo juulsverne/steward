@@ -39,6 +39,12 @@ Bag-count descriptions varied between two and two-to-three; the required presenc
 
 Median observed inspection latency: **6.513 s**. Total image-run usage: **38,388 input / 3,907 output tokens**. These are actual usage counts, not a dollar-cost estimate.
 
+## Requalification after the completion hazard definition — September 14, 2026
+
+During the B13 live acceptance the middle proof (couch removed, bags remaining) scored 90 in one run and 80 in the next because the inspector once reported the leftover bags as a "new hazard". The `no_new_hazard` field and the system prompt now define a new hazard as one introduced by the work (exposed wires, broken glass, spills, fire); bags, litter or debris already present that remain are not new hazards and only affect `area_clear`. Prompt version `cea02b88fbad2ce3`; findings schema `6d1d3b188972ac46`.
+
+Rerun alone at `2026-09-14T07:36:29Z` with the same model, region and three repeats: **12/12 expected outcomes, zero errors, zero false acceptances** (`.steward/vision-spike-20260914T073629760499Z.json`). Middle 90/90/90 with prerequisites passed and no automatic payment; after 100/100/100 eligible; unrelated 40/40/40 with `same_scene`, `target_removed`, `no_new_hazard` and `area_clear` failed; reused 100/100/100 blocked by `image_reuse`. Latencies 6.5–7.5 s. An earlier attempt at `07:33:59Z` recorded one `ThrottlingException` on the reused pairing because a live acceptance run was executing concurrently; the runtime disables SDK retries, so Bedrock workloads must run one at a time.
+
 ## Reproduce
 
 ```powershell

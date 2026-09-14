@@ -841,7 +841,8 @@ def create_app(settings: ApiSettings | None = None,
                 except AccessError:
                     continue
                 candidates.append(SimilarIssueView(id=item.id, status=item.status,
-                    location=item.location, evidence_score=item.evidence_score))
+                    location=item.location, evidence_score=item.evidence_score,
+                    state_revision=item.state_revision))
                 if len(candidates) > 20:
                     break
             return c.ToolResult(outcome="OK", data=SimilarIssuesView(

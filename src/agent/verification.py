@@ -19,7 +19,10 @@ class VisionFindings(BaseModel):
     target_present_before: bool | None = Field(description="Target clearly visible in BEFORE?")
     same_scene: bool | None = Field(description="Same location and comparable viewpoint?")
     target_removed: bool | None = Field(description="Target absent in AFTER?")
-    no_new_hazard: bool | None = Field(description="No new visible wires, glass, spills or hazards?")
+    no_new_hazard: bool | None = Field(description=(
+        "True when the work introduced no safety hazard (exposed wires, broken glass, spills, fire, "
+        "blocked egress). Bags, litter or debris already present that remain are not new hazards; "
+        "they only affect area_clear."))
     area_clear: bool | None = Field(description="Work area free of target, bags and loose debris?")
     observations: list[str] = Field(min_length=1, max_length=12, description="Short visible facts")
 

@@ -179,3 +179,19 @@ def test_inspection_client_and_spike_artifact_use_only_the_resolved_vision_model
 
     assert client.request["modelId"] == "vision-model"
     assert result["vision_model_id"] == "vision-model"
+
+
+def test_profile_model_session_resolves_credentials_in_the_profile_region(monkeypatch):
+    """A Bedrock-region session cannot refresh an `aws login` token issued elsewhere."""
+    from agent import aws_session, core
+
+    calls = []
+    captured = {}
+    monkeypatch.setattr(aws_session, "region_session",
+                        lambda profile, region: calls.append((profile, region)) or "model-session")
+    monkeypatch.setattr(core, "BedrockModel", lambda **kwargs: captured.update(kwargs))
+    monkeypatch.setattr(core, "settings", make_settings(aws_profile="pc"))
+    core.build_model()
+    assert calls == [("pc", "us-west-2")]
+    assert captured["boto_session"] == "model-session"
+    assert "region_name" not in captured

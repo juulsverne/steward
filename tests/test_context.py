@@ -233,3 +233,30 @@ def test_original_operator_choice_stays_critical_beyond_event_page(tmp_path):
         assert packet.submissions[0].id == proof
         assert packet.verifications[0].total == 90
         assert packet.latest_denial.event_type == "SETTLEMENT_DENIED"
+
+
+def test_unlinked_signal_issue_candidates_carry_current_revision(tmp_path):
+    """A model linking an unlinked signal needs the candidate issue's real revision."""
+    from datetime import UTC, datetime
+
+    from test_investigation import context
+
+    from agent import contracts as c
+    from agent.models import Signal
+    at = datetime.now(UTC)
+    with Store(tmp_path / "context.sqlite3") as store:
+        trigger = Signal("trigger", "resident", "author", "sofa on the walk", "1530 S Michigan Ave", at, "live")
+        receipt = store.receive_signal(trigger, context=context("submit_signal", "trigger"),
+            invocation=c.PendingInvocationSpec(id="inv-trigger", trigger_type="SIGNAL_RECEIVED",
+                                                policy_version="south-loop-v3"))
+        invocation = store.get_invocation(receipt.invocation_id)
+        store.create_issue("existing", "bulky_waste", "1530 S Michigan Ave")
+        store.store_signal(Signal("earlier", "resident", "other", "couch dumped", "1530 S Michigan Ave", at, "live"))
+        store.link_signal("existing", "earlier")
+        current = store.get_issue_record("existing").state_revision
+        packet = read_packet(store, invocation)
+        assert packet.issue is None
+        issues = [x for x in packet.candidates if x.kind == "issue"]
+        assert [x.id for x in issues] == ["existing"]
+        assert current > 0 and issues[0].state_revision == current
+        assert all(x.state_revision is None for x in packet.candidates if x.kind == "signal")

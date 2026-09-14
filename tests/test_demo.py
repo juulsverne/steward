@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 
@@ -153,9 +155,32 @@ def test_driver_rejects_missing_or_wrong_historical_85(event):
 def test_repeat_comparison_requires_two_real_successful_artifacts():
     successful = {"origin": "http://steward.test", "fixture_scenario": "baseline", "finished_at": "done",
                   "run_id": "one", "criteria": {f"criterion-{i}": {"passed": True} for i in range(1, 16)},
-                  "steps": [{"name": "detail-final", "body": {"data": {"issue": {"status": "RESOLVED"}, "current": {"job": {"status": "PAID"}, "payment": {"amount_cents": 7200}}, "evidence": {"accepted_submission_id": "sub"}}}}, {"name": "board-final", "body": {"data": {"budget": {"spent_cents": 7200, "reserved_cents": 0}}}}]}
-    second = {**successful, "run_id": "two"}
-    compare_successful_runs(successful, second)
+                  "steps": [{"name": "detail-final", "body": {"data": {"issue": {"status": "RESOLVED"}, "current": {"job": {"status": "PAID"}, "payment": {"amount_cents": 7200}}, "evidence": {"accepted_submission_id": "sub-one", "history": {"items": [{"submission_id": "first-one", "accepted": False, "total": 90}, {"submission_id": "sub-one", "accepted": True, "total": 100}]}}}}}, {"name": "board-final", "body": {"data": {"budget": {"spent_cents": 7200, "reserved_cents": 0}}}}]}
+    second = json.loads(json.dumps({**successful, "run_id": "two"}).replace("sub-one", "sub-two").replace("first-one", "first-two"))
+    compare_successful_runs(successful, second)  # different per-run submission IDs, same judgments
+    weaker = json.loads(json.dumps(second).replace('"total": 90', '"total": 80'))
+    with pytest.raises(DriverFailure):
+        compare_successful_runs(successful, weaker)
     incomplete = {**successful, "criteria": {**successful["criteria"], "criterion-10": {"passed": False}}}
     with pytest.raises(DriverFailure):
         compare_successful_runs(successful, incomplete)
+
+
+def test_main_second_run_with_compare_closes_criterion_16(tmp_path, monkeypatch):
+    """The compare run must see its own completed artifact, not a not-yet-finished one."""
+    original = demo.DemoDriver
+    monkeypatch.setenv("STEWARD_SERVICE_TOKEN", "service-token")
+
+    def run(out, extra=()):
+        dialogue = Dialogue()
+        dialogue.full_main = True
+        monkeypatch.setattr(demo, "DemoDriver", lambda *args, **kwargs: original(*args, **kwargs,
+                            transport=httpx.MockTransport(dialogue)))
+        return demo.main(["--base-url", "http://steward.test", "--out", str(out), "--wait-seconds", "1", *extra])
+
+    first, second = tmp_path / "first.json", tmp_path / "second.json"
+    assert run(first) == 0
+    assert run(second, ["--compare", str(first)]) == 0, second.read_text(encoding="utf-8")
+    artifact = __import__("json").loads(second.read_text(encoding="utf-8"))
+    assert artifact["criteria"]["criterion-16"]["passed"] is True
+    assert artifact["finished_at"] and artifact["run_id"] != __import__("json").loads(first.read_text(encoding="utf-8"))["run_id"]

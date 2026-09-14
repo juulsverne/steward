@@ -735,3 +735,82 @@ def test_contradictory_actual_cause_is_rejected_before_decision_and_action_repla
             inv.apply_investigation_decision(store, issue_id=issue_id, decision_id=decision.id, context=action_ctx)
         assert store.get_issue_record(issue_id).status == "MONITORING"
         assert store.get_event(cause.id).issue_id is None
+
+
+def test_similar_issue_candidates_expose_current_issue_revision(tmp_path):
+    """find_similar_issues must return the revision a later link request has to cite."""
+    from test_api_auth import seed_boundary_records
+
+    path = tmp_path / "b4.sqlite3"
+    seed_boundary_records(path)
+    with Store(path) as store:
+        store.store_signal(signal("search", image=False), actor=ACTOR)
+        revisions = {name: store.get_issue_record(name).state_revision for name in ("one", "two")}
+    with client_for(tmp_path) as client:
+        similar = client.get("/api/issues/similar", params={"signal_id": "search"}, headers=headers("q"))
+        assert similar.status_code == 200, similar.text
+        candidates = {x["id"]: x for x in similar.json()["data"]["candidates"]}
+        assert set(candidates) == {"one", "two"}
+        for name, revision in revisions.items():
+            assert candidates[name]["state_revision"] == revision
+
+
+def test_actionable_gate_names_each_blocking_fact_and_clears_when_withdrawn(tmp_path):
+    """A denied MARK_ACTIONABLE must say which fact blocks it so the model can repair the right one."""
+    with linked_store(tmp_path)[0] as store:
+        item = store.get_signal("first")
+        facts(store, item)
+        store.record_geocode("issue", accuracy_m=10, provenance="seeded")
+        store.add_signal("issue", signal("witness", author="other", image=False, text="Another report"))
+        speculative = proposal(store, item, "speculative", unknowns=("Whether the items await scheduled pickup",))
+        old = store.get_jurisdiction_fact("jurisdiction")
+        revision = store.get_issue_record("issue").state_revision
+        inv.save_jurisdiction(store, old.model_copy(update={"id": "fresh", "classification_fact_id": speculative.id,
+            "source_issue_revision": revision, "unknowns": ("Who maintains the parkway",)}),
+            context=context("jurisdiction", "fresh", revision))
+        revision = store.get_issue_record("issue").state_revision
+        assert store.get_issue_record("issue").evidence_score >= 70
+        with pytest.raises(inv.DecisionGateUnmet) as blocked:
+            inv.decide(store, issue_id="issue", proposed_type="MARK_ACTIONABLE", summary="clean",
+                evidence_ids=(), context=context("decide", "blocked", revision))
+        assert blocked.value.unmet == ("classification_unknowns_unresolved", "jurisdiction_unknowns_unresolved")
+        settled = proposal(store, item, "settled")
+        revision = store.get_issue_record("issue").state_revision
+        inv.save_jurisdiction(store, old.model_copy(update={"id": "settled", "classification_fact_id": settled.id,
+            "source_issue_revision": revision}), context=context("jurisdiction", "settled", revision))
+        revision = store.get_issue_record("issue").state_revision
+        decision = inv.decide(store, issue_id="issue", proposed_type="MARK_ACTIONABLE", summary="clean",
+            evidence_ids=(), context=context("decide", "permitted", revision))
+        assert decision.decision_type == "MARK_ACTIONABLE"
+
+
+def test_free_text_hazard_is_retained_and_named_by_the_actionable_gate(tmp_path):
+    with linked_store(tmp_path)[0] as store:
+        item = store.get_signal("first")
+        facts(store, item, hazards=("loose glass on the walkway",))
+        store.record_geocode("issue", accuracy_m=10, provenance="seeded")
+        store.add_signal("issue", signal("witness", author="other", image=False, text="Another report"))
+        benign = proposal(store, item, "benign")
+        old = store.get_jurisdiction_fact("jurisdiction")
+        revision = store.get_issue_record("issue").state_revision
+        inv.save_jurisdiction(store, old.model_copy(update={"id": "fresh", "classification_fact_id": benign.id,
+            "source_issue_revision": revision}), context=context("jurisdiction", "fresh", revision))
+        revision = store.get_issue_record("issue").state_revision
+        with pytest.raises(inv.DecisionGateUnmet) as blocked:
+            inv.decide(store, issue_id="issue", proposed_type="MARK_ACTIONABLE", summary="clean",
+                evidence_ids=(), context=context("decide", "blocked", revision))
+        assert blocked.value.unmet == ("retained_hazards_require_operator_review",)
+        assert store.current_issue_facts("issue").unresolved_hazards == ("loose glass on the walkway",)
+
+
+def test_request_operator_intent_is_not_applied_by_investigation_action(tmp_path):
+    """The saved intent must point the caller at the escalation tool, not fail as malformed."""
+    with linked_store(tmp_path)[0] as store:
+        revision = store.get_issue_record("issue").state_revision
+        saved = inv.decide(store, issue_id="issue", proposed_type="REQUEST_OPERATOR", summary="hazard review",
+            evidence_ids=(), context=context("decide", "operator", revision))
+        with pytest.raises(inv.DecisionGateUnmet) as blocked:
+            inv.apply_investigation_decision(store, issue_id="issue", decision_id=saved.id,
+                context=context("apply", "apply-operator", revision))
+        assert blocked.value.unmet == ("request_operator_uses_escalate_to_operator",)
+        assert store.get_issue_record("issue").state_revision == revision

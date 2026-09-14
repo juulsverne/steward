@@ -106,3 +106,13 @@ def test_frozen_profile_keeps_ambient_credentials_distinct_from_named_profile(mo
         {"connect_timeout": 10, "read_timeout": 90, "retries": {"mode": "standard", "total_max_attempts": 1}},
         {"connect_timeout": 10, "read_timeout": 90, "retries": {"mode": "standard", "total_max_attempts": 1}},
     ]
+
+
+def test_completion_contract_keeps_leftover_debris_out_of_new_hazards():
+    """A partial cleanup with remaining bags scores 90, so remaining debris must not read as a new hazard."""
+    from agent.verification import VisionFindings
+    from agent.vision import SYSTEM_PROMPT
+
+    description = VisionFindings.model_fields["no_new_hazard"].description or ""
+    assert "not new hazards" in description and "area_clear" in description
+    assert "no_new_hazard" in SYSTEM_PROMPT and "not new hazards" in SYSTEM_PROMPT
