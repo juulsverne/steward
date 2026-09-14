@@ -1,1 +1,5 @@
-.intake { max-width: 560px; }
+.intake { max-width: 660px; }
+.intake .card { background: var(--surface); padding: 22px; border: 1px solid var(--rule); border-radius: var(--radius-card); }
+.intake .card__body { padding: 0; }
+.intake .page-header { margin-bottom: 30px; }
+@media (max-width: 639px) { .intake .card { padding: 16px; } }

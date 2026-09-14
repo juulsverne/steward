@@ -29,11 +29,11 @@ function Frame() {
   return (
     <>
       <a className="skip-link" href="#main">Skip to content</a>
+      <div className="sandbox-strip"><span><b>Sandbox demo</b> · Seeded district and fixtures</span><span>Dispatch and settlement are simulated</span></div>
       <header className="app-header">
         <div className="app-header__brand">
-          <NavLink to="/" className="wordmark">Steward</NavLink>
+          <NavLink to="/" className="wordmark">steward<span>.</span></NavLink>
           <span className="district">{DISTRICT}</span>
-          <span className="sandbox-chip" title={s.session?.notice ?? "Demo personas and seeded fixtures"}>Sandbox demo</span>
         </div>
         <button type="button" className="menu-button btn btn--quiet" aria-expanded={open} aria-controls="app-menu" onClick={() => setOpen((v) => !v)}>Menu</button>
         <div id="app-menu" className={`app-menu ${open ? "app-menu--open" : ""}`}>

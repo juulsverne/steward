@@ -1,18 +1,30 @@
-.issue__next { margin-bottom: 4px; }
-.issue__last { margin-bottom: 24px; }
-.issue__grid { display: grid; grid-template-columns: 8fr 4fr; gap: 24px; align-items: start; }
-@media (max-width: 1023px) { .issue__grid { grid-template-columns: 1fr; } .issue__aside { order: 1; } .issue__main > :nth-child(3) { order: 2; } }
-.source-list { list-style: none; margin: 0; padding: 0; }
+.issue__next { max-width: 700px; margin-bottom: 4px; font-family: var(--font-heading); font-size: 22px; line-height: 1.25; }
+.issue__last { margin-bottom: 25px; }
+.issue__grid { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 32px; align-items: start; }
+.issue__aside { border-left: 1px solid var(--rule); padding-left: 25px; }
+.issue__aside .card__header h2 { font-family: var(--font-heading); font-size: 22px; font-weight: 400; }
+.issue__aside .card__body { font-size: 12px; }
+.issue__aside .kv { grid-template-columns: 1fr; gap: 2px; }
+.issue__aside .kv dd { margin-bottom: 9px; overflow-wrap: anywhere; }
+.issue__aside .kv dt { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
+.issue__aside h3 { margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--rule); }
+.source-list { list-style: none; margin: 14px 0 0; padding: 0; }
 .source-row { padding: 12px 0; border-top: 1px solid var(--rule); }
-.official-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; padding: 16px; border: 1px solid var(--rule); border-radius: var(--radius-card); background: var(--surface-2); }
-@media (max-width: 639px) { .official-compare { grid-template-columns: 1fr; } }
-.official-compare h3 { margin-bottom: 8px; }
+.official-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); padding: 15px 0; }
+.official-compare h3, .evidence-comparison__earlier h3 { font-size: 12px; margin-bottom: 10px; }
 .proof-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
-.proof-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-@media (max-width: 639px) { .proof-pair { grid-template-columns: 1fr; } }
-.decision { padding: 16px; border-left: 3px solid var(--action); background: var(--surface-2); border-radius: 0 var(--radius-card) var(--radius-card) 0; }
+.proof-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.evidence-comparison__primary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.evidence-comparison__primary .evidence--full img { aspect-ratio: 4 / 3; }
+.evidence-comparison__earlier { border-top: 1px solid var(--rule); padding-top: 16px; }
+.evidence-comparison__sources { border-top: 1px solid var(--rule); padding-top: 14px; }
+.evidence-comparison__sources summary { cursor: pointer; font-size: 12px; font-weight: 600; }
+.issue__history summary { cursor: pointer; color: var(--ink-2); font-size: 12px; font-weight: 600; }
+.issue__history .stack-3 { margin-top: 18px; }
+.decision { padding: 0 0 16px 16px; border-left: 3px solid var(--action); background: transparent; border-radius: 0; }
 .timeline { list-style: none; margin: 0; padding: 0; border-left: 1px solid var(--rule-strong); }
-.timeline__item { display: grid; grid-template-columns: 160px 1fr; gap: 16px; padding: 12px 0 12px 20px; position: relative; }
-.timeline__item::before { content: ""; position: absolute; left: -5px; top: 20px; width: 9px; height: 9px; border-radius: 50%; background: var(--rule-strong); }
-.timeline__when { color: var(--ink-2); font-size: 13px; }
-@media (max-width: 639px) { .timeline__item { grid-template-columns: 1fr; gap: 4px; } }
+.timeline__item { display: grid; grid-template-columns: 145px 1fr; gap: 16px; padding: 12px 0 12px 19px; position: relative; }
+.timeline__item::before { content: ""; position: absolute; left: -4px; top: 20px; width: 7px; height: 7px; border-radius: 50%; background: var(--rule-strong); }
+.timeline__when { color: var(--ink-2); font-size: 11px; }
+@media (max-width: 900px) { .issue__grid { grid-template-columns: 1fr; } .issue__aside { border-left: 0; border-top: 1px solid var(--rule); padding: 0; } }
+@media (max-width: 639px) { .official-compare, .evidence-comparison__primary, .proof-pair { grid-template-columns: 1fr; } .timeline__item { grid-template-columns: 1fr; gap: 4px; } }

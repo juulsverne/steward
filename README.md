@@ -25,7 +25,7 @@ You need: Python 3.11+, [uv](https://docs.astral.sh/uv/), Node.js 22 or newer wi
 ### 1. Install
 
 ```bash
-git clone <this repository> && cd agents-for-humans
+git clone https://github.com/juulsverne/steward.git && cd steward
 uv sync --locked --extra dev --extra web
 cd frontend && npm ci && npm run build && cd ..
 ```

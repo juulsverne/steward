@@ -75,9 +75,11 @@ function IssueContent() {
         <div className="issue__main stack-6">
           <SectionCard id="evidence" title="Evidence"><EvidenceComparison detail={d} /></SectionCard>
           <SectionCard id="decision" title="Decision and policy"><DecisionCard detail={d} /></SectionCard>
-          <SectionCard id="timeline" title="Timeline">
-            {events.status === "pending" ? <PendingState /> : events.data ? <DecisionTimeline events={events.data.events} /> : <ErrorNotice error={events.error} onRetry={() => void load()} />}
-            {events.data && events.data.truncated && <p className="small muted">Showing the 50 most recent events.</p>}
+          <SectionCard id="timeline" title="Decision history">
+            <details className="issue__history"><summary>Open audit history and event references</summary>
+              {events.status === "pending" ? <PendingState /> : events.data ? <DecisionTimeline events={events.data.events} /> : <ErrorNotice error={events.error} onRetry={() => void load()} />}
+              {events.data && events.data.truncated && <p className="small muted">Showing the 50 most recent events.</p>}
+            </details>
           </SectionCard>
         </div>
         <aside className="issue__aside stack-6">
@@ -87,7 +89,7 @@ function IssueContent() {
                 <KeyValue items={[{ label: "Scope", value: plan.scope }, { label: "Primary target", value: plan.primary_target ?? "Unknown" }, { label: "Work area", value: plan.work_area },
                   { label: "Equipment", value: plan.required_equipment.join(", ") || "None" }, { label: "Quote", value: <Money cents={plan.quote_cents} /> }, { label: "Policy", value: plan.policy_version }]} />
                 {job && <>
-                  <h3>Job {job.id}</h3>
+                  <h3>Work order</h3><p className="small muted">Job <code>{job.id}</code></p>
                   <KeyValue items={[{ label: "Vendor", value: job.vendor_label }, { label: "Status", value: <StatusBadge label={jobStatus(job.status).label} tone={jobStatus(job.status).tone} /> },
                     { label: "Quote", value: <Money cents={job.quote_cents} simulated /> }, { label: "Reservation", value: job.reservation_id ?? "None" }, { label: "Dispatch", value: <StatusBadge label="Simulated dispatch" tone="neutral" /> }]} />
                   {job.status === "REWORK_REQUIRED" && <p className="small muted">Rework keeps the same plan, quote and reservation.</p>}

@@ -2,7 +2,7 @@
 
 **Deadline: September 14, 2026, 5 PM Pacific / 7 PM Chicago.** Track: **Good Neighbor Agents**. Requirements were checked against the [official rules](https://agentsforhumans.devpost.com/rules) on September 11, 2026. Strands is required; AgentCore is optional under the rules and tier 3 in our [build order](PRD.md#45-build-order). Build gates live in [BUILD_PLAN.md](BUILD_PLAN.md).
 
-State of this checklist as of September 14 afternoon: the materials below are written and committed; publication (making the repository public, uploading the video, saving the Devpost form) is the owner's action and has not happened. Nothing here invents a link.
+State of this checklist as of September 14 finish review: the materials below are written and committed, and GitHub confirms the repository is public. Video publication and Devpost submission remain owner actions without completion evidence. Nothing here invents a link.
 
 ## Project description (paste into Devpost)
 
@@ -52,7 +52,7 @@ A neighborhood operator hears about the same dumped couch three times: a communi
 - [x] Recording script for a demo of at most five minutes ([DEMO.md](DEMO.md#recording-script--maximum-5-minutes)).
 - [x] Disclosure of incorporated pre-existing work and third-party rights (below).
 - [ ] **Owner:** register on Devpost and provide the AWS Builder ID.
-- [ ] **Owner:** make the repository public with all source, assets and instructions. Public repository URL: `https://github.com/juulsverne/steward` (the git remote; the frontend footer's Source link points there too). It is private until the owner flips it.
+- [x] **Repository visibility:** GitHub API verified `private: false` on September 14 for `https://github.com/juulsverne/steward`. Final source/assets/instructions and signed-out judging access still require the final candidate check.
 - [ ] **Owner:** record the video from the script, upload it to YouTube or Vimeo as public, and test the link signed out.
 - [ ] **Owner:** judging access — paste the hosted URL and the clone-and-run fallback from above; keep the instance running through October 8.
 - [ ] **Owner:** save the Devpost submission and verify it before the deadline.
@@ -84,7 +84,7 @@ AgentCore Runtime, Observability and Gateway are the remaining tier 3 items (the
 
 ## Final links — fill when real
 
-- Public repository: `https://github.com/juulsverne/steward` (private until the owner makes it public)
+- Public repository: `https://github.com/juulsverne/steward` (public visibility verified September 14)
 - Judging access and instructions: `https://d1uke66gfefpu4.cloudfront.net` (hosted, see above); clone-and-run fallback in [README.md](../README.md#run-it-yourself)
 - Public video: pending owner recording and upload
 - Devpost submission: pending owner action

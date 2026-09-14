@@ -1,65 +1,64 @@
 /* Steward tokens. Light is the default; dark redefines the same names. */
 :root {
   color-scheme: light;
-  --canvas: #F6F3EE; --surface: #FFFFFF; --surface-2: #EFEBE4;
-  --rule: #DDD7CC; --rule-strong: #B8B0A3;
-  --ink: #14213D; --ink-2: #47506A; --ink-3: #6F6A62;
-  --action: #0F6E6B; --action-hover: #0B5957; --on-action: #FFFFFF; --action-soft: #DFF0EE;
-  --focus: #0A4F4D;
-  --status-watching-bg: #E6ECF5; --status-watching-fg: #2B4A7A;
-  --status-active-bg: #DFF0EE; --status-active-fg: #0F6E6B;
-  --status-attention-bg: #FBEBD0; --status-attention-fg: #7A4B00;
-  --status-resolved-bg: #DDF1E1; --status-resolved-fg: #1E6B3A;
-  --status-denied-bg: #F8E1E1; --status-denied-fg: #8A2A2A;
-  --status-neutral-bg: #ECE8E1; --status-neutral-fg: #514B43;
-  --shadow-menu: 0 1px 2px rgba(20,33,61,.08), 0 8px 24px rgba(20,33,61,.08);
-  --font-ui: "Public Sans Variable", system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --font-heading: "Newsreader Variable", Georgia, "Times New Roman", serif;
-  --radius-control: 4px; --radius-card: 8px;
-  --gutter: 16px; --content-max: 1200px;
+  --canvas: #F6F5F0; --surface: #FCFCF8; --surface-2: #E7EEEA;
+  --rule: #D8DEDB; --rule-strong: #AEBDB7;
+  --ink: #172F41; --ink-2: #556875; --ink-3: #60727C;
+  --action: #17665F; --action-hover: #104F4A; --on-action: #FCFCF8; --action-soft: #E7EEEA;
+  --focus: #17665F;
+  --status-watching-bg: #E7EDF0; --status-watching-fg: #35546A;
+  --status-active-bg: #E7EEEA; --status-active-fg: #17665F;
+  --status-attention-bg: #F3EBD9; --status-attention-fg: #805619;
+  --status-resolved-bg: #E7EEEA; --status-resolved-fg: #17665F;
+  --status-denied-bg: #F4E5E0; --status-denied-fg: #874537;
+  --status-neutral-bg: #E9EEEB; --status-neutral-fg: #556875;
+  --shadow-menu: 0 10px 28px rgba(23,47,65,.12);
+  --font-ui: "Public Sans Variable", "Segoe UI", sans-serif;
+  --font-heading: "Newsreader Variable", Georgia, serif;
+  --radius-control: 4px; --radius-card: 4px;
+  --gutter: 18px; --content-max: 1280px;
   --motion-fast: 160ms; --motion-panel: 240ms;
 }
 @media (min-width: 768px) { :root { --gutter: 24px; } }
 @media (min-width: 1024px) { :root { --gutter: 32px; } }
 
 [data-theme="dark"] { color-scheme: dark;
-  --canvas: #12151C; --surface: #1A1F29; --surface-2: #232936;
-  --rule: #303747; --rule-strong: #414A5E;
-  --ink: #EEF0F4; --ink-2: #B7BECC; --ink-3: #8C94A6;
-  --action: #5CC8C2; --action-hover: #7AD6D0; --on-action: #0F1A1A; --action-soft: #163A39;
-  --focus: #8FE3DE;
-  --status-watching-bg: #223352; --status-watching-fg: #A9C1EA;
-  --status-active-bg: #163A39; --status-active-fg: #7FD9D2;
-  --status-attention-bg: #4A3512; --status-attention-fg: #F2C776;
-  --status-resolved-bg: #1B3D28; --status-resolved-fg: #8FD9A5;
-  --status-denied-bg: #4A1F1F; --status-denied-fg: #F1A3A3;
-  --status-neutral-bg: #2A2F3A; --status-neutral-fg: #C0C6D2;
+  --canvas: #14212B; --surface: #1B2B36; --surface-2: #294840;
+  --rule: #3D515A; --rule-strong: #617780;
+  --ink: #ECF1ED; --ink-2: #AABDC6; --ink-3: #8CA1AA;
+  --action: #8AD0BE; --action-hover: #A8E1D2; --on-action: #14212B; --action-soft: #294840;
+  --focus: #A8E1D2;
+  --status-watching-bg: #28404C; --status-watching-fg: #C0D5DD;
+  --status-active-bg: #294840; --status-active-fg: #A8E1D2;
+  --status-attention-bg: #493D28; --status-attention-fg: #EED39B;
+  --status-resolved-bg: #294840; --status-resolved-fg: #A8E1D2;
+  --status-denied-bg: #4A2A27; --status-denied-fg: #F0B7AB;
+  --status-neutral-bg: #293B43; --status-neutral-fg: #C1D0D4;
   --shadow-menu: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.4);
 }
+/* "System" clears data-theme; preserve the same reviewed dark tokens for that case. */
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) { color-scheme: dark;
-    --canvas: #12151C; --surface: #1A1F29; --surface-2: #232936;
-    --rule: #303747; --rule-strong: #414A5E;
-    --ink: #EEF0F4; --ink-2: #B7BECC; --ink-3: #8C94A6;
-    --action: #5CC8C2; --action-hover: #7AD6D0; --on-action: #0F1A1A; --action-soft: #163A39;
-    --focus: #8FE3DE;
-    --status-watching-bg: #223352; --status-watching-fg: #A9C1EA;
-    --status-active-bg: #163A39; --status-active-fg: #7FD9D2;
-    --status-attention-bg: #4A3512; --status-attention-fg: #F2C776;
-    --status-resolved-bg: #1B3D28; --status-resolved-fg: #8FD9A5;
-    --status-denied-bg: #4A1F1F; --status-denied-fg: #F1A3A3;
-    --status-neutral-bg: #2A2F3A; --status-neutral-fg: #C0C6D2;
+  :root:not([data-theme]) { color-scheme: dark;
+    --canvas: #14212B; --surface: #1B2B36; --surface-2: #294840;
+    --rule: #3D515A; --rule-strong: #617780;
+    --ink: #ECF1ED; --ink-2: #AABDC6; --ink-3: #8CA1AA;
+    --action: #8AD0BE; --action-hover: #A8E1D2; --on-action: #14212B; --action-soft: #294840;
+    --focus: #A8E1D2;
+    --status-watching-bg: #28404C; --status-watching-fg: #C0D5DD;
+    --status-active-bg: #294840; --status-active-fg: #A8E1D2;
+    --status-attention-bg: #493D28; --status-attention-fg: #EED39B;
+    --status-resolved-bg: #294840; --status-resolved-fg: #A8E1D2;
+    --status-denied-bg: #4A2A27; --status-denied-fg: #F0B7AB;
+    --status-neutral-bg: #293B43; --status-neutral-fg: #C1D0D4;
     --shadow-menu: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.4);
   }
 }
-
 *, *::before, *::after { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
 body { margin: 0; background: var(--canvas); color: var(--ink); font-family: var(--font-ui);
   font-size: 16px; line-height: 1.5; }
 h1, h2 { font-family: var(--font-heading); font-weight: 450; line-height: 1.2; margin: 0; letter-spacing: -0.005em; }
-h1 { font-size: 26px; } h2 { font-size: 22px; }
-@media (min-width: 768px) { h1 { font-size: 30px; } }
+h1 { font-size: clamp(34px, 5.2vw, 52px); letter-spacing: -0.035em; line-height: 1.06; } h2 { font-size: 22px; }
 h3, h4 { font-family: var(--font-ui); font-weight: 600; font-size: 14px; line-height: 1.4; margin: 0; }
 p { margin: 0; }
 a { color: var(--action); text-underline-offset: 2px; }
@@ -80,4 +79,4 @@ code, .mono { font-family: ui-monospace, "Cascadia Mono", Consolas, Menlo, monos
 .row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .stack-2 > * + * { margin-top: 8px; } .stack-3 > * + * { margin-top: 12px; }
 .stack-4 > * + * { margin-top: 16px; } .stack-6 > * + * { margin-top: 24px; }
-.page { max-width: var(--content-max); margin: 0 auto; padding: 24px var(--gutter) 64px; }
+.page { max-width: var(--content-max); margin: 0 auto; padding: 30px var(--gutter) 64px; }
