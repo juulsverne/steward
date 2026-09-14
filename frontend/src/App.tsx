@@ -60,7 +60,7 @@ function Frame() {
         </Routes>
       </main>
       <footer className="app-footer small muted">
-        Demo personas, seeded fixtures and simulated dispatch and settlement. No real authority or money. <a href="https://github.com/juulsverne/agents-for-humans">Source</a>
+        Demo personas, seeded fixtures and simulated dispatch and settlement. No real authority or money. <a href="https://github.com/juulsverne/steward">Source</a>
       </footer>
     </>
   );
