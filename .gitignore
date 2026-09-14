@@ -49,3 +49,7 @@ docs/plans/
 
 # Parallel implementation worktrees
 .worktrees/
+
+# Frontend build artifacts
+frontend/node_modules/
+frontend/dist/
