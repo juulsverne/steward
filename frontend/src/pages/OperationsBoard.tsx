@@ -57,8 +57,9 @@ function BoardContent() {
   const [selected, setSelected] = useState<string | null>(null);
   if (status === "pending" && !data) return <div className="page"><PageHeader eyebrow="Operations board" title="South Loop Demo District" /><PendingState /></div>;
   if (!data) return <div className="page"><PageHeader eyebrow="Operations board" title="South Loop Demo District" /><ErrorNotice error={error} onRetry={() => void reload()} /></div>;
-  const located = [...data.markers].sort((a, b) => ORDER[a.marker_state] - ORDER[b.marker_state]).filter((k) => k.latitude !== null);
-  const unlocated = data.markers.filter((k) => k.latitude === null);
+  const markers = Array.isArray(data.markers) ? data.markers : [];
+  const located = [...markers].sort((a, b) => ORDER[a.marker_state] - ORDER[b.marker_state]).filter((k) => k.latitude !== null);
+  const unlocated = markers.filter((k) => k.latitude === null);
   const b = data.budget; const total = Math.max(b.initial_cents, 1);
   return (
     <div className="page board">
@@ -84,7 +85,7 @@ function BoardContent() {
       </section>
       <div className="board__grid">
         <section className="board__list" aria-label="Issues">
-          {data.markers.length === 0 ? <EmptyState title="No issues in this district" /> : (
+          {markers.length === 0 ? <EmptyState title="No issues in this district" /> : (
             <>
               <ul className="issue-list">{located.map((k) => <MarkerRow key={k.issue_id} k={k} selected={k.issue_id === selected} onSelect={setSelected} />)}</ul>
               {unlocated.length > 0 && (
@@ -100,7 +101,7 @@ function BoardContent() {
             </>
           )}
         </section>
-        <aside className="board__map"><IssueMap markers={data.markers} selectedId={selected} onSelect={setSelected} /></aside>
+        <aside className="board__map"><IssueMap markers={markers} selectedId={selected} onSelect={setSelected} /></aside>
       </div>
     </div>
   );
