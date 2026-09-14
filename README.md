@@ -134,6 +134,7 @@ The foundation harness prints **OFFLINE FOUNDATION CHECK** and proves scoring an
 - [Submission checklist and judging access](docs/SUBMISSION.md)
 - [Post-competition company vision](docs/VISION.md)
 - [Coding-agent instructions](AGENTS.md)
+- [Commit identity cleanup and mapping for historical evidence](docs/HISTORY.md)
 
 ## Project layout
 
