@@ -1,0 +1,90 @@
+import { requirementLabel } from "../api/labels";
+import { plural } from "../lib/format";
+import type { IssueDetailView, ProofHistoryItem } from "../types";
+import { EvidenceImage } from "./EvidenceImage";
+import { KeyValue } from "./KeyValue";
+import { Points } from "./Points";
+import { ProvenanceTag } from "./ProvenanceTag";
+import { StatusBadge } from "./StatusBadge";
+import { Timestamp } from "./Timestamp";
+
+export function ProofPair({ beforeId, afterId, jobId, beforeObservedAt, afterObservedAt }: { beforeId: string | null; afterId: string | null; jobId: string | null; beforeObservedAt?: string | null; afterObservedAt?: string | null }) {
+  return (
+    <div className="proof-pair">
+      {beforeId ? <EvidenceImage evidenceId={beforeId} role="Before" observedAt={beforeObservedAt ?? null} jobId={jobId} /> : <p className="muted">No before photo</p>}
+      {afterId ? <EvidenceImage evidenceId={afterId} role="After" observedAt={afterObservedAt ?? null} jobId={jobId} /> : <p className="muted">No after photo</p>}
+    </div>
+  );
+}
+
+function conflictText(state: string | null | undefined): string {
+  if (!state) return "No official record conflict";
+  if (state.toUpperCase().includes("CONFIRM")) return "Dispute confirmed, service match credited";
+  if (state.toUpperCase().includes("PENDING")) return "Conflict pending, 0 points credited";
+  return state;
+}
+
+export function EvidenceComparison({ detail }: { detail: IssueDetailView }) {
+  const sources = detail.sources.items; const facts = detail.facts; const record = detail.service_records.items[0] ?? null;
+  const completed = facts.official_completed_at ?? record?.completed_at ?? null;
+  const newer = completed ? sources.filter((s) => s.observed_at && s.observed_at > completed) : [];
+  const history = detail.evidence.history?.items ?? [];
+  const ordered = [...history].sort((a, b) => a.submitted_at.localeCompare(b.submitted_at));
+  const beforeId = detail.evidence.original_before_evidence_id;
+  const jobId = detail.current.job?.id ?? null;
+  return (
+    <div className="stack-6">
+      <div className="stack-3">
+        <h3>{plural(sources.length, "source")}, {detail.issue.components.independent_sources} independent points</h3>
+        <ul className="source-list">
+          {sources.map((s) => (
+            <li key={s.id} className="source-row">
+              <div className="row"><strong>{s.source_role}</strong><ProvenanceTag provenance={s.provenance} /><Timestamp value={s.observed_at} label="observed" /><Timestamp value={s.received_at} label="received" /></div>
+              <p className="small muted">{s.reported_location}</p>
+              {s.evidence_ids.length > 0 && <div className="row">{s.evidence_ids.map((id) => <EvidenceImage key={id} evidenceId={id} role="Intake" observedAt={s.observed_at} provenance={s.provenance} size="thumb" />)}</div>}
+            </li>
+          ))}
+        </ul>
+      </div>
+      <div className="official-compare">
+        <div className="official-compare__col">
+          <h3>Official 311 record</h3>
+          {record || facts.official_record_status ? (
+            <KeyValue items={[
+              { label: "Status", value: facts.official_record_status ?? record?.status ?? "Unknown" },
+              { label: "Completed", value: <Timestamp value={completed} /> },
+              { label: "Lookup", value: record ? <span>{record.source_mode} <ProvenanceTag provenance={record.provenance} /></span> : "Unknown" },
+              { label: "Conflict", value: conflictText(facts.official_conflict_state) },
+            ]} />
+          ) : <p className="muted">No official record found</p>}
+        </div>
+        <div className="official-compare__col">
+          <h3>Newer observations</h3>
+          {newer.length === 0 ? <p className="muted">None newer than the official completion</p> : (
+            <ul className="stack-2">{newer.map((s) => <li key={s.id} className="row"><strong>{s.source_role}</strong><Timestamp value={s.observed_at} label="observed" /><ProvenanceTag provenance={s.provenance} /></li>)}</ul>
+          )}
+        </div>
+      </div>
+      {beforeId && (
+        <div className="stack-3">
+          <h3>Proof of work</h3>
+          <div className="proof-row">
+            <EvidenceImage evidenceId={beforeId} role="Before" jobId={jobId} />
+            {ordered.map((item: ProofHistoryItem, index) => {
+              const label = ordered.length > 1 && index < ordered.length - 1 ? "Middle" : "After";
+              const accepted = item.submission_id === detail.evidence.accepted_submission_id;
+              return item.after_evidence_id ? (
+                <EvidenceImage key={item.submission_id} evidenceId={item.after_evidence_id} role={label} observedAt={item.submitted_at} jobId={jobId}
+                  caption={<>
+                    {item.total !== null && item.total !== undefined && <Points value={item.total} threshold={95} style="of" suffix="for payment" />}
+                    {item.unmet.map((u) => <StatusBadge key={u} label={`Failed: ${requirementLabel(u)}`} tone="attention" />)}
+                    {accepted ? <StatusBadge label="Accepted" tone="resolved" /> : !item.accepted && index < ordered.length - 1 ? <StatusBadge label="Superseded" tone="neutral" /> : null}
+                  </>} />
+              ) : null;
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
