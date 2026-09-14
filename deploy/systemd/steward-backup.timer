@@ -1,0 +1,12 @@
+[Unit]
+Description=Run the Steward backup 15 minutes after boot and every 6 hours
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=6h
+RandomizedDelaySec=5min
+Persistent=true
+Unit=steward-backup.service
+
+[Install]
+WantedBy=timers.target
