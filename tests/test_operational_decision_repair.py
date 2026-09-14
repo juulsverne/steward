@@ -214,11 +214,30 @@ def test_all_post_contracts_have_correct_media_headers_and_bodyless_operations(t
     bodyless = {"accept_job", "cancel_job", "close_issue", "request_rework", "inspect_intake_photo"}
     multipart = {"submit_signal", "submit_proof"}
     no_revision = {"submit_signal", "select_demo_persona", "create_issue_from_signal", "inspect_intake_photo"}
+    controls = {f"runtime_{name}" for name in ("claim", "renew", "prepare", "load", "begin", "finish",
+                "reconcile", "requests", "authorize", "observe", "complete")}
+    seen_controls = set()
+    seen_resume = False
     for path in document["paths"].values():
         if "post" not in path:
             continue
         operation = path["post"]
         name = operation["operationId"]
+        if name in controls:
+            seen_controls.add(name)
+            parameters = {parameter["name"] for parameter in operation.get("parameters", [])}
+            assert "Idempotency-Key" not in parameters and "X-Steward-Expected-Revision" not in parameters
+            body = operation["requestBody"]
+            assert body["required"] and set(body["content"]) == {"application/json"}
+            schema = body["content"]["application/json"]["schema"]
+            assert schema["additionalProperties"] is False and "nonce" in schema["required"]
+            assert {"claim", "owner", "command", "attempt_id"} <= set(schema["properties"])
+            continue
+        if name == "resume_invocation":
+            seen_resume = True
+            assert "requestBody" not in operation
+            assert {parameter["name"] for parameter in operation.get("parameters", [])} == {"invocation_id"}
+            continue
         assert ("requestBody" not in operation) == (name in bodyless), name
         parameters = {parameter["name"]: parameter for parameter in operation["parameters"]}
         assert parameters["Idempotency-Key"]["required"], name
@@ -228,6 +247,7 @@ def test_all_post_contracts_have_correct_media_headers_and_bodyless_operations(t
             expected_type = "multipart/form-data" if name in multipart else "application/json"
             assert set(operation["requestBody"]["content"]) == {expected_type}, name
             assert operation["requestBody"]["required"], name
+    assert seen_controls == controls and seen_resume
     path = "/api/issues/{issue_id}/operational-decisions".replace("~", "~0").replace("/", "~1")
     reference = f"#/paths/{path}/post/requestBody/content/application~1json/schema"
     validator = Draft202012Validator({**document, "$ref": reference})

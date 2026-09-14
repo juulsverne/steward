@@ -4,6 +4,7 @@ from pathlib import Path
 from threading import Barrier
 
 import pytest
+from runtime_support import permit_context
 from test_crew import crew_headers, dispatched_job, select_crew
 from test_inspection import proof_ready_job, valid_findings
 from test_inspection_repair import another_proof, inspect
@@ -192,13 +193,15 @@ def test_actual_denial_rework_fresh_fixture_payment_and_close(tmp_path):
             op.release_payment(store, job_id=job, submission_id=proof, context=wrong)
         latest_cause = store.db.execute("SELECT id FROM invocations WHERE job_id=? AND trigger_type='PROOF_SUBMITTED' ORDER BY rowid DESC", (job,)).fetchone()[0]
         bound = wrong.model_copy(update={"invocation_id": latest_cause})
+        bound = permit_context(store, bound, "release_payment", job_id=job, submission_id=proof)
         paid = op.release_payment(store, job_id=job, submission_id=proof, context=bound)
         assert paid.result.outcome == "OK"
         with pytest.raises(AccessError):
             op.release_payment(store, job_id=job, submission_id=proof, context=wrong)
         issue = store.get_issue_record("issue")
-        closed = op.close_issue(store, issue_id="issue", context=context("close", "bound-close", issue.state_revision).model_copy(
-            update={"invocation_id": latest_cause}))
+        closed = op.close_issue(store, issue_id="issue", context=permit_context(store,
+            context("close", "bound-close", issue.state_revision).model_copy(update={"invocation_id": latest_cause}),
+            "close_issue", issue_id="issue"))
         assert closed.result.outcome == "OK"
     with client_for(tmp_path) as client:
         assert settle(client, job, first).json() == denial.json()
@@ -360,6 +363,7 @@ def test_denied_close_replays_original_proof_cause_after_new_proof(tmp_path):
         invocation = store.db.execute("SELECT id FROM invocations WHERE job_id=? AND trigger_type='PROOF_SUBMITTED'", (job,)).fetchone()[0]
         revision = store.get_issue_record("issue").state_revision
         ctx = context("close", "denied-bound-close", revision).model_copy(update={"invocation_id": invocation})
+        ctx = permit_context(store, ctx, "close_issue", issue_id="issue")
         denied = op.close_issue(store, issue_id="issue", context=ctx)
         assert denied.result.outcome == "DENIED"
         op.request_rework(store, decision_id=decision.record_id, context=_service_rework_context("rework"))
@@ -372,8 +376,10 @@ def test_denied_close_replays_original_proof_cause_after_new_proof(tmp_path):
     with Store(tmp_path / "b4.sqlite3") as store:
         assert op.close_issue(store, issue_id="issue", context=ctx) == denied
         # A new request still cannot use this old proof cause against the newer proof.
+        new_context = permit_context(store, ctx.model_copy(update={"runtime": None, "idempotency_key": "new-close"}),
+                                     "close_issue", issue_id="issue")
         with pytest.raises(AccessError):
-            op.close_issue(store, issue_id="issue", context=ctx.model_copy(update={"idempotency_key": "new-close"}))
+            op.close_issue(store, issue_id="issue", context=new_context)
 
 
 def test_historical_close_rejects_missing_authoritative_physical_source(tmp_path):

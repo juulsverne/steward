@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import ipaddress
+import json
 import re
 import secrets
 import sqlite3
 from asyncio import to_thread
 from collections.abc import Callable
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -37,6 +38,7 @@ from .adapters import SeededAdapters
 from .case_contracts import CaseContext
 from .config import ApiSettings
 from .context import build_context
+from .coordinator import RuntimeConflict, command_record, validate_transport
 from .decisions import record_operational_decision
 from .http_contracts import (
     CandidateSignalsView,
@@ -139,6 +141,8 @@ def _configure_openapi(app: FastAPI) -> None:
         if not isinstance(route, APIRoute) or "POST" not in route.methods:
             continue
         operation = route.operation_id
+        if operation.startswith("runtime_") or operation == "resume_invocation":
+            continue
         extra = dict(route.openapi_extra or {})
         parameters = {item["name"].lower(): item for item in extra.get("parameters", [])}
         header_names = ["Idempotency-Key"]
@@ -395,13 +399,13 @@ def expected_revision(request: Request) -> int | None:
     return int(value)
 
 
-async def parse_json_request(request: Request, model):
+async def parse_json_request(request: Request, model, *, max_bytes=16 * 1024):
     if (_header(request, "content-type") or "").split(";", 1)[0].strip() != "application/json":
         raise AccessError(415, "JSON_REQUIRED")
     raw = bytearray()
     async for chunk in request.stream():
         raw.extend(chunk)
-        if len(raw) > 16 * 1024:
+        if len(raw) > max_bytes:
             raise AccessError(413, "REQUEST_TOO_LARGE")
     try:
         return model.model_validate_json(bytes(raw))
@@ -460,7 +464,7 @@ def mutation_context(request: Request, action: Action, *,
             raise AccessError(400, "INVOCATION_ID_INVALID")
     return c.MutationContext(actor=actor, operation=operation or action.value,
         idempotency_key=idempotency_key(request), invocation_id=invocation_id,
-        expected_revision=expected_revision)
+        expected_revision=expected_revision, runtime=getattr(request.state, "runtime_authority", None))
 
 
 @contextmanager
@@ -477,6 +481,10 @@ def request_store(request: Request):
     request.state.store_opened = True
     try:
         with request.app.state.store_factory(request.app.state.api_settings.store_path) as store:
+            store.runtime_clock = request.app.state.runtime_clock
+            authority = getattr(request.state, "runtime_authority", None)
+            if authority is not None and request.method == "GET":
+                validate_transport(store, _header(request, "x-steward-invocation-id"), authority)
             yield store
     except KeyError:
         raise AccessError(404, "RESOURCE_NOT_FOUND") from None
@@ -484,13 +492,30 @@ def request_store(request: Request):
 
 def create_app(settings: ApiSettings | None = None,
                *, store_factory: Callable = Store, adapters=None, intake_inspector=None,
-               completion_inspector=None) -> FastAPI:
+               completion_inspector=None, runtime_model_factory=None, runtime_http_transport=None,
+               runtime_runner=None, runtime_clock=None) -> FastAPI:
     settings = settings or ApiSettings.from_env()
     personas = _validate_setup(settings)
+    @asynccontextmanager
+    async def lifespan(app):
+        import asyncio
+        task = None
+        if settings.runtime_enabled:
+            from .dispatcher import Dispatcher
+            app.state.runtime_dispatcher = Dispatcher(app, model_factory=runtime_model_factory,
+                http_transport=runtime_http_transport, runner=runtime_runner)
+            task = asyncio.create_task(app.state.runtime_dispatcher.run())
+        try:
+            yield
+        finally:
+            if task is not None:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
     app = FastAPI(title="Steward demo sandbox", description=(
         "Seeded persona simulation, not verified identity. No private information. "
-        "Authenticated intake, investigation, planning and simulated dispatch."), responses=ERROR_RESPONSES)
+        "Authenticated intake, investigation, planning and simulated dispatch."), responses=ERROR_RESPONSES, lifespan=lifespan)
     app.state.api_settings = settings
+    app.state.runtime_clock = runtime_clock
     app.state.store_factory = store_factory
     app.state.adapters = adapters or SeededAdapters()
     app.state.intake_inspector = intake_inspector
@@ -502,11 +527,48 @@ def create_app(settings: ApiSettings | None = None,
 
     @app.middleware("http")
     async def transport(request: Request, call_next):
+        from time import monotonic
+        started = monotonic()
         request.state.request_id = str(uuid4())
         try:
             if _header(request, "host") not in app.state.allowed_hosts:
                 raise AccessError(400, "HOST_FORBIDDEN")
+            control_headers = tuple(_header(request, name) for name in (
+                "x-steward-attempt-id", "x-steward-lease-owner", "x-steward-fencing-token"))
+            if any(value is not None for value in control_headers):
+                actor = resolve_actor(request)
+                if actor.actor_type != "service" or not all(control_headers):
+                    raise AccessError(403, "RUNTIME_PERMIT_REQUIRED")
+                from .tools.protocol import ROUTES, Command
+                matched = [op for op in ROUTES.values() if op.method == request.method and re.fullmatch(
+                    re.sub(r"\\\{\w+\\\}", r"[A-Za-z0-9_.-]+", re.escape(op.path)), request.url.path)]
+                if len(matched) != 1:
+                    raise AccessError(403, "COMMAND_MISMATCH")
+                raw = bytearray()
+                async for chunk in request.stream():
+                    raw.extend(chunk)
+                    if len(raw) > 128 * 1024:
+                        raise AccessError(413, "REQUEST_TOO_LARGE")
+                request._body = bytes(raw)
+                try:
+                    revision_raw = _header(request, "x-steward-expected-revision")
+                    command = Command(matched[0].name, request.method, request.url.path,
+                        query=dict(request.query_params), body=json.loads(raw) if raw else None,
+                        expected_revision=int(revision_raw) if revision_raw is not None else None)
+                    request.state.runtime_authority = c.RuntimeAuthority(attempt_id=control_headers[0],
+                        owner=control_headers[1], fence=int(control_headers[2]),
+                        command_json=command_record(command).model_dump_json())
+                except (ValueError, TypeError):
+                    raise AccessError(400, "COMMAND_MISMATCH") from None
             response = await call_next(request)
+            if request.url.path.startswith("/internal/invocations/"):
+                from .runtime_api import record_control_request
+                await to_thread(record_control_request, app, resolve_actor(request, optional=True),
+                    request.path_params.get("invocation_id"), request.url.path.rsplit("/", 1)[-1],
+                    request.state.request_id, response.status_code, max(0, int((monotonic() - started) * 1000)))
+            dispatcher = getattr(app.state, "runtime_dispatcher", None)
+            if dispatcher is not None and request.method == "POST" and response.status_code < 400 and not request.url.path.startswith("/internal/"):
+                dispatcher.wake.set()
         except AccessError as error:
             response = error_response(error, app.state.cookie_name)
         except Exception:  # noqa: BLE001 -- outer HTTP boundary must redact unexpected errors
@@ -541,6 +603,10 @@ def create_app(settings: ApiSettings | None = None,
     @app.exception_handler(IdempotencyConflict)
     async def idempotency_error(request, error):
         return error_response(AccessError(409, "IDEMPOTENCY_CONFLICT"), app.state.cookie_name)
+
+    @app.exception_handler(RuntimeConflict)
+    async def runtime_error(request, error):
+        return error_response(AccessError(409, str(error)), app.state.cookie_name)
 
     @app.exception_handler(RevisionConflict)
     async def revision_error(request, error):
@@ -1359,6 +1425,8 @@ def create_app(settings: ApiSettings | None = None,
         except KeyError:
             raise AccessError(404, "RESOURCE_NOT_FOUND") from None
 
+    from .runtime_api import install_runtime_routes
+    install_runtime_routes(app)
     # Refuse a server change that has not frozen its public client operation ID.
     for route in app.routes:
         if isinstance(route, APIRoute) and route.operation_id is None:

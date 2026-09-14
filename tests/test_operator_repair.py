@@ -175,9 +175,11 @@ def assert_choice_waiting(store, job_id, exception_id, decision_id):
 
 
 def test_exact_operator_cause_replays_after_restart_but_altered_trigger_is_rejected(tmp_path, monkeypatch):
+    from runtime_support import permit_context
     job, _proof, exception, decision = chosen(tmp_path)
     ctx = _service_rework_context("bound-rework").model_copy(update={"invocation_id": decision.invocation_id})
     with Store(tmp_path / "b4.sqlite3") as store:
+        ctx = permit_context(store, ctx, "request_rework", decision_id=decision.record_id)
         applied = op.request_rework(store, decision_id=decision.record_id, context=ctx)
         assert applied.invocation_id == decision.invocation_id
         saved_job = store.get_job(job)
@@ -198,9 +200,11 @@ def test_exact_operator_cause_replays_after_restart_but_altered_trigger_is_rejec
 
 
 def test_later_real_operator_choice_cannot_replay_an_earlier_choice(tmp_path):
+    from runtime_support import permit_context
     job, _proof, _exception, first = chosen(tmp_path)
     first_ctx = _service_rework_context("first-bound").model_copy(update={"invocation_id": first.invocation_id})
     with Store(tmp_path / "b4.sqlite3") as store:
+        first_ctx = permit_context(store, first_ctx, "request_rework", decision_id=first.record_id)
         op.request_rework(store, decision_id=first.record_id, context=first_ctx)
     with client_for(tmp_path, completion_inspector=valid_findings) as client:
         select_crew(client)

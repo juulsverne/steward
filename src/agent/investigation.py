@@ -30,9 +30,10 @@ INTAKE_SYSTEM_PROMPT = (
     "price, identity, dispatch, or facts outside the image."
 )
 INTAKE_PROMPT_VERSION = hashlib.sha256(INTAKE_SYSTEM_PROMPT.encode()).hexdigest()[:16]
+INTAKE_MAX_TOKENS = 1024
 INTAKE_REQUEST_TEMPLATE = {
     "system": [{"text": INTAKE_SYSTEM_PROMPT}],
-    "inferenceConfig": {"maxTokens": 512, "temperature": 0},
+    "inferenceConfig": {"maxTokens": INTAKE_MAX_TOKENS, "temperature": 0},
     "messages": [{"role": "user", "content": [{"image": {"format": "jpeg", "source": {"bytes": None}}}]}],
     "toolConfig": {"tools": [{"toolSpec": {"name": "report_intake_findings",
         "description": "Return visible-only intake findings.",
@@ -175,6 +176,7 @@ def _event(tx, issue_id: str, actor: c.ActorContext, event_type: str, *,
            revision: int, summary: str, record_id: str | None = None,
            score: c.EvidenceComponents | None = None, outcome: str = "OK") -> c.EventRecord:
     return tx.append_event(c.NewEvent(issue_id=issue_id, event_type=event_type,
+        invocation_id=tx.runtime_context.invocation_id if tx.runtime_context else None,
         timestamp=datetime.now(UTC), actor=actor, state_revision=revision,
         policy_version=POLICY_VERSION, payload=c.EventFacts(summary=summary, record_id=record_id,
             outcome=outcome, score_components=score)))
@@ -183,6 +185,7 @@ def _event(tx, issue_id: str, actor: c.ActorContext, event_type: str, *,
 def _receipt(*, context: c.MutationContext, fingerprint: str, issue_id: str | None,
              record_id: str, state_revision: int | None, event_ids: tuple[int, ...]) -> c.RequestReceipt:
     return c.RequestReceipt(id=str(uuid4()), operation=context.operation,
+        invocation_id=context.invocation_id,
         actor_id=context.actor.actor_id, idempotency_key=context.idempotency_key,
         request_sha256=fingerprint, issue_id=issue_id, created_at=datetime.now(UTC),
         result=c.ToolResult[c.EntityResult](outcome="OK", data=c.EntityResult(
@@ -234,6 +237,7 @@ def create_issue_from_signal(store: Store, *, signal_id: str, rationale: str,
         linked_issue = store._link_signal(issue_id, signal_id)
         _bind_unlinked_signal_invocation(tx, store, context, signal_id=signal_id, issue_id=issue_id)
         result = c.RequestReceipt(id=str(uuid4()), operation=context.operation,
+            invocation_id=context.invocation_id,
             actor_id=context.actor.actor_id, idempotency_key=context.idempotency_key,
             request_sha256=fingerprint, signal_id=signal_id, issue_id=issue_id,
             created_at=datetime.now(UTC), result=c.ToolResult[c.EntityResult](outcome="OK",
@@ -271,6 +275,7 @@ def link_signal_to_issue(store: Store, *, issue_id: str, signal_id: str, rationa
         event = _event(tx, issue_id, context.actor, "CANDIDATE_LINK_RECORDED",
             revision=current.state_revision, summary=rationale, record_id=signal_id)
         receipt = c.RequestReceipt(id=str(uuid4()), operation=context.operation,
+            invocation_id=context.invocation_id,
             actor_id=context.actor.actor_id, idempotency_key=context.idempotency_key,
             request_sha256=fingerprint, signal_id=signal_id, issue_id=issue_id,
             created_at=datetime.now(UTC), result=c.ToolResult[c.EntityResult](outcome="OK",
@@ -624,7 +629,7 @@ def inspection_cache_key(*, evidence: c.EvidenceRecord, preprocessing_version: s
 def intake_configuration_version() -> str:
     return hashlib.sha256(json.dumps({"model": settings.resolved_vision_model_id,
         "region": settings.region, "profile": _inspection_profile(),
-        "max_tokens": 512, "temperature": 0}, sort_keys=True).encode()).hexdigest()[:16]
+        "max_tokens": INTAKE_MAX_TOKENS, "temperature": 0}, sort_keys=True).encode()).hexdigest()[:16]
 
 
 def _inspection_basis(image):
@@ -662,7 +667,8 @@ def default_intake_inspector(image: bytes, *, basis: c.IntakeInspectionBasis) ->
     valid = response.get("stopReason") == "tool_use" and len(uses) == 1 and uses[0].get("name") == "report_intake_findings"
     return {"findings": uses[0].get("input") if valid else None,
         "request_id": response.get("ResponseMetadata", {}).get("RequestId"),
-        "usage": response.get("usage"), "metrics": response.get("metrics")}
+        "usage": response.get("usage"), "metrics": response.get("metrics"),
+        "stop_reason": response.get("stopReason")}
 
 
 def _inspection_record(*, signal_id, image, basis, claim_id=None, findings=None, metadata=None,
@@ -686,6 +692,7 @@ def _save_inspection(store, tx, record, context, fingerprint, *, save_receipt=Tr
             tx.replace_issue(issue.model_copy(update={"hazards": hazards,
                 "state_revision": issue.state_revision + 1}), issue.state_revision)
     event = tx.append_event(c.NewEvent(issue_id=issue.id if issue else None, signal_id=record.signal_id,
+        invocation_id=context.invocation_id,
         event_type="INTAKE_INSPECTED" if record.outcome == "SUCCESS" else "INTAKE_INSPECTION_FAILED",
         timestamp=datetime.now(UTC), actor=context.actor, policy_version=POLICY_VERSION,
         payload=c.EventFacts(record_id=record.id, outcome="OK" if record.outcome == "SUCCESS" else "ERROR",
@@ -695,6 +702,7 @@ def _save_inspection(store, tx, record, context, fingerprint, *, save_receipt=Tr
         evidence_ids=(record.evidence_id,), event_ids=(event.id,))
     if save_receipt:
         tx.save_request(c.RequestReceipt(id=str(uuid4()), operation=context.operation,
+            invocation_id=context.invocation_id,
             actor_id=context.actor.actor_id, idempotency_key=context.idempotency_key,
             request_sha256=fingerprint, signal_id=record.signal_id, issue_id=issue.id if issue else None,
             created_at=datetime.now(UTC), result=result))
@@ -704,7 +712,7 @@ def _save_inspection(store, tx, record, context, fingerprint, *, save_receipt=Tr
 def _abandon_inspection(store, tx, claim):
     """A crashed/expired call may have spent tokens; its missing result is explicitly unknown."""
     context = c.MutationContext(actor=claim.actor, operation=claim.operation,
-        idempotency_key=claim.idempotency_key)
+        idempotency_key=claim.idempotency_key, invocation_id=claim.invocation_id)
     record = _inspection_record(signal_id=claim.signal_id, image=store.get_evidence(claim.evidence_id),
         basis=claim.basis, claim_id=claim.id, error_code="INSPECTION_INTERRUPTED")
     tx.finish_intake_claim(claim.id, abandoned=True)
@@ -747,6 +755,7 @@ def inspect_intake_photo(store: Store, *, signal_id: str, image_root, inspector=
         now = datetime.now(UTC)
         claim = c.IntakeInspectionClaim(id=str(uuid4()), actor=context.actor,
             operation=context.operation, idempotency_key=context.idempotency_key,
+            invocation_id=context.invocation_id,
             request_sha256=fingerprint, signal_id=signal_id, evidence_id=image.id,
             evidence_sha256=image.image_sha256, cache_key=basis.cache_key, basis=basis,
             started_at=now, expires_at=now + timedelta(seconds=120))
@@ -763,17 +772,24 @@ def inspect_intake_photo(store: Store, *, signal_id: str, image_root, inspector=
         if isinstance(answer, dict):
             metadata = metadata.model_copy(update={
                 "request_id": answer.get("request_id"),
+                "stop_reason": answer.get("stop_reason"),
                 "usage": c.ModelUsage.model_validate(answer["usage"]) if answer.get("usage") else None,
                 "metrics": c.ModelMetrics.model_validate(answer["metrics"]) if answer.get("metrics") else None})
-        findings = answer if isinstance(answer, c.IntakePhotoFindings) else c.IntakePhotoFindings.model_validate(
-            answer.get("findings", answer))
+        findings = answer if isinstance(answer, c.IntakePhotoFindings) else c.IntakePhotoFindings.model_validate_json(
+            json.dumps(answer.get("findings", answer), allow_nan=False))
     except Exception as exc:  # noqa: BLE001 -- bounded errors preserve the attempt without fabricated findings
         error_code = ("STORED_IMAGE_MISMATCH" if str(exc) == "STORED_IMAGE_MISMATCH"
                       else "INVALID_MODEL_OUTPUT" if isinstance(exc, (ValueError, TypeError))
                       else "INSPECTION_FAILED")
 
+    # Preserve a returned physical observation even if the runtime owner was replaced.
+    observed = _inspection_record(signal_id=signal_id, image=image, basis=basis, claim_id=claim.id,
+        findings=findings, metadata=metadata, error_code=error_code)
+    with store.transaction():
+        store.db.execute("INSERT INTO intake_physical_observations VALUES (?,?)", (claim.id, observed.model_dump_json()))
     with store.transaction() as tx:
         current = store.get_intake_claim(claim.id)
+        tx.validate_runtime(context)
         _authorize(store, context, signal_id=signal_id, evidence_ids=(image.id,))
         if current.status == "RUNNING" and current.expires_at <= datetime.now(UTC):
             _abandon_inspection(store, tx, current)

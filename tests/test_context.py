@@ -104,8 +104,11 @@ def test_actual_operator_choice_and_handled_rework_keep_failed_proof(tmp_path):
         assert packet.operator_choices[0].choice == "REQUEST_COMPLETION"
         assert packet.verifications[0].total == 90
         assert packet.exceptions[0].status == "DECIDED"
+        from runtime_support import permit_context
+        bound = permit_context(store, context("request_rework", "context-rework", 4).model_copy(update={"invocation_id": invocation.id}),
+                               "request_rework", decision_id=result.record_id)
         request_rework(store, decision_id=result.record_id,
-            context=context("request_rework", "context-rework", 4).model_copy(update={"invocation_id": invocation.id}))
+            context=bound)
     with Store(tmp_path / "b4.sqlite3") as store:
         packet = read_packet(store, invocation)
         assert packet.jobs[0].status == "REWORK_REQUIRED"

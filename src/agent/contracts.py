@@ -214,12 +214,21 @@ class ModelRunMetadata(Record):
     wall_time_ms: Nonnegative | None = None
 
 
+class RuntimeAuthority(Record):
+    """Private transport assertion, excluded from every immutable domain fingerprint."""
+    attempt_id: Text
+    owner: Text
+    fence: Positive
+    command_json: Text
+
+
 class MutationContext(Record):
     actor: ActorContext
     operation: Text
     idempotency_key: Text
     invocation_id: Text | None = None
     expected_revision: Nonnegative | None = None
+    runtime: RuntimeAuthority | None = None
 
 
 class IssueRecord(Record):
@@ -1107,6 +1116,7 @@ class IntakeInspectionClaim(Record):
     started_at: Timestamp
     expires_at: Timestamp
     finished_at: Timestamp | None = None
+    invocation_id: Text | None = None
 
 
 class HazardSource(Record):

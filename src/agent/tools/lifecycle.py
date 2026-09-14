@@ -17,6 +17,16 @@ class LifecycleError(RuntimeError):
         super().__init__(code)
 
 
+UncertaintyKind = Literal["COORDINATOR_ACK_UNCERTAIN", "COORDINATOR_CONTROL_UNCERTAIN"]
+
+
+class LifecycleUncertainty(LifecycleError):
+    """Private control disposition, never inferred from a model/domain error string."""
+    def __init__(self, code: str, kind: UncertaintyKind = "COORDINATOR_CONTROL_UNCERTAIN"):
+        self.kind = kind
+        super().__init__(code)
+
+
 @dataclass(frozen=True)
 class PreparedRequest:
     logical_request_id: str

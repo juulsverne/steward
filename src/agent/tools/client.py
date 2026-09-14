@@ -20,6 +20,7 @@ from .lifecycle import (
     CompletionAck,
     InMemoryRequestLifecycle,
     LifecycleError,
+    LifecycleUncertainty,
     PreparedRequest,
     RequestLifecycle,
 )
@@ -130,6 +131,7 @@ class StewardHttpClient:
         self._closed = False
         self._locks: dict[str, asyncio.Lock] = {}
         self._unacknowledged: dict[str, AttemptObservation] = {}
+        self.uncertainty: LifecycleUncertainty | None = None
         self.lifecycle = (
             lifecycle_factory(self)
             if lifecycle_factory
@@ -142,6 +144,34 @@ class StewardHttpClient:
         self._closed = True
         if self._owned_client:
             await self._client.aclose()
+
+    async def host_request(self, operation: str) -> dict:
+        """Fixed CLI status/context/wakeup reads, without pretending to hold an execution lease."""
+        if operation not in {"context", "status", "resume"}:
+            raise ValueError("unknown host operation")
+        suffix = "" if operation == "status" else "/" + operation
+        path = f"/api/invocations/{self.transport.invocation_id}{suffix}"
+        deadline = min(self._deadline_at, monotonic() + 20)
+        async with asyncio.timeout_at(deadline):
+            async with self._client.stream("POST" if operation == "resume" else "GET", path,
+                headers={"Authorization": f"Bearer {self.transport.service_token}",
+                         "X-Steward-Invocation-Id": self.transport.invocation_id,
+                         "Accept-Encoding": "identity"}, follow_redirects=False) as response:
+                if response.is_redirect or response.headers.get("Content-Encoding", "identity") != "identity":
+                    return _error("UNTRUSTED_RESPONSE")
+                raw = bytearray()
+                async for chunk in response.aiter_bytes():
+                    raw.extend(chunk)
+                    if len(raw) > MAX_RESPONSE_BYTES:
+                        return _error("RESPONSE_TOO_LARGE")
+                from ..case_contracts import CaseContext
+                from ..contracts import ToolResult
+                from ..runtime_contracts import RuntimeStatus
+                try:
+                    model = CaseContext if operation == "context" else RuntimeStatus
+                    return ToolResult[model].model_validate_json(raw).model_dump(mode="json")
+                except ValueError:
+                    return _error("INVALID_RESPONSE")
 
     async def execute(self, command: Command, *, call_ref: str | None = None) -> dict:
         if not isinstance(command, Command):
@@ -179,8 +209,12 @@ class StewardHttpClient:
         except asyncio.CancelledError:
             raise
         except TimeoutError:
+            if self._unacknowledged:
+                self.uncertainty = LifecycleUncertainty("LIFECYCLE_ACK_UNCERTAIN", "COORDINATOR_ACK_UNCERTAIN")
             return _error("DEADLINE_EXCEEDED")
         except LifecycleError as exc:
+            if isinstance(exc, LifecycleUncertainty):
+                self.uncertainty = exc
             safe_codes = {
                 "LOGICAL_REQUEST_CONFLICT",
                 "LOGICAL_REQUEST_NOT_FOUND",
@@ -222,11 +256,11 @@ class StewardHttpClient:
                 or ack.attempt_id != observation.attempt_id
                 or ack.logical_request_id != observation.logical_request_id
             ):
-                raise LifecycleError("LIFECYCLE_ACK_UNCERTAIN")
+                raise LifecycleUncertainty("LIFECYCLE_ACK_UNCERTAIN", "COORDINATOR_ACK_UNCERTAIN")
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001 - acknowledgment loss must remain a safe uncertain result
-            raise LifecycleError("LIFECYCLE_ACK_UNCERTAIN") from None
+            raise LifecycleUncertainty("LIFECYCLE_ACK_UNCERTAIN", "COORDINATOR_ACK_UNCERTAIN") from None
         self._unacknowledged.pop(observation.logical_request_id, None)
 
     async def _drive(self, prepared: PreparedRequest) -> dict:

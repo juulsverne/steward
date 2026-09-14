@@ -7,6 +7,7 @@ from threading import Event
 
 import pytest
 from fastapi.testclient import TestClient
+from runtime_support import permit_context
 from test_investigation import (
     ACTOR,
     AT,
@@ -504,6 +505,9 @@ def test_schema_three_attempt_bytes_survive_four_and_failed_upgrade_is_atomic(tm
         raw = record.model_dump_json(exclude={"cached_from_id", "claim_id", "cache_eligible", "profile", "model_id", "region"})
     # Construct the actual previous schema around saved records, only in this temporary DB.
     with sqlite3.connect(path) as db:
+        for table in ("runtime_control_observations", "intake_physical_observations", "runtime_trace", "runtime_controls", "runtime_observations",
+                      "runtime_attempts", "runtime_requests", "runtime_episodes", "runtime_state"):
+            db.execute(f"DROP TABLE {table}")
         db.execute("DROP TABLE intake_inspection_claims")
         db.execute("DROP TABLE intake_inspections")
         db.execute("CREATE TABLE intake_inspections (record_json TEXT NOT NULL, " + migrations.FACT_TABLES["intake_inspections"] + ")")
@@ -542,6 +546,7 @@ def test_real_saved_invocation_cause_is_validated_before_replay(tmp_path):
                     trigger_type="SIGNAL_RECEIVED", policy_version="south-loop-v3"), trigger))
         revision = store.get_issue_record("issue").state_revision
         ctx = context("decide", "cause", revision).model_copy(update={"invocation_id": "issue"})
+        ctx = permit_context(store, ctx, "record_investigation_decision", issue_id="issue", decision_type="MONITOR", summary="wait", evidence_ids=[])
         saved = inv.decide(store, issue_id="issue", proposed_type="MONITOR", summary="wait", evidence_ids=(), context=ctx)
         assert saved.trigger_event_id == invocations[0].trigger_event_id
         assert saved.invocation_id == "issue" and saved.metadata is None
@@ -644,12 +649,14 @@ def test_actual_b3_cause_survives_link_action_and_old_key_replay(tmp_path):
         original_cause = cause.model_dump_json()
         revision = store.get_issue_record(issue_id).state_revision
         ctx = context("decide", "actual-cause", revision).model_copy(update={"invocation_id": invocation.id})
+        ctx = permit_context(store, ctx, "record_investigation_decision", issue_id=issue_id, decision_type="MONITOR", summary="wait", evidence_ids=[])
         decision = inv.decide(store, issue_id=issue_id, proposed_type="MONITOR", summary="wait",
             evidence_ids=(), context=ctx)
         assert decision.trigger_event_id == cause.id
         assert decision.invocation_id == invocation.id
         assert cause.id not in store.request_for_operation(ctx).result.event_ids
         action_context = context("apply", "actual-cause", revision).model_copy(update={"invocation_id": invocation.id})
+        action_context = permit_context(store, action_context, "apply_investigation_decision", issue_id=issue_id, decision_id=decision.id)
         action = inv.apply_investigation_decision(store, issue_id=issue_id, decision_id=decision.id,
             context=action_context)
         assert store.get_issue_record(issue_id).status == "MONITORING"
@@ -664,10 +671,12 @@ def test_actual_b3_cause_survives_link_action_and_old_key_replay(tmp_path):
             category="bulky_waste", source_issue_revision=current_revision, supporting_evidence_ids=(evidence_id,),
             provenance="synthetic", proposed_by=ACTOR, created_at=AT)
         inv.save_classification(store, classification,
-            context=context("classify", "actual", current_revision).model_copy(update={"invocation_id": invocation.id}))
+            context=permit_context(store, context("classify", "actual", current_revision).model_copy(update={"invocation_id": invocation.id}),
+                                   "classify_issue", **inv._proposal_payload(classification)))
         inspected = inv.inspect_intake_photo(store, signal_id=item.id, image_root=tmp_path / "images",
             inspector=lambda _: c.IntakePhotoFindings(visible_objects=("couch",)),
-            context=context("inspect", "actual").model_copy(update={"invocation_id": invocation.id}))
+            context=permit_context(store, context("inspect", "actual").model_copy(update={"invocation_id": invocation.id}),
+                                   "inspect_intake_photo", signal_id=item.id))
         assert inspected.outcome == "OK"
         assert store.get_event(cause.id).model_dump_json() == original_cause
 
@@ -679,8 +688,10 @@ def test_contradictory_actual_cause_is_rejected_before_decision_and_action_repla
         other_signal, other_cause, _, other_issue = bound_b3_intake(store, tmp_path, "other-photo")
         revision = store.get_issue_record(issue_id).state_revision
         ctx = context("decide", "original", revision).model_copy(update={"invocation_id": invocation.id})
+        ctx = permit_context(store, ctx, "record_investigation_decision", issue_id=issue_id, decision_type="MONITOR", summary="wait", evidence_ids=[])
         decision = inv.decide(store, issue_id=issue_id, proposed_type="MONITOR", summary="wait", evidence_ids=(), context=ctx)
         action_ctx = context("apply", "original", revision).model_copy(update={"invocation_id": invocation.id})
+        action_ctx = permit_context(store, action_ctx, "apply_investigation_decision", issue_id=issue_id, decision_id=decision.id)
         inv.apply_investigation_decision(store, issue_id=issue_id, decision_id=decision.id, context=action_ctx)
         with store.transaction() as tx:
             foreign_trigger = tx.append_event(c.NewEvent(**other_cause.model_dump(exclude={"id"})))

@@ -78,12 +78,16 @@ class ApiSettings:
     policy_path: Path = Path("data/policy.yaml")
     development_origins: tuple[str, ...] = ()
     personas: tuple[DemoPersona, ...] | None = None
+    runtime_enabled: bool = False
 
     @classmethod
     def from_env(cls) -> ApiSettings:
         mode = os.getenv("STEWARD_LOCAL_HTTP", "false")
         if mode not in {"true", "false"}:
             raise ValueError("STEWARD_LOCAL_HTTP must be true or false")
+        runtime = os.getenv("STEWARD_RUNTIME_ENABLED", "false")
+        if runtime not in {"true", "false"}:
+            raise ValueError("STEWARD_RUNTIME_ENABLED must be true or false")
         return cls(
             store_path=Path(os.getenv("STEWARD_STORE_PATH", ".steward/steward.sqlite3")),
             image_root=Path(os.getenv("STEWARD_IMAGE_ROOT", ".steward/images")),
@@ -91,6 +95,7 @@ class ApiSettings:
             session_secret=os.getenv("STEWARD_SESSION_SECRET", ""),
             service_token=os.getenv("STEWARD_SERVICE_TOKEN", ""),
             local_http=mode == "true",
+            runtime_enabled=runtime == "true",
             development_origins=tuple(filter(None, (
                 x.strip() for x in os.getenv("STEWARD_DEVELOPMENT_ORIGINS", "").split(",")
             ))),

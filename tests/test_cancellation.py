@@ -84,7 +84,11 @@ def test_payment_cancellation_race_has_exactly_one_terminal_movement(tmp_path):
 
 
 def test_cancellation_rework_race_preserves_real_choice_history(tmp_path):
+    from runtime_support import permit_context
     job, _proof, exception, decision = real_exception(tmp_path, chosen=True)
+    with Store(tmp_path / "b4.sqlite3") as store:
+        rework_context = permit_context(store, _service_rework_context("racing-rework").model_copy(
+            update={"invocation_id": decision.invocation_id}), "request_rework", decision_id=decision.record_id)
     barrier = Barrier(2)
     def run(action):
         with Store(tmp_path / "b4.sqlite3") as store:
@@ -93,8 +97,7 @@ def test_cancellation_rework_race_preserves_real_choice_history(tmp_path):
                 return op.cancel_job(store, job_id=job, context=context("cancel", "racing-cancel", 4)).result.outcome
             try:
                 return op.request_rework(store, decision_id=decision.record_id,
-                    context=_service_rework_context("racing-rework").model_copy(
-                        update={"invocation_id": decision.invocation_id})).result.outcome
+                    context=rework_context).result.outcome
             except RevisionConflict:
                 return "DENIED"
     with ThreadPoolExecutor(max_workers=2) as pool:

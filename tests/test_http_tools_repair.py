@@ -13,6 +13,7 @@ from agent.tools.client import (
     TrustedTransport,
     _validated_envelope,
 )
+from agent.tools.durable import DurableLifecycle
 from agent.tools.steward import OPERATIONS, StewardAgentTool
 
 ORIGIN = "http://127.0.0.1:8123"
@@ -51,6 +52,14 @@ class Spy:
 
 
 async def invoke(tool, data, ref="call-1"):
+    life = getattr(tool.client, "lifecycle", None)
+    if isinstance(life, DurableLifecycle):
+        from agent.core import ExecutionRequest
+        from agent.tools.protocol import build_command
+        await life.acquire()
+        await life.authorize(ExecutionRequest("model", 1, life.claim.invocation_id))
+        await life.authorize(ExecutionRequest("tool", 1, life.claim.invocation_id,
+            command=build_command(tool.tool_name, data)))
     events = [
         x async for x in tool.stream({"toolUseId": ref, "name": tool.tool_name, "input": data}, {})
     ]
@@ -324,7 +333,8 @@ async def test_real_rework_wrapper_succeeds_with_actual_operator_invocation(real
         transport=httpx.ASGITransport(app=app), base_url=app_origin
     ) as http:
         client = StewardHttpClient(
-            TrustedTransport(app_origin, TOKEN, invocation_id=decision.invocation_id), client=http
+            TrustedTransport(app_origin, TOKEN, invocation_id=decision.invocation_id), client=http,
+            lifecycle_factory=DurableLifecycle,
         )
         result = await invoke(
             StewardAgentTool("request_rework", client),
@@ -343,7 +353,8 @@ async def test_real_exception_detail_is_not_rejected_as_wrong_dto(real_choice):
         transport=httpx.ASGITransport(app=app), base_url=app_origin
     ) as http:
         client = StewardHttpClient(
-            TrustedTransport(app_origin, TOKEN, invocation_id=decision.invocation_id), client=http
+            TrustedTransport(app_origin, TOKEN, invocation_id=decision.invocation_id), client=http,
+            lifecycle_factory=DurableLifecycle,
         )
         result = await invoke(
             StewardAgentTool("get_exception", client), {"exception_id": exception}

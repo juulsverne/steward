@@ -28,6 +28,7 @@ from .case_contracts import CaseContext
 from .config import settings
 from .contracts import ModelUsage, Record, Text
 from .prompts import PROMPT_VERSION, SYSTEM_PROMPT, case_prompt
+from .tools.lifecycle import LifecycleUncertainty, UncertaintyKind
 from .tools.protocol import OPERATIONS, SCHEMA_VERSION, Command, build_command
 from .tools.session import InvocationToolSession
 
@@ -52,6 +53,7 @@ class ExecutionObservation:
     call_ref: str | None = None
     result_json: str | None = None
     usage: ModelUsage | None = None
+    elapsed_ms: int | None = None
 
 
 class ExecutionLifecycle(Protocol):
@@ -121,6 +123,7 @@ class InvocationHooks(HookProvider):
         self.tool_requests = 0
         self.host_reads = 0
         self.stopped = None
+        self.interruption: UncertaintyKind | None = None
         self.case = None
         self.usage = None
         self._deadline_handle = None
@@ -142,16 +145,28 @@ class InvocationHooks(HookProvider):
             if allowed is not True:
                 raise ValueError("authorization refused")
             return True
+        except (LifecycleUncertainty, TimeoutError):
+            self.interruption = "COORDINATOR_CONTROL_UNCERTAIN"
+            self.stopped = "EXECUTION_AUTHORIZATION_FAILED"
+            return False
         except Exception:  # noqa: BLE001 - fail closed without exposing private coordinator errors
             self.stopped = "EXECUTION_AUTHORIZATION_FAILED"
             return False
 
     async def _observe(self, observation):
+        if monotonic() >= self.deadline_at:
+            # No control request has begun. An already-observed local wall cutoff
+            # is not evidence that a coordinator acknowledgment was lost.
+            self.stopped = self.stopped or "DEADLINE_EXCEEDED"
+            return
         try:
             async with asyncio.timeout_at(self.deadline_at):
                 if await self.lifecycle.observe(observation) is not True:
                     raise ValueError("observation not acknowledged")
-        except Exception:  # noqa: BLE001 - unacknowledged observation must stop subsequent work
+        except (LifecycleUncertainty, TimeoutError):
+            self.interruption = "COORDINATOR_ACK_UNCERTAIN"
+            self.stopped = "EXECUTION_ACK_FAILED"
+        except Exception:  # noqa: BLE001 - explicit refusal stops subsequent work
             self.stopped = "EXECUTION_ACK_FAILED"
 
     async def refresh(self, *, candidates_cursor="0", events_cursor="0"):
@@ -166,6 +181,9 @@ class InvocationHooks(HookProvider):
         try:
             async with asyncio.timeout_at(self.deadline_at):
                 result = await self.client.execute(command, call_ref=ref)
+            uncertainty = getattr(self.client, "uncertainty", None)
+            if isinstance(uncertainty, LifecycleUncertainty):
+                self.interruption = uncertainty.kind
             if result["outcome"] != "OK":
                 raise ValueError("context unavailable")
             case = CaseContext.model_validate_json(json.dumps(result["data"]))
@@ -200,13 +218,25 @@ class InvocationHooks(HookProvider):
             event.cancel = self.stopped
             return
         self.model_cycles += 1
+        self._model_started = monotonic()
         if self._deadline_handle is None and math.isfinite(self.deadline_at):
             self._deadline_handle = asyncio.get_running_loop().call_at(self.deadline_at, event.agent.cancel)
         event.agent.system_prompt = case_prompt(case)
 
     async def after_model(self, event):
         outcome = "ERROR" if event.exception else event.stop_response.stop_reason if event.stop_response else "UNKNOWN"
-        await self._observe(ExecutionObservation("model", self.model_cycles, self.invocation_id, outcome))
+        visible = []
+        if event.stop_response:
+            for block in getattr(event.stop_response, "message", {}).get("content", [])[:40]:
+                # Never persist hidden reasoning/reasoningContent or provider internals.
+                if "text" in block:
+                    visible.append({"text": block["text"][:2000]})
+                elif "toolUse" in block:
+                    tool = block["toolUse"]
+                    visible.append({"toolUse": {"name": tool.get("name"), "input": tool.get("input")}})
+        await self._observe(ExecutionObservation("model", self.model_cycles, self.invocation_id, outcome,
+            result_json=json.dumps({"content": visible}, allow_nan=False),
+            elapsed_ms=max(0, int((monotonic() - getattr(self, "_model_started", monotonic())) * 1000))))
 
     async def before_tool(self, event):
         self.tool_requests += 1
@@ -220,6 +250,9 @@ class InvocationHooks(HookProvider):
                 raise ValueError("unregistered model tool")
             command = build_command(event.tool_use["name"], event.tool_use["input"])
         except (ValueError, KeyError, TypeError):
+            await self._authorize(ExecutionRequest("tool", self.tool_requests, self.invocation_id,
+                call_ref=event.tool_use.get("toolUseId"), case=self.case))
+            self.stopped = self.stopped or "INVALID_TOOL_INPUT"
             event.cancel_tool = "INVALID_TOOL_INPUT"
             return
         allowed = await self._authorize(ExecutionRequest("tool", self.tool_requests, self.invocation_id,
@@ -228,6 +261,10 @@ class InvocationHooks(HookProvider):
             event.cancel_tool = self.stopped
 
     async def after_tool(self, event):
+        uncertainty = getattr(self.client, "uncertainty", None)
+        if isinstance(uncertainty, LifecycleUncertainty):
+            self.interruption = uncertainty.kind
+            self.stopped = "EXECUTION_ACK_FAILED"
         result = next((block["json"] for block in event.result.get("content", []) if "json" in block), None)
         outcome = result.get("outcome", "ERROR") if isinstance(result, dict) else "CANCELLED" if event.cancel_message else "ERROR"
         await self._observe(ExecutionObservation("tool", self.tool_requests, self.invocation_id, outcome,
@@ -237,6 +274,8 @@ class InvocationHooks(HookProvider):
             await self.refresh()
         if outcome == "ERROR" and event.tool_use.get("name") in {"inspect_completion", "inspect_intake_photo"}:
             self.stopped = self.stopped or "INSPECTION_UNRESOLVED"
+        elif outcome == "ERROR":
+            self.stopped = self.stopped or "TOOL_REQUEST_FAILED"
 
     async def after_tools(self, event):
         if self.stopped:
@@ -308,6 +347,7 @@ class CaseExecutionResult(Record):
     host_reads: int
     sdk_pre_send_observations: int
     usage: ModelUsage | None
+    interruption: UncertaintyKind | None = None
 
 
 async def invoke_case(agent: Agent) -> CaseExecutionResult:
@@ -341,4 +381,4 @@ async def invoke_case(agent: Agent) -> CaseExecutionResult:
     return CaseExecutionResult(invocation_id=hooks.invocation_id, saved_stop=saved_stop,
         error_code=error, sdk_stop_reason=sdk_stop, model_cycles=hooks.model_cycles,
         tool_requests=hooks.tool_requests, host_reads=hooks.host_reads,
-        sdk_pre_send_observations=hooks.provider.ordinal, usage=hooks.usage)
+        sdk_pre_send_observations=hooks.provider.ordinal, usage=hooks.usage, interruption=hooks.interruption)

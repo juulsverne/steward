@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from agent.case_contracts import CaseContext, EventSummary
+from agent.tools.durable import DurableLifecycle
 
 
 def packet(**updates):
@@ -148,8 +149,10 @@ def test_real_agent_http_monitor_intent_is_not_stop_but_effect_suppresses_same_b
     monkeypatch.setattr(core, "Agent", OfflineAgent)  # real engine with only injected offline model
     async def run():
         async with build_steward_tool_session(TrustedTransport(ORIGIN, TOKEN, invocation.id),
+                                              lifecycle_factory=DurableLifecycle,
                                               http_transport=Transport(app=app)) as session:
-            agent = core.build_agent(session, model=model)
+            await session.client.lifecycle.acquire()
+            agent = core.build_agent(session, model=model, lifecycle=session.client.lifecycle)
             await agent.invoke_async("Process the saved trigger.")
             assert agent.steward_hooks.stopped == "INVESTIGATION_ACTION_APPLIED"
             assert agent.steward_hooks.model_cycles == 2
@@ -226,9 +229,11 @@ def test_real_engine_denial_continues_to_exception_then_stops(tmp_path, monkeypa
     monkeypatch.setattr(core, "Agent", OfflineAgent)
     async def run():
         async with build_steward_tool_session(TrustedTransport(ORIGIN, TOKEN, invocation.id),
+            lifecycle_factory=DurableLifecycle,
             http_transport=httpx.ASGITransport(app=app)) as session:
+            await session.client.lifecycle.acquire()
             model = scripted_model(script)
-            agent = core.build_agent(session, model=model)
+            agent = core.build_agent(session, model=model, lifecycle=session.client.lifecycle)
             result = await core.invoke_case(agent)
             assert result.error_code is None, result
             assert result.saved_stop == "EXCEPTION_RAISED"
@@ -357,6 +362,7 @@ def test_cli_service_origin_override_rejected_before_credential_client(monkeypat
         calls.append(args)
         return {"outcome": "OK", "data": {}}
     monkeypatch.setattr(cli, "read_case", read)
+    monkeypatch.setattr(cli, "resume_case", read)
     assert cli.main(["--origin", "https://different.example", command, "inv-1"]) != 0
     assert calls == []
     assert "ambient-private-service-token" not in capsys.readouterr().out
@@ -377,5 +383,6 @@ def test_cli_service_configured_or_default_origin_uses_bound_destination(monkeyp
         calls.append(args)
         return {"outcome": "OK", "data": {}}
     monkeypatch.setattr(cli, "read_case", read)
+    monkeypatch.setattr(cli, "resume_case", read)
     assert cli.main(["--origin", origin, command, "inv-1"]) == (0 if command == "context" else 2)
     assert calls == [(origin, "ambient-private-service-token", "inv-1")]

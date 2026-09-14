@@ -441,6 +441,9 @@ def test_actual_server_exposes_only_sandbox_routes_with_explicit_setup(config, m
         assert set(paths) == {
             "/health", "/api/demo/session", "/api/demo/persona", "/api/signals",
             "/api/invocations/{invocation_id}/context",
+            "/api/invocations/{invocation_id}", "/api/invocations/{invocation_id}/resume",
+            *{"/internal/invocations/{invocation_id}/" + operation for operation in (
+                "claim", "renew", "prepare", "load", "begin", "finish", "reconcile", "requests", "authorize", "observe", "complete")},
             "/api/signals/related", "/api/issues/similar", "/api/issues",
             "/api/issues/{issue_id}/sources",
             "/api/issues/{issue_id}/geocode", "/api/issues/{issue_id}/service-records/search",

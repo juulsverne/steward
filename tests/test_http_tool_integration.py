@@ -26,6 +26,7 @@ from agent import http_contracts as h
 from agent.api import OPERATION_IDS as API_OPERATIONS
 from agent.http_protocol import OPERATION_IDS
 from agent.tools.client import InMemoryRequestLifecycle, TrustedTransport
+from agent.tools.durable import DurableLifecycle
 from agent.tools.protocol import OPERATIONS, ROUTES, Command, build_command, validated_envelope
 from agent.tools.session import build_steward_tool_session
 from agent.tools.steward import StewardAgentTool
@@ -46,6 +47,19 @@ def result(data=None, *, outcome="OK", reason=None):
 
 
 async def invoke(session, name, values, ref="call-1"):
+    if isinstance(session.client.lifecycle, DurableLifecycle):
+        from agent.core import ExecutionRequest
+        life = session.client.lifecycle
+        if life.claim is None:
+            await life.acquire()
+            await life.authorize(ExecutionRequest("model", 1, life.claim.invocation_id))
+            life.test_refs = {}
+        if ref not in life.test_refs:
+            await life.authorize(ExecutionRequest("tool", len(life.test_refs) + 1,
+                life.claim.invocation_id, command=build_command(name, values)))
+            life.test_refs[ref] = life.tool_ref
+        else:
+            life.tool_ref = life.test_refs[ref]
     tool = next(tool for tool in session.tools if tool.tool_name == name)
     events = [
         event async for event in tool.stream({"name": name, "toolUseId": ref, "input": values}, {})
@@ -186,6 +200,8 @@ async def test_real_intake_cause_create_link_and_same_key_lost_response_recovery
 
         async def handle_async_request(self, request):
             response = await self.inner.handle_async_request(request)
+            if "Idempotency-Key" not in request.headers:
+                return response
             sent.append(
                 (request.headers["Idempotency-Key"], request.headers["X-Steward-Invocation-Id"])
             )
@@ -198,7 +214,8 @@ async def test_real_intake_cause_create_link_and_same_key_lost_response_recovery
             await self.inner.aclose()
 
     async with build_steward_tool_session(
-        TrustedTransport(app_origin, TOKEN, first_inv.id), http_transport=LostResponse()
+        TrustedTransport(app_origin, TOKEN, first_inv.id), http_transport=LostResponse(),
+        lifecycle_factory=DurableLifecycle,
     ) as session:
         created = await invoke(
             session,
@@ -213,7 +230,9 @@ async def test_real_intake_cause_create_link_and_same_key_lost_response_recovery
             {"signal_id": first.id, "match_rationale": "distinct recorded couch"},
         )
         assert same == created and len(sent) == 2
-        logical = next(iter(session.client.lifecycle._prepared))
+        from agent.coordinator import Coordinator
+        with Store(tmp_path / "b4.sqlite3") as store:
+            logical = Coordinator(store).requests(session.client.lifecycle.claim)[0].id
         assert await session.recover(logical) == created and len(sent) == 2
         issue_id = created["data"]["record_id"]
     with Store(tmp_path / "b4.sqlite3") as store:
@@ -224,6 +243,7 @@ async def test_real_intake_cause_create_link_and_same_key_lost_response_recovery
     async with build_steward_tool_session(
         TrustedTransport(app_origin, TOKEN, second_inv.id),
         http_transport=httpx.ASGITransport(app=app),
+        lifecycle_factory=DurableLifecycle,
     ) as session:
         linked = await invoke(
             session,
@@ -743,6 +763,7 @@ async def test_real_proof_invocation_inspection_denial_and_escalation_use_one_se
     async with build_steward_tool_session(
         TrustedTransport(app_origin, TOKEN, invocation.id),
         http_transport=httpx.ASGITransport(app=app),
+        lifecycle_factory=DurableLifecycle,
     ) as session:
         inspected = await invoke(
             session,

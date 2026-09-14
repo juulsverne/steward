@@ -64,6 +64,8 @@ def populated_schema_five_exception(path):
     migration's physical FKs and byte preservation, not rewriting old payloads.
     """
     with Store(path) as store:
+        from runtime_support import remove_runtime_tables_for_legacy_fixture
+        remove_runtime_tables_for_legacy_fixture(store.db)
         store.create_issue("issue-v5", "bulky_waste", "Demo")
         db = store.db
         db.execute("INSERT INTO vendors(record_json,id) VALUES (?,?)", ('{"old":"vendor"}', "vendor-v5"))
@@ -119,7 +121,7 @@ def test_upgrade_schema_five_preserves_populated_completion_exception_and_decisi
     path = tmp_path / "schema-five.db"
     populated_schema_five_exception(path)
     with Store(path) as store:
-        assert store.db.execute("PRAGMA user_version").fetchone()[0] == 6
+        assert store.db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
         assert store.db.execute("SELECT record_json FROM exceptions WHERE id='exception-v5'").fetchone()[0] == \
             '{"opaque":"exception-v5"}'
         assert store.db.execute("SELECT record_json FROM operator_decisions WHERE id='decision-v5'").fetchone()[0] == \
@@ -165,10 +167,9 @@ def test_unversioned_unknown_database_is_not_blessed(tmp_path):
         ]
 
 
-def test_schema_version_six(tmp_path):
+def test_current_schema_version(tmp_path):
     with Store(tmp_path / "new.db") as store:
-        assert SCHEMA_VERSION == 6
-        assert store.db.execute("PRAGMA user_version").fetchone()[0] == 6
+        assert store.db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
 
 
 def test_upgrade_copied_v1_preserves_bytes_relations_scores_and_sequence(tmp_path):
@@ -234,4 +235,4 @@ def test_concurrent_first_open_and_upgrade(tmp_path, legacy):
             return store.db.execute("PRAGMA user_version").fetchone()[0]
 
     with ThreadPoolExecutor(max_workers=4) as workers:
-        assert list(workers.map(open_store, range(8))) == [6] * 8
+        assert list(workers.map(open_store, range(8))) == [SCHEMA_VERSION] * 8

@@ -1,6 +1,11 @@
 """Public HTTP operation identities shared without importing the API runtime."""
 
 OPERATION_IDS = {
+    ("GET", "/api/invocations/{invocation_id}"): "read_invocation_status",
+    ("POST", "/api/invocations/{invocation_id}/resume"): "resume_invocation",
+    **{("POST", "/internal/invocations/{invocation_id}/" + operation): "runtime_" + operation
+       for operation in ("claim", "renew", "prepare", "load", "begin", "finish", "reconcile", "requests",
+                         "authorize", "observe", "complete")},
     ("GET", "/api/invocations/{invocation_id}/context"): "read_case_context",
     ("GET", "/health"): "health",
     ("GET", "/api/demo/session"): "read_demo_session",

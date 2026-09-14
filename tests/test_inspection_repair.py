@@ -197,19 +197,29 @@ def test_final_write_rollback_keeps_prior_job_and_claim(tmp_path, monkeypatch):
 
 
 def test_real_b6_invocation_and_wrong_proof_before_replay(tmp_path):
+    from runtime_support import permit_context
     job, proof = proof_ready_job(tmp_path)
     with Store(tmp_path / "b4.sqlite3") as store:
         invocation = store.db.execute("SELECT id FROM invocations WHERE job_id=?", (job,)).fetchone()[0]
-    first = inspect(tmp_path, job, proof, invocation=invocation)
+        bound = permit_context(store, context("inspect", "review", 3).model_copy(update={"invocation_id": invocation}),
+                               "inspect_completion", job_id=job, submission_id=proof)
+        original_key = bound.idempotency_key
+        first = op.inspect_completion(store, job_id=job, submission_id=proof, context=bound,
+                                      image_root=tmp_path / "images", inspector=valid_findings)
     assert first.outcome == "OK"
     with Store(tmp_path / "b4.sqlite3") as store:
+        assert store.db.execute("SELECT COUNT(*) FROM request_receipts WHERE idempotency_key=?", (original_key,)).fetchone()[0] == 1
         item = store.get_invocation(invocation)
         # Retain the real producer trigger and deliberately corrupt its job binding.
         with store.transaction() as tx:
             tx.replace_invocation(item.model_copy(update={"job_id": None,
                 "state_revision": item.state_revision + 1}), item.state_revision)
-    with pytest.raises(ValueError, match="cause identity"):
-        inspect(tmp_path, job, proof, invocation=invocation)
+    with Store(tmp_path / "b4.sqlite3") as store:
+        assert bound.idempotency_key == original_key
+        with pytest.raises(ValueError, match="cause identity"):
+            op.inspect_completion(store, job_id=job, submission_id=proof, context=bound,
+                                  image_root=tmp_path / "images", inspector=valid_findings)
+        assert store.db.execute("SELECT COUNT(*) FROM request_receipts WHERE idempotency_key=?", (original_key,)).fetchone()[0] == 1
 
 
 def another_proof(path, *, checkin=None, metadata=None):
@@ -447,11 +457,14 @@ def test_complete_request_edit_invalidates_completion_cache(tmp_path, monkeypatc
 def test_schema_four_upgrade_preserves_receipts_and_failure_rolls_back(tmp_path, monkeypatch):
     import sqlite3
 
+    from runtime_support import remove_runtime_tables_for_legacy_fixture
+
     from agent import migrations
     proof_ready_job(tmp_path)
     path = tmp_path / "b4.sqlite3"
     with sqlite3.connect(path) as db:
         before = db.execute("SELECT id,record_json FROM request_receipts ORDER BY id").fetchall()
+        remove_runtime_tables_for_legacy_fixture(db)
         db.execute("DROP TABLE completion_inspection_observations")
         db.execute("DROP TABLE completion_inspection_attempts")
         db.execute("PRAGMA user_version=4")

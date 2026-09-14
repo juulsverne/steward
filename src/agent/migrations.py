@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 SCHEMA_1 = """
 CREATE TABLE issues (
@@ -313,6 +313,47 @@ def _upgrade_six(db: sqlite3.Connection) -> None:
                "WHERE job_id IS NULL AND status IN ('PENDING','DECIDED')")
 
 
+def _upgrade_seven(db: sqlite3.Connection) -> None:
+    execute_ddl(db, """
+    CREATE TABLE runtime_state (
+        invocation_id TEXT PRIMARY KEY REFERENCES invocations(id),
+        episode INTEGER NOT NULL CHECK(episode BETWEEN 1 AND 2),
+        deadline TEXT NOT NULL, model_cycles INTEGER NOT NULL DEFAULT 0 CHECK(model_cycles BETWEEN 0 AND 12),
+        tool_requests INTEGER NOT NULL DEFAULT 0 CHECK(tool_requests BETWEEN 0 AND 40));
+    CREATE TABLE intake_physical_observations (
+        claim_id TEXT PRIMARY KEY REFERENCES intake_inspection_claims(id), record_json TEXT NOT NULL);
+    CREATE TABLE runtime_episodes (
+        invocation_id TEXT NOT NULL REFERENCES invocations(id), episode INTEGER NOT NULL,
+        started_at TEXT NOT NULL, deadline TEXT NOT NULL, PRIMARY KEY(invocation_id,episode));
+    CREATE TABLE runtime_requests (
+        id TEXT PRIMARY KEY, invocation_id TEXT NOT NULL REFERENCES invocations(id),
+        call_ref TEXT NOT NULL, record_json TEXT NOT NULL,
+        UNIQUE(invocation_id,call_ref));
+    CREATE TABLE runtime_attempts (
+        id TEXT PRIMARY KEY, request_id TEXT NOT NULL REFERENCES runtime_requests(id),
+        nonce TEXT NOT NULL, ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 1 AND 3),
+        record_json TEXT NOT NULL, UNIQUE(request_id,nonce), UNIQUE(request_id,ordinal));
+    CREATE TABLE runtime_observations (
+        attempt_id TEXT PRIMARY KEY REFERENCES runtime_attempts(id), observation_json TEXT NOT NULL);
+    CREATE TABLE runtime_controls (
+        invocation_id TEXT NOT NULL REFERENCES invocations(id), nonce TEXT NOT NULL,
+        request_json TEXT NOT NULL, result_json TEXT NOT NULL, PRIMARY KEY(invocation_id,nonce));
+    CREATE TABLE runtime_trace (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, invocation_id TEXT NOT NULL REFERENCES invocations(id),
+        nonce TEXT NOT NULL, kind TEXT NOT NULL, record_json TEXT NOT NULL,
+        recorded_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+        UNIQUE(invocation_id,nonce));
+    CREATE TABLE runtime_control_observations (
+        request_id TEXT PRIMARY KEY, invocation_id TEXT NOT NULL REFERENCES invocations(id),
+        operation TEXT NOT NULL, status_code INTEGER NOT NULL, elapsed_ms INTEGER NOT NULL,
+        received_at TEXT NOT NULL);
+    """)
+    for table in ("runtime_control_observations", "intake_physical_observations", "runtime_episodes", "runtime_attempts", "runtime_observations", "runtime_controls", "runtime_trace"):
+        for operation in ("UPDATE", "DELETE"):
+            db.execute(f"CREATE TRIGGER {table}_no_{operation.lower()} BEFORE {operation} ON {table} "
+                       "BEGIN SELECT RAISE(ABORT, 'runtime journal is append-only'); END")
+
+
 def migrate(db: sqlite3.Connection) -> None:
     db.execute("PRAGMA foreign_keys=ON")
     db.execute("PRAGMA synchronous=FULL")
@@ -320,7 +361,7 @@ def migrate(db: sqlite3.Connection) -> None:
     with db:
         db.execute("BEGIN IMMEDIATE")
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version not in (0, 1, 2, 3, 4, 5, SCHEMA_VERSION):
+        if version not in (0, 1, 2, 3, 4, 5, 6, SCHEMA_VERSION):
             raise ValueError(f"unsupported database schema {version}")
         if version == 0:
             existing = db.execute("SELECT name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'")
@@ -337,12 +378,18 @@ def migrate(db: sqlite3.Connection) -> None:
             _upgrade_five(db)
         if version < 6:
             _upgrade_six(db)
+        if version < 7:
+            _upgrade_seven(db)
         _seed_receipts(db)
         if db.execute("PRAGMA foreign_key_check").fetchone():
             raise ValueError("database schema contains foreign key violations")
         required = {"issues", "signals", "issue_sources", "events", "signal_receipts",
                     "seed_receipts", "intake_inspection_claims", "completion_inspection_attempts",
                     "completion_inspection_observations", *TABLES, *FACT_TABLES}
+        if SCHEMA_VERSION >= 7:
+            required.update({"runtime_state", "runtime_episodes", "runtime_requests", "runtime_attempts",
+                "runtime_observations", "runtime_controls", "runtime_trace", "runtime_control_observations",
+                "intake_physical_observations"})
         actual = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         if not required <= actual:
             raise ValueError("incomplete database schema")

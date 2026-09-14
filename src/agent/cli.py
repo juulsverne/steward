@@ -14,7 +14,6 @@ from rich.console import Console
 
 from .config import settings
 from .tools.client import TrustedTransport, _same_origin
-from .tools.protocol import build_command
 from .tools.session import build_steward_tool_session
 
 console = Console()
@@ -23,8 +22,13 @@ console = Console()
 async def read_case(origin, token, invocation_id, *, transport=None):
     async with build_steward_tool_session(TrustedTransport(origin, token, invocation_id),
                                           http_transport=transport) as session:
-        return await session.client.execute(build_command("read_case_context", {"invocation_id": invocation_id}),
-                                            call_ref="cli-context")
+        return await session.client.host_request("context")
+
+
+async def resume_case(origin, token, invocation_id, *, transport=None):
+    async with build_steward_tool_session(TrustedTransport(origin, token, invocation_id),
+                                          http_transport=transport) as session:
+        return await session.client.host_request("resume")
 
 
 def main(argv=None) -> int:
@@ -55,13 +59,13 @@ def main(argv=None) -> int:
             if not token:
                 console.print("STEWARD_SERVICE_TOKEN is required privately for service context reads.", markup=False)
                 return 2
-            result = asyncio.run(read_case(args.origin, token, args.invocation_id))
+            action = read_case if args.command == "context" else resume_case
+            result = asyncio.run(action(args.origin, token, args.invocation_id))
             console.print(json.dumps(result, indent=2), markup=False)
             if result["outcome"] != "OK":
                 return 1
             if args.command == "resume":
-                console.print("Saved context loaded. Durable resume is pending B12; no model or mutation was started.", markup=False)
-                return 2
+                return 0 if result.get("reason_code") == "PROCESSING_ENABLED" else 2
             return 0
         key = args.key or "cli-signal-" + uuid4().hex
         headers = {"Origin": args.origin, "X-Steward-Request": "1", "Idempotency-Key": "persona-" + uuid4().hex}

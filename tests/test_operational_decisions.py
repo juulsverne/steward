@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
+from runtime_support import permit_context, permit_headers
 from test_crew import select_crew
 from test_dispatch import create_plan, dispatch, prepare
 from test_investigation import ORIGIN, context
@@ -222,12 +223,13 @@ def test_real_b3_invocation_is_bound_when_it_creates_its_first_issue(tmp_path):
         item = photo(store, tmp_path, "b3-intent")
         invocation = next(record for record in store.pending_invocations()
                           if record.signal_id == item.id)
-        created = inv.create_issue_from_signal(store, signal_id=item.id, rationale="new case",
-            context=context("create_issue_from_signal", "b3-create").model_copy(
-                update={"invocation_id": invocation.id}))
+        bound_context = permit_context(store, context("create_issue_from_signal", "b3-create").model_copy(
+            update={"invocation_id": invocation.id}), "create_issue_from_signal", signal_id=item.id, match_rationale="new case")
+        claimed_revision = store.get_invocation(invocation.id).state_revision
+        created = inv.create_issue_from_signal(store, signal_id=item.id, rationale="new case", context=bound_context)
         issue_id = created.result.data.record_id
         bound = store.get_invocation(invocation.id)
-        assert bound.issue_id == issue_id and bound.state_revision == invocation.state_revision + 1
+        assert bound.issue_id == issue_id and bound.state_revision == claimed_revision + 1
 
 
 def test_b3_invocation_header_survives_create_then_next_action_and_replay(tmp_path):
@@ -235,15 +237,19 @@ def test_b3_invocation_header_survives_create_then_next_action_and_replay(tmp_pa
         item = photo(store, tmp_path, "b3-http")
         invocation = next(record for record in store.pending_invocations()
                           if record.signal_id == item.id)
-    service_headers = {**headers("b3-create"), "X-Steward-Invocation-Id": invocation.id}
+    with Store(tmp_path / "b4.sqlite3") as store:
+        service_headers = permit_headers(store, context("create_issue_from_signal", "b3-create").model_copy(
+            update={"invocation_id": invocation.id}), "create_issue_from_signal", signal_id=item.id,
+            match_rationale="new physical observation")
     with client_for(tmp_path) as client:
         created = client.post("/api/issues", headers=service_headers,
             json={"signal_id": item.id, "match_rationale": "new physical observation"})
         assert created.status_code == 201, created.text
         issue_id = created.json()["data"]["record_id"]
-        decision_headers = {**headers("b3-next", created.json()["data"]["state_revision"]),
-                            "X-Steward-Invocation-Id": invocation.id}
         body = {"decision_type": "MONITOR", "summary": "wait for more evidence", "evidence_ids": []}
+        with Store(tmp_path / "b4.sqlite3") as store:
+            decision_headers = permit_headers(store, context("decide", "b3-next", created.json()["data"]["state_revision"]).model_copy(
+                update={"invocation_id": invocation.id}), "record_investigation_decision", issue_id=issue_id, **body)
         first = client.post(f"/api/issues/{issue_id}/decisions", headers=decision_headers, json=body)
         replay = client.post(f"/api/issues/{issue_id}/decisions", headers=decision_headers, json=body)
     assert first.status_code == 200, first.text
@@ -259,14 +265,14 @@ def test_real_b3_invocation_is_bound_when_an_unlinked_signal_is_added_to_a_case(
         invocation = next(record for record in store.pending_invocations()
                           if record.signal_id == item.id)
         revision = store.get_issue_record("issue").state_revision
-        receipt = inv.link_signal_to_issue(store, issue_id="issue", signal_id=item.id, rationale="same case",
-            context=context("link_signal", "b3-link", revision).model_copy(
-                update={"invocation_id": invocation.id}))
+        bound_context = permit_context(store, context("link_signal", "b3-link", revision).model_copy(
+            update={"invocation_id": invocation.id}), "link_signal", issue_id="issue", signal_id=item.id,
+            match_rationale="same case")
+        receipt = inv.link_signal_to_issue(store, issue_id="issue", signal_id=item.id, rationale="same case", context=bound_context)
         assert receipt.result.data.record_id == "issue"
         assert store.get_invocation(invocation.id).issue_id == "issue"
         replay = inv.link_signal_to_issue(store, issue_id="issue", signal_id=item.id, rationale="same case",
-            context=context("link_signal", "b3-link", revision).model_copy(
-                update={"invocation_id": invocation.id}))
+            context=bound_context)
         assert replay == receipt
 
 

@@ -256,6 +256,8 @@ class Store:
             tx = StoreTransaction(self)
             try:
                 yield tx
+                if tx.runtime_context is not None:
+                    tx.validate_runtime(tx.runtime_context)
             finally:
                 tx.active = False
 
@@ -782,6 +784,9 @@ class Store:
         return [self.get_submission(row[0]) for row in rows if row[0] != submission_id]
 
     def request_for_operation(self, context: c.MutationContext) -> c.RequestReceipt | None:
+        if context.invocation_id is not None:
+            from .coordinator import validate_effect
+            validate_effect(self, context)
         row = self.db.execute("SELECT id FROM request_receipts WHERE actor_id=? AND operation=? AND idempotency_key=?",
             (context.actor.actor_id, context.operation, context.idempotency_key)).fetchone()
         return self.get_request(row[0]) if row else None
@@ -898,6 +903,7 @@ class StoreTransaction:
     def __init__(self, store: Store):
         self.store = store
         self.active = True
+        self.runtime_context = None
 
     def _check(self):
         if not self.active or not self.store.db.in_transaction:
@@ -960,6 +966,7 @@ class StoreTransaction:
 
     def lookup_request(self, context: c.MutationContext, fingerprint: str) -> c.RequestReceipt | None:
         self._check()
+        self.validate_runtime(context)
         row = self.store.db.execute(
             "SELECT id,request_sha256 FROM request_receipts WHERE actor_id=? AND operation=? "
             "AND idempotency_key=?", (context.actor.actor_id, context.operation, context.idempotency_key)
@@ -969,6 +976,12 @@ class StoreTransaction:
         if row[1] != fingerprint:
             raise IdempotencyConflict("idempotency key payload conflict")
         return self.store.get_request(row[0])
+
+    def validate_runtime(self, context: c.MutationContext) -> None:
+        self._check()
+        from .coordinator import validate_effect
+        validate_effect(self.store, context)
+        self.runtime_context = context
 
     def append_event(self, event: c.NewEvent) -> c.EventRecord:
         self._check()

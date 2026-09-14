@@ -327,6 +327,7 @@ def inspect_completion(store: Store, *, job_id: str, submission_id: str, context
 
     with store.transaction() as tx:
         current = store.get_completion_attempt(attempt.id)
+        tx.validate_runtime(context)
         if current.status != "RUNNING" or current.expires_at <= datetime.now(UTC):
             if current.status == "RUNNING":
                 return _finish_inspection_error(tx, current, "INSPECTION_FENCED", abandoned=True,

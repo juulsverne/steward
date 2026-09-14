@@ -600,8 +600,8 @@ The `agent` CLI is API-based: `agent submit --description TEXT --location TEXT [
 FILE] [--observed-at UTC_TIME] [--key KEY]` selects a configured sandbox resident and
 creates a real persisted event. Preserve the printed key for uncertain submit recovery.
 `agent context INVOCATION_ID` reads via the private environment service token;
-`agent resume INVOCATION_ID` reads the same packet but exits2 with an explicit B12-pending
-message. It does not launch a privileged free-text REPL or claim durable resume exists.
+`agent resume INVOCATION_ID` requests persisted processing through the B12 resume endpoint.
+It exits0 when processing is enabled,2 when disabled, and does not itself construct a model.
 `--origin` precedes the subcommand. Never paste the service token into chat or CLI args.
 Preflight and image spike commands remain separate from this production domain registry.
 
@@ -618,3 +618,81 @@ credential-bearing client. Explicit resident `submit --origin` behavior is uncha
 (`--origin` is a global option before the subcommand). Model temperature must be a
 finite numeric value in the inclusive range 0–1; booleans, strings, NaN, infinities and
 out-of-range values are rejected before provider construction.
+
+## Durable processing and recovery (B12)
+
+Set `STEWARD_RUNTIME_ENABLED=true` explicitly in the API environment to enable the
+dispatcher. Its default is false, including ordinary component tests. Enabling it can
+invoke the configured Bedrock models. Preserve the existing private service/session
+secrets across restarts; the runner uses the configured `STEWARD_ORIGIN` and service
+credential on one invocation-owned HTTP client. The API must be reachable at that origin.
+The API startup scan discovers saved pending and expired interrupted work; accepted
+domain events also wake discovery. A wakeup is only a hint. The dispatcher closes each
+short Store unit before HTTP/provider work and runs one invocation at a time. Normal
+WAITING/COMPLETED/ERROR invocations remain dormant. No browser receives runtime credentials.
+
+Schema7 preserves prior records and adds execution episodes, prepared logical commands,
+reserved attempts, immutable attempt observations/control receipts/traces, and separate
+intake physical observations. The FastAPI service alone owns these records. The runner
+has no SQLite interface. The existing25 domain tools remain the same local/AgentCore
+HTTP implementation; production execution installs `DurableLifecycle` through the
+accepted lifecycle factory and awaits each authorization and acknowledgment.
+
+Each saved invocation has an initial120-second server-UTC execution episode and at most
+one120-second recovery episode for genuinely interrupted unfinished processing. Its
+original trigger, lifetime12 model-cycle/40 requested-tool limits and each logical
+request's original key/deadline/three-attempt allowance survive takeover. A30-second
+lease is renewed every10seconds within the unchanged episode. Client monotonic deadlines
+conservatively subtract coordinator round-trip time; they never replace server authority.
+Unknown reserved attempts consume allowance. Expired unresolved commands cannot issue
+a replacement POST/key. Receipt reconciliation can read an already committed result,
+including after final exhaustion, without granting new execution authority. Recovery
+after payment may let the model choose RESOLVE using remaining allowance; the coordinator
+does not make that choice. Acknowledged errors and normal saved stops do not earn recovery.
+
+Lost coordinator finish/observation acknowledgments carry a private typed interruption
+through the HTTP client, agent hooks and execution result. The runner stops further work
+and leaves the original invocation RUNNING for fenced recovery, even when a tool returned
+a safe ERROR envelope to the SDK. The next owner reconciles the saved logical request
+before another model decision. This does not reopen genuine model/domain terminal errors.
+Runtime permit refusals retain HTTP409 and their specific reason (including
+DEADLINE_EXCEEDED); they are distinct from ordinary HTTP422 input validation.
+
+The fixed service-only private POST operations under `/internal/invocations/{id}/` are
+`claim`, `renew`, `prepare`, `load`, `begin`, `finish`, `reconcile`, `requests`, `authorize`,
+`observe`, and `complete`. Their strict `RuntimeControl`/`ControlReply` schemas are in
+OpenAPI. They are not model tools and bypass domain lifecycle recursion. Stable nonces
+make lost acknowledgments replayable. Each control transport has at most3 attempts and
+a20-second bound within the remaining episode; observation/reconciliation after its end
+has a separate5-second bound that cannot authorize work. Server-received controls are
+counted separately from domain attempts and requested model tools.
+
+Invocation-bearing domain requests require private `X-Steward-Attempt-Id`,
+`X-Steward-Lease-Owner`, and `X-Steward-Fencing-Token` alongside the existing invocation,
+revision and idempotency headers. The server derives the canonical command from the
+actual method/path/query/body/revision and compares it to the saved preparation.
+The effect writer rechecks lease/fence/deadline/command/key before receipt replay and
+before commit, including inspection finalization. Direct service helpers without an
+invocation retain ordinary policy; adding an invocation without a permit is rejected.
+Late physical model observations are separate immutable evidence and grant no effects.
+
+`GET /api/invocations/{id}` returns `ToolResult[RuntimeStatus]`; `after_id` paginates
+20 trace records with `next_cursor` and `truncated`. Operator/service projections include
+safe operation/arguments/results, policy/model versions, usage/elapsed time when actually
+observed, receipt IDs and transport outcome metadata. Requested and observed phases remain
+distinct. An individual trace exceeding8KiB omits its arguments/result and sets
+`content_truncated=true`. Owning resident/crew projections are narrower; district and
+saved job/vendor boundaries still apply. Traces exclude keys, lease owners/fences, raw
+journals, hidden reasoning, image paths and credentials. SDK before-send observations
+are explicitly not evidence of a successful request, inference or billing.
+
+`POST /api/invocations/{id}/resume` is service-only and strictly bodyless. It returns
+the current saved status and `PROCESSING_ENABLED` or `PROCESSING_DISABLED`, waking
+discovery when enabled. It does not promise completed work or restart a normal wait.
+The CLI's configured-origin credential binding applies to this operation as to context.
+
+The intake adapter now validates native provider JSON with strict JSON semantics, retaining
+actual stop reason and usage before parsing. Its unchanged prompt/schema use a shared1024
+output-token cap in both request and configuration fingerprints, after the retained512
+baseline reproduced truncation. Invalid/truncated findings remain ERROR and cannot become
+successful cached evidence. Component qualification is separate from B13 API acceptance.
