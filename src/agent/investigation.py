@@ -108,7 +108,11 @@ def _authorize(store, context, *, issue_id=None, signal_id=None, evidence_ids=()
     if signal_id is not None:
         boundary.signal(store, signal_id)
     for evidence_id in evidence_ids:
-        boundary.evidence(store, evidence_id)
+        # Intake inspection reads the signal's own image before any issue link exists.
+        if signal_id is not None:
+            boundary.signal_evidence(store, signal_id, evidence_id)
+        else:
+            boundary.evidence(store, evidence_id)
     return _validated_cause(store, context, issue_id=issue_id, signal_id=signal_id)
 
 

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import secrets
 import sqlite3
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -25,6 +27,24 @@ def test_seed_creates_watch_state_and_stages_second_report(tmp_path, monkeypatch
         assert len(store.signal_receipts_for_actor("steward-service")) == 1
         assert store.seed_receipt().seed_version
         assert store.get_budget("south_loop_demo").initial_cents == 50000
+
+
+def test_named_open_fixture_keeps_seed_score_and_later_adapter_lookup_consistent(tmp_path, monkeypatch, capsys):
+    from agent.adapters import SeededAdapters
+    from agent.api import create_app
+    from agent.config import ApiSettings
+    path = tmp_path / "open.sqlite3"
+    assert run_seed(monkeypatch, path, "--scenario", "couch-open-one-v1") == 0
+    assert '"baseline_score": 80' in capsys.readouterr().out
+    with Store(path) as store:
+        assert store.get_issue("demo-couch")["evidence_score"] == 80
+        signal = store.get_signal("demo-couch-feed-1")
+    adapter = SeededAdapters("data", scenario="couch-open-one-v1")
+    assert adapter.service_record(signal).status == "OPEN"
+    settings = ApiSettings(store_path=path, image_root=tmp_path / "images", origin="https://test.example",
+        local_http=False, session_secret=secrets.token_hex(32), service_token=secrets.token_hex(32),
+        fixture_root=Path("data"), fixture_scenario="couch-open-one-v1")
+    assert create_app(settings).state.adapters.service_record(signal).status == "OPEN"
 
 
 def test_seed_refuses_existing_or_foreign_reset_and_replaces_only_marked_demo(tmp_path, monkeypatch):

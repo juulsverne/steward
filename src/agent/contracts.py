@@ -822,6 +822,7 @@ class SeedReceipt(Record):
     baseline_signal_id: Text
     staged_signal_id: Text
     created_at: Timestamp
+    scenario: Text = "baseline"
 
 
 class EntityResult(Record):

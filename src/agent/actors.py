@@ -247,13 +247,26 @@ class AccessBoundary:
     def issue_evidence(self, store: Store, issue_id: str, evidence_id: str) -> EvidenceView:
         """Authorize actual canonical ownership, including retained intake associations."""
         self._issue(store, issue_id)
-        evidence = self.evidence(store, evidence_id)
+        self.require(Action.READ_EVIDENCE)
+        record = store.get_evidence(evidence_id)
         for association in store.evidence_associations(evidence_id):
             linked_issue = (store.issue_for_signal(association.signal_id)
                             if association.signal_id is not None else None)
             if (association.issue_id == issue_id or
                     (association.issue_id is None and linked_issue is not None and linked_issue.id == issue_id)):
-                return evidence
+                return EvidenceView(id=record.id, content_type=record.content_type,
+                    provenance=record.provenance, observed_at=record.observed_at, received_at=record.received_at)
+        raise AccessError(404, "RESOURCE_NOT_FOUND")
+
+    def signal_evidence(self, store: Store, signal_id: str, evidence_id: str) -> EvidenceView:
+        """Authorize the inspected signal's own intake image, whether or not it is linked yet."""
+        self.signal(store, signal_id)
+        self.require(Action.READ_EVIDENCE)
+        record = store.get_evidence(evidence_id)
+        for association in store.evidence_associations(evidence_id):
+            if association.signal_id == signal_id:
+                return EvidenceView(id=record.id, content_type=record.content_type,
+                    provenance=record.provenance, observed_at=record.observed_at, received_at=record.received_at)
         raise AccessError(404, "RESOURCE_NOT_FOUND")
 
     def evidence(self, store: Store, evidence_id: str, *, job_id: str | None = None) -> EvidenceView:
@@ -280,17 +293,29 @@ class AccessBoundary:
                     except AccessError:
                         continue
                     allowed = True
-                elif link.signal_id is not None and self.actor.actor_type == "service":
-                    # A retained signal-only association does not prove it is still unlinked.
+                elif link.signal_id is not None:
+                    # Canonical linkage, not a retained signal-only association, establishes scope.
                     issue = store.issue_for_signal(link.signal_id)
                     if issue is not None:
                         try:
                             self._issue(store, issue.id)
                         except AccessError:
                             continue
-                    allowed = True
+                        allowed = True
         if not allowed:
             raise AccessError(404, "RESOURCE_NOT_FOUND")
         record = store.get_evidence(evidence_id)
         return EvidenceView(id=record.id, content_type=record.content_type,
             provenance=record.provenance, observed_at=record.observed_at, received_at=record.received_at)
+
+    def receipt_evidence(self, store: Store, evidence_id: str) -> EvidenceView:
+        """Resident visibility is limited to the image on their own intake receipt."""
+        if self.actor.actor_type != "resident":
+            raise AccessError(404, "RESOURCE_NOT_FOUND")
+        for link in store.evidence_associations(evidence_id):
+            if link.signal_id is not None and store.signal_receipt_actor(link.signal_id) == self.actor.actor_id:
+                self.receipt(store, link.signal_id)
+                record = store.get_evidence(evidence_id)
+                return EvidenceView(id=record.id, content_type=record.content_type,
+                    provenance=record.provenance, observed_at=record.observed_at, received_at=record.received_at)
+        raise AccessError(404, "RESOURCE_NOT_FOUND")

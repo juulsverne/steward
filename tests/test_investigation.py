@@ -334,6 +334,34 @@ def test_intake_inspection_uses_stored_bytes_caches_success_and_keeps_error_rece
         assert error == retry and error.outcome == "ERROR" and error.reason_code == "INSPECTION_FAILED"
 
 
+def test_signal_evidence_scope_covers_only_the_inspected_unlinked_intake_image(tmp_path):
+    """Intake inspection reads the signal's own image before any issue link exists."""
+    from agent.actors import AccessBoundary, AccessError
+    from agent.policy import load_policy
+
+    with Store(tmp_path / "scope.sqlite3") as store:
+        images = {}
+        for key, digit in (("own", "4"), ("other", "5")):
+            raw = f"{key}-jpeg".encode()
+            image = NormalizedImage(raw, hashlib.sha256(raw).hexdigest(), digit * 16)
+            signal = resident_signal(actor=ACTOR.model_copy(update={"actor_type": "resident", "actor_id": key}),
+                idempotency_key=key, description="couch", location="1530 S Michigan Ave", received_at=AT,
+                observed_at=AT - timedelta(minutes=1), image=image, provenance="synthetic")
+            persist_signal(store, signal=signal, context=c.MutationContext(
+                actor=ACTOR, operation="ingest_source", idempotency_key=key), image=image,
+                image_root=tmp_path / "images", provenance="synthetic")
+            images[key] = (signal.id, store.evidence_for_entity(signal_id=signal.id)[0].id)
+        boundary = AccessBoundary(ACTOR, load_policy()["district"])
+        own_signal, own_image = images["own"]
+        _, other_image = images["other"]
+        assert boundary.signal_evidence(store, own_signal, own_image).id == own_image
+        with pytest.raises(AccessError):
+            boundary.signal_evidence(store, own_signal, other_image)
+        # The general read path still refuses an unlinked signal-only association.
+        with pytest.raises(AccessError):
+            boundary.evidence(store, own_image)
+
+
 def test_service_only_create_and_intake_inspection_http_paths(tmp_path):
     from agent.api import create_app
 

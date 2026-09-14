@@ -36,7 +36,10 @@ def _has_symlink_component(path: Path) -> bool:
     return current.is_symlink()
 
 
-def _seed(path: Path, data: Path) -> dict:
+def _seed(path: Path, data: Path, scenario: str = "baseline") -> dict:
+    from .adapters import FIXTURE_SCENARIOS, fixture_service_record
+    if scenario not in FIXTURE_SCENARIOS:
+        raise ValueError("unknown fixture scenario")
     feed = json.loads((data / "feed.json").read_text(encoding="utf-8"))
     manifest_bytes = (data / "images" / "manifest.json").read_bytes()
     manifest = json.loads(manifest_bytes)
@@ -70,7 +73,7 @@ def _seed(path: Path, data: Path) -> dict:
             context=c.MutationContext(actor=actor, operation="geocode_location",
                 idempotency_key="seed-geocode-1",
                 expected_revision=store.get_issue_record("demo-couch").state_revision))
-        record = json.loads((data / "service_records.json").read_text(encoding="utf-8"))[0]
+        record = fixture_service_record(data, scenario)
         store.record_service_match("demo-couch", record)
         vendors = json.loads((data / "vendors.json").read_text(encoding="utf-8"))
         with store.transaction() as tx:
@@ -83,14 +86,15 @@ def _seed(path: Path, data: Path) -> dict:
                                              policy_version=POLICY_VERSION))
         receipt = c.SeedReceipt(id="south-loop-demo-seed", seed_version=SEED_VERSION,
             policy_version=POLICY_VERSION, fixture_manifest_sha256=hashlib.sha256(manifest_bytes).hexdigest(),
-            baseline_signal_id=first.id, staged_signal_id=staged["id"], created_at=datetime.now(UTC))
+            baseline_signal_id=first.id, staged_signal_id=staged["id"], created_at=datetime.now(UTC), scenario=scenario)
         store.save_seed_receipt(receipt)
         score = store.get_issue("demo-couch")["evidence_score"]
-    if score != 65:
-        raise RuntimeError(f"seed baseline score must be 65, got {score}")
+    expected_score = 80 if scenario == "couch-open-one-v1" else 65
+    if score != expected_score:
+        raise RuntimeError(f"seed baseline score must be {expected_score}, got {score}")
     return {"database": str(path), "seed_version": SEED_VERSION, "baseline_score": score,
             "baseline_signal": first.id, "staged_second_report": staged["id"],
-            "fixture_manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest()}
+            "fixture_manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(), "scenario": scenario}
 
 
 def _is_marked_demo(path: Path) -> bool:
@@ -112,6 +116,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", type=Path, default=Path(".steward/steward.sqlite3"))
     parser.add_argument("--data", type=Path, default=Path("data"))
+    parser.add_argument("--scenario", choices=("baseline", "couch-open-one-v1"), default="baseline")
     parser.add_argument("--reset", action="store_true")
     args = parser.parse_args()
     requested = Path(os.path.abspath(args.db))
@@ -130,7 +135,7 @@ def main() -> int:
             parser.error("--reset refuses an unmarked or invalid database")
     temporary = destination.with_name(f".{destination.name}.{uuid4().hex}.tmp.sqlite3")
     try:
-        result = _seed(temporary, args.data.resolve())
+        result = _seed(temporary, args.data.resolve(), args.scenario)
         os.replace(temporary, destination)
     finally:
         if temporary.exists():

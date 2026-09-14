@@ -42,4 +42,13 @@ OPERATION_IDS = {
     ("POST", "/api/issues/{issue_id}/investigation-action"): "apply_investigation_decision",
     ("POST", "/api/issues/{issue_id}/official-dispute"): "official_dispute",
     ("POST", "/api/signals/{signal_id}/intake-inspection"): "inspect_intake_photo",
+    ("GET", "/api/signals/{signal_id}/receipt"): "read_signal_receipt",
+    ("GET", "/api/board"): "read_board",
+    ("GET", "/api/issues/{issue_id}"): "read_issue_detail",
+    ("GET", "/api/issues/{issue_id}/events"): "read_issue_events",
+    ("GET", "/api/jobs/{job_id}/proofs/{submission_id}/receipt"): "read_proof_receipt",
+    ("GET", "/api/crew/jobs"): "list_crew_jobs",
+    ("GET", "/api/evidence/{evidence_id}"): "read_evidence",
+    ("GET", "/api/evidence/{evidence_id}/content"): "read_evidence_content",
+    ("GET", "/api/exceptions"): "list_exceptions",
 }

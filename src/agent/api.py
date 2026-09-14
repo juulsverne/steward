@@ -18,7 +18,7 @@ from uuid import uuid4
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.routing import APIRoute
 from starlette.datastructures import FormData, UploadFile
 from starlette.exceptions import HTTPException
@@ -41,28 +41,36 @@ from .context import build_context
 from .coordinator import RuntimeConflict, command_record, validate_transport
 from .decisions import record_operational_decision
 from .http_contracts import (
+    BoardView,
     CandidateSignalsView,
     CandidateSignalView,
     CheckinRequest,
     ClassificationProposalRequest,
     CompletionExceptionRequest,
+    CrewJobListView,
     CrewJobView,
     DecisionProposalRequest,
     DemoSessionView,
     DispatchRequest,
+    EvidenceDetailView,
+    ExceptionListPage,
     ExceptionListView,
     HealthView,
     InspectCompletionRequest,
     IntakeReceiptView,
     InvestigationActionRequest,
     IssueCreateRequest,
+    IssueDetailView,
     IssueExceptionRequest,
+    IssueTimelineView,
     JurisdictionProposalRequest,
     LinkSignalRequest,
     OperationalDecisionProposalRequest,
     PersonaRequest,
     PlanRequest,
     ProofMetadata,
+    ProofReceiptView,
+    ReceiptStatusView,
     RequestCompletionRequest,
     SimilarIssuesView,
     SimilarIssueView,
@@ -72,7 +80,13 @@ from .http_contracts import (
     VendorOptions,
 )
 from .http_protocol import OPERATION_IDS
-from .images import MAX_UPLOAD_BYTES, UploadError, decode_upload, known_synthetic_fixture
+from .images import (
+    MAX_UPLOAD_BYTES,
+    ImageStorage,
+    UploadError,
+    decode_upload,
+    known_synthetic_fixture,
+)
 from .intake import persist_signal, resident_signal
 from .investigation import (
     apply_investigation_decision,
@@ -105,6 +119,14 @@ from .operations import (
     submit_proof,
 )
 from .policy import load_policy
+from .read_views import (
+    board,
+    crew_jobs,
+    evidence_detail,
+    exception_inbox,
+    issue_detail,
+    issue_timeline,
+)
 from .store import IdempotencyConflict, RevisionConflict, Store
 
 ERROR_RESPONSES = {status: {"model": c.ToolResult[
@@ -517,7 +539,7 @@ def create_app(settings: ApiSettings | None = None,
     app.state.api_settings = settings
     app.state.runtime_clock = runtime_clock
     app.state.store_factory = store_factory
-    app.state.adapters = adapters or SeededAdapters()
+    app.state.adapters = adapters or SeededAdapters(settings.fixture_root, scenario=settings.fixture_scenario)
     app.state.intake_inspector = intake_inspector
     app.state.completion_inspector = completion_inspector
     app.state.sessions = DemoSessions(settings.session_secret, personas)
@@ -766,6 +788,20 @@ def create_app(settings: ApiSettings | None = None,
             receipt_id=saved.signal_id, signal_id=saved.signal_id, received_at=saved.received_at,
         )), status=202)
 
+    @app.get("/api/signals/{signal_id}/receipt", response_model=c.ToolResult[ReceiptStatusView],
+             operation_id="read_signal_receipt")
+    def read_signal_receipt(request: Request, signal_id: str):
+        actor = require_action(request, Action.READ_RECEIPT)
+        with request_store(request) as store:
+            receipt = AccessBoundary(actor, settings.district_id).receipt(store, signal_id)
+            invocation = store.invocation_for_signal(signal_id)
+            if invocation is None:
+                return c.ToolResult(outcome="OK", data=ReceiptStatusView(**receipt.model_dump(exclude={"processing"})))
+            updated = invocation.finished_at or invocation.started_at or invocation.created_at
+            return c.ToolResult(outcome="OK", data=ReceiptStatusView(**receipt.model_dump(exclude={"processing"}),
+                processing=invocation.status, invocation_id=invocation.id, updated_at=updated,
+                reason_code=invocation.error_code))
+
     @app.get("/api/signals/related", response_model=c.ToolResult[CandidateSignalsView])
     def related_signals(request: Request, signal_id: str):
         actor = require_action(request, Action.INVESTIGATE)
@@ -808,6 +844,43 @@ def create_app(settings: ApiSettings | None = None,
             return c.ToolResult(outcome="OK", data=SimilarIssuesView(
                 candidates=tuple(candidates[:20]), truncated=len(candidates) > 20))
 
+    @app.get("/api/board", response_model=c.ToolResult[BoardView], operation_id="read_board")
+    def read_board(request: Request, cursor: str | None = None, limit: int = 20):
+        actor = require_action(request, Action.READ_ISSUE)
+        with request_store(request) as store:
+            try:
+                return c.ToolResult(outcome="OK", data=board(store, AccessBoundary(actor, settings.district_id),
+                    settings.district_id, cursor=cursor, limit=limit))
+            except ValueError:
+                raise AccessError(422, "INVALID_CURSOR") from None
+
+    @app.get("/api/issues/{issue_id}/events", response_model=c.ToolResult[IssueTimelineView],
+             operation_id="read_issue_events")
+    def read_issue_events(request: Request, issue_id: str, cursor: str | None = None, limit: int = 20):
+        actor = require_action(request, Action.READ_ISSUE)
+        with request_store(request) as store:
+            try:
+                return c.ToolResult(outcome="OK", data=issue_timeline(store,
+                    AccessBoundary(actor, settings.district_id), issue_id, cursor=cursor, limit=limit))
+            except ValueError:
+                raise AccessError(422, "INVALID_CURSOR") from None
+
+    @app.get("/api/issues/{issue_id}", response_model=c.ToolResult[IssueDetailView], operation_id="read_issue_detail")
+    def read_issue_detail(request: Request, issue_id: str, sources_cursor: str | None = None,
+                          sources_limit: int = 20, service_cursor: str | None = None,
+                          service_limit: int = 20, proof_cursor: str | None = None,
+                          proof_limit: int = 20):
+        actor = require_action(request, Action.READ_ISSUE)
+        with request_store(request) as store:
+            try:
+                return c.ToolResult(outcome="OK", data=issue_detail(store,
+                    AccessBoundary(actor, settings.district_id), issue_id, sources_cursor=sources_cursor,
+                    sources_limit=sources_limit, service_cursor=service_cursor,
+                    service_limit=service_limit, proof_cursor=proof_cursor, proof_limit=proof_limit,
+                    policy_path=settings.policy_path))
+            except ValueError:
+                raise AccessError(422, "INVALID_CURSOR") from None
+
     @app.post("/api/issues", response_model=c.ToolResult[c.EntityResult], status_code=201)
     async def create_issue(request: Request):
         context = mutation_context(request, Action.INVESTIGATE, expected_revision=expected_revision(request),
@@ -834,6 +907,59 @@ def create_app(settings: ApiSettings | None = None,
         with request_store(request) as store:
             return c.ToolResult[CrewJobView](outcome="OK",
                 data=AccessBoundary(actor, settings.district_id).job(store, job_id))
+
+    @app.get("/api/jobs/{job_id}/proofs/{submission_id}/receipt", response_model=c.ToolResult[ProofReceiptView],
+             operation_id="read_proof_receipt")
+    def read_proof_receipt(request: Request, job_id: str, submission_id: str):
+        actor = require_action(request, Action.READ_JOB)
+        with request_store(request) as store:
+            AccessBoundary(actor, settings.district_id).require_job(store, job_id)
+            submission = store.get_submission(submission_id)
+            if submission.job_id != job_id:
+                raise AccessError(404, "RESOURCE_NOT_FOUND")
+            row = store.db.execute("SELECT id FROM events WHERE job_id=? AND event_type='PROOF_SUBMITTED' "
+                "AND json_extract(payload,'$.submission_id')=? ORDER BY id DESC LIMIT 1", (job_id, submission_id)).fetchone()
+            if row is None:
+                raise AccessError(404, "RESOURCE_NOT_FOUND")
+            invocation = store.invocation_for_event(row[0])
+            return c.ToolResult(outcome="OK", data=ProofReceiptView(submission_id=submission.id, job_id=job_id,
+                invocation_id=invocation.id, processing=invocation.status,
+                updated_at=invocation.finished_at or invocation.started_at or invocation.created_at,
+                reason_code=invocation.error_code))
+
+    @app.get("/api/crew/jobs", response_model=c.ToolResult[CrewJobListView], operation_id="list_crew_jobs")
+    def list_crew_jobs(request: Request, cursor: str | None = None, limit: int = 20):
+        actor = require_action(request, Action.READ_JOB)
+        if actor.actor_type != "crew":
+            raise AccessError(403, "ROLE_FORBIDDEN")
+        with request_store(request) as store:
+            try:
+                return c.ToolResult(outcome="OK", data=crew_jobs(store,
+                    AccessBoundary(actor, settings.district_id), cursor=cursor, limit=limit))
+            except ValueError:
+                raise AccessError(422, "INVALID_CURSOR") from None
+
+    @app.get("/api/evidence/{evidence_id}", response_model=c.ToolResult[EvidenceDetailView],
+             operation_id="read_evidence")
+    def read_evidence(request: Request, evidence_id: str, job_id: str | None = None):
+        actor = resolve_actor(request)
+        with request_store(request) as store:
+            return c.ToolResult(outcome="OK", data=evidence_detail(store,
+                AccessBoundary(actor, settings.district_id), evidence_id, job_id=job_id))
+
+    @app.get("/api/evidence/{evidence_id}/content", operation_id="read_evidence_content")
+    def read_evidence_content(request: Request, evidence_id: str, job_id: str | None = None):
+        actor = resolve_actor(request)
+        with request_store(request) as store:
+            # Re-authorize immediately before opening private normalized storage.
+            detail = evidence_detail(store, AccessBoundary(actor, settings.district_id), evidence_id, job_id=job_id)
+            record = store.get_evidence(evidence_id)
+        try:
+            body = ImageStorage(settings.image_root).open(record.image_ref)
+        except KeyError:
+            raise AccessError(404, "RESOURCE_NOT_FOUND") from None
+        return Response(content=body, media_type=detail.content_type,
+                        headers={"Cache-Control": "private, no-store"})
 
     @app.get("/api/budget", response_model=c.ToolResult[c.BudgetAvailability])
     def read_budget(request: Request):
@@ -1119,6 +1245,18 @@ def create_app(settings: ApiSettings | None = None,
         except (KeyError, ValueError):
             raise AccessError(422, "VALIDATION_ERROR") from None
         return result_response(result, status=202)
+
+    @app.get("/api/exceptions", response_model=c.ToolResult[ExceptionListPage], operation_id="list_exceptions")
+    def list_exceptions(request: Request, cursor: str | None = None, limit: int = 20,
+                        status: str | None = None):
+        actor = require_action(request, Action.READ_ISSUE)
+        with request_store(request) as store:
+            try:
+                return c.ToolResult(outcome="OK", data=exception_inbox(store,
+                    AccessBoundary(actor, settings.district_id), cursor=cursor, limit=limit, status=status,
+                    policy_path=settings.policy_path))
+            except ValueError:
+                raise AccessError(422, "INVALID_CURSOR") from None
 
     @app.get("/api/exceptions/{exception_id}", response_model=c.ToolResult[c.ExceptionDetail])
     def read_exception(request: Request, exception_id: str):

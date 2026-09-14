@@ -444,7 +444,8 @@ def test_actual_server_exposes_only_sandbox_routes_with_explicit_setup(config, m
             "/api/invocations/{invocation_id}", "/api/invocations/{invocation_id}/resume",
             *{"/internal/invocations/{invocation_id}/" + operation for operation in (
                 "claim", "renew", "prepare", "load", "begin", "finish", "reconcile", "requests", "authorize", "observe", "complete")},
-            "/api/signals/related", "/api/issues/similar", "/api/issues",
+            "/api/signals/related", "/api/signals/{signal_id}/receipt", "/api/issues/similar", "/api/issues",
+            "/api/board", "/api/issues/{issue_id}", "/api/issues/{issue_id}/events",
             "/api/issues/{issue_id}/sources",
             "/api/issues/{issue_id}/geocode", "/api/issues/{issue_id}/service-records/search",
                 "/api/issues/{issue_id}/classification", "/api/issues/{issue_id}/jurisdiction",
@@ -453,10 +454,12 @@ def test_actual_server_exposes_only_sandbox_routes_with_explicit_setup(config, m
             "/api/issues/{issue_id}/official-dispute",
             "/api/signals/{signal_id}/intake-inspection",
             "/api/issues/{issue_id}/plan", "/api/plans/{plan_id}/vendors",
-            "/api/plans/{plan_id}/dispatch", "/api/jobs/{job_id}",
+            "/api/plans/{plan_id}/dispatch", "/api/jobs/{job_id}", "/api/crew/jobs",
+            "/api/evidence/{evidence_id}", "/api/evidence/{evidence_id}/content",
             "/api/jobs/{job_id}/accept", "/api/jobs/{job_id}/check-in",
-            "/api/jobs/{job_id}/proof", "/api/jobs/{job_id}/inspect", "/api/budget",
-            "/api/jobs/{job_id}/exceptions", "/api/issues/{issue_id}/exceptions",
+            "/api/jobs/{job_id}/proof", "/api/jobs/{job_id}/proofs/{submission_id}/receipt",
+            "/api/jobs/{job_id}/inspect", "/api/budget",
+            "/api/jobs/{job_id}/exceptions", "/api/issues/{issue_id}/exceptions", "/api/exceptions",
             "/api/exceptions/{exception_id}", "/api/exceptions/{exception_id}/request-completion",
             "/api/operator-decisions/{decision_id}/rework",
             "/api/jobs/{job_id}/settle", "/api/jobs/{job_id}/cancel", "/api/issues/{issue_id}/close",
@@ -619,7 +622,7 @@ def test_store_worker_threads_never_share_connections(config):
 
 @pytest.mark.parametrize("issue_id,explicit_issue_link,status", [
     ("foreign", True, 404), ("foreign", False, 404),
-    ("one", True, 200), ("one", False, 200), (None, False, 200),
+    ("one", True, 200), ("one", False, 200), (None, False, 404),
 ])
 def test_service_evidence_follows_current_signal_link_not_historical_association(
     harness, config, issue_id, explicit_issue_link, status,

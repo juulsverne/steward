@@ -79,6 +79,8 @@ class ApiSettings:
     development_origins: tuple[str, ...] = ()
     personas: tuple[DemoPersona, ...] | None = None
     runtime_enabled: bool = False
+    fixture_root: Path = Path("data")
+    fixture_scenario: str = "baseline"
 
     @classmethod
     def from_env(cls) -> ApiSettings:
@@ -96,6 +98,8 @@ class ApiSettings:
             service_token=os.getenv("STEWARD_SERVICE_TOKEN", ""),
             local_http=mode == "true",
             runtime_enabled=runtime == "true",
+            fixture_root=Path(os.getenv("STEWARD_FIXTURE_ROOT", "data")),
+            fixture_scenario=os.getenv("STEWARD_FIXTURE_SCENARIO", "baseline"),
             development_origins=tuple(filter(None, (
                 x.strip() for x in os.getenv("STEWARD_DEVELOPMENT_ORIGINS", "").split(",")
             ))),

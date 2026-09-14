@@ -245,6 +245,120 @@ class Store:
             )
         ]
 
+    def issue_rows(self, *, after_rowid: int = 0, watermark: int | None = None,
+                   limit: int = 101) -> tuple[list[tuple[int, str]], int]:
+        """Immutable-rowid membership page for safe read projections."""
+        if type(after_rowid) is not int or after_rowid < 0 or type(limit) is not int or not 1 <= limit <= 101:
+            raise ValueError("invalid issue page")
+        if watermark is None:
+            watermark = self.db.execute("SELECT COALESCE(MAX(rowid),0) FROM issues").fetchone()[0]
+        if type(watermark) is not int or watermark < 0:
+            raise ValueError("invalid issue page")
+        rows = self.db.execute("SELECT rowid,id FROM issues WHERE rowid>? AND rowid<=? ORDER BY rowid LIMIT ?",
+                               (after_rowid, watermark, limit)).fetchall()
+        return [(row[0], row[1]) for row in rows], watermark
+
+    def source_rows_for_issue(self, issue_id: str, *, after_event_id: int = 0,
+                              watermark: int | None = None, limit: int = 51) -> tuple[list[tuple[int, Signal]], int]:
+        if type(after_event_id) is not int or after_event_id < 0 or type(limit) is not int or not 1 <= limit <= 51:
+            raise ValueError("invalid source page")
+        self.get_issue_record(issue_id)
+        if watermark is None:
+            watermark = self.db.execute("SELECT COALESCE(MAX(id),0) FROM events WHERE issue_id=? "
+                                        "AND event_type='SIGNAL_LINKED'", (issue_id,)).fetchone()[0]
+        if type(watermark) is not int or watermark < 0:
+            raise ValueError("invalid source page")
+        rows = self.db.execute("SELECT id,json_extract(payload,'$.signal_id') AS signal_id FROM events "
+            "WHERE issue_id=? AND event_type='SIGNAL_LINKED' AND id>? AND id<=? "
+            "ORDER BY id LIMIT ?", (issue_id, after_event_id, watermark, limit)).fetchall()
+        return [(row[0], self.get_signal(row[1])) for row in rows], watermark
+
+    def event_rows_for_issue(self, issue_id: str, *, before_id: int | None = None,
+                             watermark: int | None = None, limit: int = 51) -> tuple[list[c.EventRecord], int]:
+        if type(limit) is not int or not 1 <= limit <= 51:
+            raise ValueError("invalid event page")
+        self.get_issue_record(issue_id)
+        if watermark is None:
+            watermark = self.db.execute("SELECT COALESCE(MAX(id),0) FROM events WHERE issue_id=?", (issue_id,)).fetchone()[0]
+        if type(watermark) is not int or watermark < 0 or (before_id is not None and (type(before_id) is not int or before_id < 0)):
+            raise ValueError("invalid event page")
+        upper = min(watermark, before_id - 1) if before_id else watermark
+        rows = self.db.execute("SELECT id FROM events WHERE issue_id=? AND id<=? ORDER BY id DESC LIMIT ?",
+                               (issue_id, upper, limit)).fetchall()
+        return [self.get_event(row[0]) for row in rows], watermark
+
+    def exceptions_rows(self, *, after_rowid: int = 0, watermark: int | None = None,
+                        statuses: tuple[str, ...] | None = None, limit: int = 51) -> tuple[list[tuple[int, c.ExceptionRecord]], int]:
+        if type(after_rowid) is not int or after_rowid < 0 or type(limit) is not int or not 1 <= limit <= 51:
+            raise ValueError("invalid exception page")
+        if watermark is None:
+            watermark = self.db.execute("SELECT COALESCE(MAX(rowid),0) FROM exceptions").fetchone()[0]
+        query = "SELECT rowid,id FROM exceptions WHERE rowid>? AND rowid<=?"
+        values: list[object] = [after_rowid, watermark]
+        if statuses:
+            query += " AND status IN (" + ",".join("?" for _ in statuses) + ")"
+            values.extend(statuses)
+        query += " ORDER BY rowid LIMIT ?"
+        values.append(limit)
+        rows = self.db.execute(query, values).fetchall()
+        return [(row[0], self.get_exception(row[1])) for row in rows], watermark
+
+    def exception_snapshot_rows(self, *, after_rowid: int, limit: int, event_watermark: int | None = None,
+                                row_watermark: int | None = None, statuses: tuple[str, ...]
+                                ) -> tuple[list[tuple[int, c.ExceptionRecord]], int, int, dict[str, int]]:
+        """Immutable creation-order membership evaluated against an event-time snapshot.
+
+        Exception rows are mutable.  The event log supplies the status at the first
+        page's event watermark, while current records remain the displayed values.
+        """
+        if not statuses or any(status not in {"PENDING", "DECIDED", "HANDLED", "CANCELLED"} for status in statuses):
+            raise ValueError("invalid exception snapshot")
+        if event_watermark is None:
+            event_watermark = self.db.execute("SELECT COALESCE(MAX(id),0) FROM events").fetchone()[0]
+        if row_watermark is None:
+            row_watermark = self.db.execute("SELECT COALESCE(MAX(rowid),0) FROM exceptions").fetchone()[0]
+        if (type(event_watermark) is not int or event_watermark < 0
+                or type(row_watermark) is not int or row_watermark < 0):
+            raise ValueError("invalid exception snapshot")
+        if type(after_rowid) is not int or after_rowid < 0 or type(limit) is not int or not 1 <= limit <= 51:
+            raise ValueError("invalid exception snapshot")
+        # The correlated latest event gives the state *at* the immutable event bound.
+        # Cancellation stores the exact cancellation event ID on its exception.
+        state = """CASE WHEN json_extract(e.record_json,'$.cancellation_event_id') IS NOT NULL
+          AND json_extract(e.record_json,'$.cancellation_event_id')<=? THEN 'CANCELLED'
+        ELSE COALESCE((SELECT CASE x.event_type WHEN 'EXCEPTION_RAISED' THEN 'PENDING'
+          WHEN 'OPERATOR_DECISION' THEN 'DECIDED' WHEN 'REWORK_REQUIRED' THEN 'HANDLED' END
+          FROM events x WHERE x.id<=? AND json_extract(x.payload,'$.exception_id')=e.id
+          AND x.event_type IN ('EXCEPTION_RAISED','OPERATOR_DECISION','REWORK_REQUIRED') ORDER BY x.id DESC LIMIT 1), '') END"""
+        membership = "EXISTS (SELECT 1 FROM events raised WHERE raised.id<=? AND raised.event_type='EXCEPTION_RAISED' AND json_extract(raised.payload,'$.exception_id')=e.id)"
+        placeholders = ",".join("?" for _ in statuses)
+        query = f"SELECT e.rowid,e.id FROM exceptions e WHERE e.rowid>? AND e.rowid<=? AND {membership} AND {state} IN ({placeholders}) ORDER BY e.rowid LIMIT ?"
+        values = [after_rowid, row_watermark, event_watermark, event_watermark, event_watermark, *statuses, limit]
+        rows = self.db.execute(query, values).fetchall()
+        # `exceptions` has a mutable `status` column.  A distinct alias prevents
+        # SQLite's GROUP BY from resolving to that base column instead of the
+        # immutable event-time snapshot expression above.
+        count_query = f"SELECT {state} AS snapshot_status,COUNT(*) FROM exceptions e WHERE e.rowid<=? AND {membership} GROUP BY snapshot_status"
+        count_values = [event_watermark, event_watermark, row_watermark, event_watermark]
+        counts = {row[0]: row[1] for row in self.db.execute(count_query, count_values)}
+        return [(row[0], self.get_exception(row[1])) for row in rows], event_watermark, row_watermark, counts
+
+    def job_rows_for_vendor(self, vendor_id: str | None, *, after_rowid: int = 0,
+                            watermark: int | None = None, limit: int = 51) -> tuple[list[tuple[int, c.JobRecord]], int]:
+        if type(after_rowid) is not int or after_rowid < 0 or type(limit) is not int or not 1 <= limit <= 51:
+            raise ValueError("invalid job page")
+        if watermark is None:
+            watermark = self.db.execute("SELECT COALESCE(MAX(rowid),0) FROM jobs").fetchone()[0]
+        query = "SELECT rowid,id FROM jobs WHERE rowid>? AND rowid<=?"
+        values: list[object] = [after_rowid, watermark]
+        if vendor_id is not None:
+            query += " AND vendor_id=?"
+            values.append(vendor_id)
+        query += " ORDER BY rowid LIMIT ?"
+        values.append(limit)
+        rows = self.db.execute(query, values).fetchall()
+        return [(row[0], self.get_job(row[1])) for row in rows], watermark
+
     @contextmanager
     def transaction(self):
         """Trusted service unit of work; recompute policy here, never perform network I/O.
@@ -597,6 +711,25 @@ class Store:
     def get_submission(self, record_id: str) -> c.SubmissionRecord:
         return self._record(c.SubmissionRecord, record_id)
 
+    def submission_rows_for_issue(self, issue_id: str, *, after_rowid: int = 0,
+                                  watermark: int | None = None, limit: int = 51
+                                  ) -> tuple[list[tuple[int, c.SubmissionRecord]], int]:
+        if type(after_rowid) is not int or after_rowid < 0 or type(limit) is not int or not 1 <= limit <= 51:
+            raise ValueError("invalid proof history page")
+        self.get_issue_record(issue_id)
+        if watermark is None:
+            watermark = self.db.execute("SELECT COALESCE(MAX(rowid),0) FROM submissions WHERE issue_id=?",
+                                        (issue_id,)).fetchone()[0]
+        rows = self.db.execute("SELECT rowid,id FROM submissions WHERE issue_id=? AND rowid>? AND rowid<=? "
+                               "ORDER BY rowid LIMIT ?", (issue_id, after_rowid, watermark, limit)).fetchall()
+        return [(row[0], self.get_submission(row[1])) for row in rows], watermark
+
+    def verification_for_submission(self, submission_id: str) -> c.VerificationRecord | None:
+        submission = self.get_submission(submission_id)
+        row = self.db.execute("SELECT id FROM verifications WHERE submission_id=? AND job_id=? AND issue_id=? "
+                              "ORDER BY rowid DESC LIMIT 1", (submission.id, submission.job_id, submission.issue_id)).fetchone()
+        return self.get_verification(row[0]) if row is not None else None
+
     def get_verification(self, record_id: str) -> c.VerificationRecord:
         return self._record(c.VerificationRecord, record_id)
 
@@ -692,6 +825,21 @@ class Store:
         return [self.get_service_lookup(row[0]) for row in self.db.execute(
             "SELECT id FROM service_lookups WHERE issue_id=? ORDER BY rowid", (issue_id,)
         )]
+
+    def service_lookup_rows_for_issue(self, issue_id: str, *, after_rowid: int = 0,
+                                      watermark: int | None = None, limit: int = 51
+                                      ) -> tuple[list[tuple[int, c.ServiceLookupRecord]], int]:
+        if type(after_rowid) is not int or after_rowid < 0 or type(limit) is not int or not 1 <= limit <= 51:
+            raise ValueError("invalid service lookup page")
+        self.get_issue_record(issue_id)
+        if watermark is None:
+            watermark = self.db.execute("SELECT COALESCE(MAX(rowid),0) FROM service_lookups WHERE issue_id=?",
+                                        (issue_id,)).fetchone()[0]
+        if type(watermark) is not int or watermark < 0:
+            raise ValueError("invalid service lookup page")
+        rows = self.db.execute("SELECT rowid,id FROM service_lookups WHERE issue_id=? AND rowid>? AND rowid<=? "
+                               "ORDER BY rowid LIMIT ?", (issue_id, after_rowid, watermark, limit)).fetchall()
+        return [(row[0], self.get_service_lookup(row[1])) for row in rows], watermark
 
     def latest_service_lookup(self, issue_id: str) -> c.ServiceLookupRecord | None:
         records = self.service_lookups_for_issue(issue_id)
@@ -861,6 +1009,18 @@ class Store:
         if row is None:
             raise KeyError(event_id)
         return self.get_invocation(row[0])
+
+    def invocation_for_signal(self, signal_id: str) -> c.InvocationRecord | None:
+        """Actual saved trigger link; SignalReceipt stays immutable and may omit it."""
+        self.get_signal(signal_id)
+        row = self.db.execute("SELECT id FROM invocations WHERE signal_id=? ORDER BY rowid DESC LIMIT 1",
+                              (signal_id,)).fetchone()
+        return self.get_invocation(row[0]) if row is not None else None
+
+    def decisions_for_issue(self, issue_id: str) -> tuple[c.DecisionRecord, ...]:
+        self.get_issue_record(issue_id)
+        return tuple(self.get_decision(row[0]) for row in self.db.execute(
+            "SELECT id FROM decisions WHERE issue_id=? ORDER BY rowid,id", (issue_id,)))
 
     def jobs_for_issue(self, issue_id: str) -> tuple[c.JobRecord, ...]:
         return tuple(self.get_job(row[0]) for row in self.db.execute(
