@@ -49,7 +49,7 @@ def propose(store, decision_type, key):
 def signal(signal_id="first", *, author="resident-1", text="Couch and bags block the sidewalk",
            image=True, observed=AT, dhash="1" * 16):
     return Signal(id=signal_id, source="fixture", source_author_id=author,
-        source_role="resident_observation", raw_text=text, reported_location="1530 S Michigan Ave",
+        source_role="resident_observation", raw_text=text, reported_location="State St & Madison St (demo)",
         received_at=observed + timedelta(minutes=5), observed_at=observed, provenance="seeded",
         image_sha256=("a" * 64 if image else None), image_dhash=(dhash if image else None))
 
@@ -118,7 +118,7 @@ def test_seeded_adapters_record_history_current_facts_and_no_match(tmp_path):
     store, item = linked_store(tmp_path)
     try:
         geo, _ = record_geocode(store, issue_id="issue", signal_id=item.id,
-            result=GeocodeResult("MATCH", c.LocationRecord(lat=41.86102, lon=-87.62406,
+            result=GeocodeResult("MATCH", c.LocationRecord(lat=41.88206, lon=-87.62780,
                 accuracy_m=10, provenance="seeded")), context=context(key="geo"))
         lookup, _ = record_service_lookup(store, issue_id="issue", signal_id=item.id,
             result=ServiceResult("MATCH", "311", "COMPLETED", datetime(2026, 9, 11, tzinfo=UTC)),
@@ -142,7 +142,7 @@ def test_decisions_cover_wait_actionable_official_dispute_routes_and_review(tmp_
     store, item = linked_store(tmp_path)
     try:
         record_geocode(store, issue_id="issue", signal_id=item.id,
-            result=GeocodeResult("MATCH", c.LocationRecord(lat=41.86102, lon=-87.62406,
+            result=GeocodeResult("MATCH", c.LocationRecord(lat=41.88206, lon=-87.62780,
                 accuracy_m=10, provenance="seeded")), context=context(key="geo"))
         record_service_lookup(store, issue_id="issue", signal_id=item.id,
             result=ServiceResult("MATCH", "311", "COMPLETED", datetime(2026, 9, 11, tzinfo=UTC)),
@@ -178,7 +178,7 @@ def test_second_independent_text_reaches_85_and_open_record_reaches_80(tmp_path)
     store, item = linked_store(tmp_path / "second")
     try:
         record_geocode(store, issue_id="issue", signal_id=item.id,
-            result=GeocodeResult("MATCH", c.LocationRecord(lat=41.86102, lon=-87.62406,
+            result=GeocodeResult("MATCH", c.LocationRecord(lat=41.88206, lon=-87.62780,
                 accuracy_m=10, provenance="seeded")), context=context(key="geo"))
         facts(store, item)
         second = signal("second", author="resident-2", text="A different witness sees the couch and bags", image=False)
@@ -192,7 +192,7 @@ def test_second_independent_text_reaches_85_and_open_record_reaches_80(tmp_path)
     store, item = linked_store(tmp_path / "open")
     try:
         record_geocode(store, issue_id="issue", signal_id=item.id,
-            result=GeocodeResult("MATCH", c.LocationRecord(lat=41.86102, lon=-87.62406,
+            result=GeocodeResult("MATCH", c.LocationRecord(lat=41.88206, lon=-87.62780,
                 accuracy_m=10, provenance="seeded")), context=context(key="geo"))
         record_service_lookup(store, issue_id="issue", signal_id=item.id,
             result=ServiceResult("MATCH", "311-open", "OPEN"), context=context(key="open"))
@@ -250,7 +250,7 @@ def test_route_and_safety_gates_use_current_classification_and_jurisdiction(
     store, item = linked_store(tmp_path)
     try:
         record_geocode(store, issue_id="issue", signal_id=item.id,
-            result=GeocodeResult("MATCH", c.LocationRecord(lat=41.86102, lon=-87.62406,
+            result=GeocodeResult("MATCH", c.LocationRecord(lat=41.88206, lon=-87.62780,
                 accuracy_m=10, provenance="seeded")), context=context(key="geo"))
         _classified, jurisdiction = facts(store, item, category=category, hazards=hazards)
         issue = store.get_issue_record("issue")
@@ -294,7 +294,7 @@ def test_intake_inspection_uses_stored_bytes_caches_success_and_keeps_error_rece
     image = NormalizedImage(image_bytes, hashlib.sha256(image_bytes).hexdigest(), "2" * 16)
     with Store(tmp_path / "inspection.sqlite3") as store:
         item = resident_signal(actor=ACTOR.model_copy(update={"actor_type": "resident", "actor_id": "resident"}),
-            idempotency_key="photo", description="couch", location="1530 S Michigan Ave", received_at=AT,
+            idempotency_key="photo", description="couch", location="State St & Madison St (demo)", received_at=AT,
             observed_at=AT - timedelta(minutes=1), image=image, provenance="synthetic")
         persist_signal(store, signal=item, context=c.MutationContext(
             actor=ACTOR, operation="ingest_source", idempotency_key="photo"), image=image,
@@ -319,7 +319,7 @@ def test_intake_inspection_uses_stored_bytes_caches_success_and_keeps_error_rece
         failing_bytes = b"failing-stored-jpeg"
         failing_image = NormalizedImage(failing_bytes, hashlib.sha256(failing_bytes).hexdigest(), "3" * 16)
         failed_signal = resident_signal(actor=ACTOR.model_copy(update={"actor_type": "resident", "actor_id": "other"}),
-            idempotency_key="failure", description="couch", location="1530 S Michigan Ave", received_at=AT,
+            idempotency_key="failure", description="couch", location="State St & Madison St (demo)", received_at=AT,
             observed_at=AT - timedelta(minutes=1), image=failing_image, provenance="synthetic")
         persist_signal(store, signal=failed_signal, context=c.MutationContext(
             actor=ACTOR, operation="ingest_source", idempotency_key="failure"), image=failing_image,
@@ -345,7 +345,7 @@ def test_signal_evidence_scope_covers_only_the_inspected_unlinked_intake_image(t
             raw = f"{key}-jpeg".encode()
             image = NormalizedImage(raw, hashlib.sha256(raw).hexdigest(), digit * 16)
             signal = resident_signal(actor=ACTOR.model_copy(update={"actor_type": "resident", "actor_id": key}),
-                idempotency_key=key, description="couch", location="1530 S Michigan Ave", received_at=AT,
+                idempotency_key=key, description="couch", location="State St & Madison St (demo)", received_at=AT,
                 observed_at=AT - timedelta(minutes=1), image=image, provenance="synthetic")
             persist_signal(store, signal=signal, context=c.MutationContext(
                 actor=ACTOR, operation="ingest_source", idempotency_key=key), image=image,
@@ -393,7 +393,7 @@ def test_decision_http_requires_a_proposal_and_returns_its_persisted_event(tmp_p
     store, item = linked_store(tmp_path / "prepared")
     try:
         record_geocode(store, issue_id="issue", signal_id=item.id,
-            result=GeocodeResult("MATCH", c.LocationRecord(lat=41.86102, lon=-87.62406,
+            result=GeocodeResult("MATCH", c.LocationRecord(lat=41.88206, lon=-87.62780,
                 accuracy_m=10, provenance="seeded")), context=context(key="geo"))
         facts(store, item)
     finally:
@@ -453,11 +453,11 @@ def test_fact_receipts_replay_before_stale_revision_and_reject_changed_payload(t
     try:
         first_context = context(key="geo")
         first, receipt = record_geocode(store, issue_id="issue", signal_id=item.id,
-            result=GeocodeResult("MATCH", c.LocationRecord(lat=41.86102, lon=-87.62406,
+            result=GeocodeResult("MATCH", c.LocationRecord(lat=41.88206, lon=-87.62780,
                 accuracy_m=10, provenance="seeded")), context=first_context)
         facts(store, item)
         replay, replay_receipt = record_geocode(store, issue_id="issue", signal_id=item.id,
-            result=GeocodeResult("MATCH", c.LocationRecord(lat=41.86102, lon=-87.62406,
+            result=GeocodeResult("MATCH", c.LocationRecord(lat=41.88206, lon=-87.62780,
                 accuracy_m=10, provenance="seeded")), context=first_context)
         assert replay == first and replay_receipt == receipt
         # Adapter output is server-selected, not a caller argument; an old key freezes it.

@@ -334,7 +334,7 @@ def test_cli_submits_real_human_event_without_constructing_agent(tmp_path, monke
         local_http=True, session_secret=SIGNING, service_token=TOKEN))
     monkeypatch.setattr(cli.httpx, "Client", lambda **kwargs: TestClient(app, base_url=ORIGIN))
     assert cli.main(["--origin", ORIGIN, "submit", "--description", "A blocked sidewalk",
-                     "--location", "1530 S Michigan Ave", "--key", "cli-exact-key"]) == 0
+                     "--location", "State St & Madison St (demo)", "--key", "cli-exact-key"]) == 0
     with Store(tmp_path / "cli.sqlite3") as store:
         pending = store.pending_invocations()
         assert len(pending) == 1 and pending[0].trigger_type == "SIGNAL_RECEIVED"

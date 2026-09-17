@@ -1,6 +1,8 @@
 # Steward documentation
 
-Read the PRD, then the architecture, then the build guide. Everything else supports those three.
+For a project overview, start with the [README](../README.md). To try the prototype, use [RUNNING.md](RUNNING.md). Before changing the implementation, read the PRD, architecture, and build guide. Hackathon deadlines and submission checklists below are historical: the project was not submitted.
+
+The public demo was relocated to the seeded Loop anchor after the dated evidence below was captured. Historical records redact the prior location and do not claim a later rerun or new coordinates.
 
 | Document | What it is | Read it when |
 |---|---|---|
@@ -10,7 +12,7 @@ Read the PRD, then the architecture, then the build guide. Everything else suppo
 | [DEMO.md](DEMO.md) | Sixteen acceptance criteria and the demo runbook | Before claiming a criterion passes |
 | [EVALUATION.md](EVALUATION.md) | Twenty-two-scenario internal evaluation protocol | Before running or reporting an evaluation |
 | [MODEL_SELECTION.md](MODEL_SELECTION.md) | Which Bedrock model does each job, costs, screen results, qualification gates | Before changing a model or prompt |
-| [SUBMISSION.md](SUBMISSION.md) | Hackathon submission checklist and deadline | In the final hours |
+| [SUBMISSION.md](SUBMISSION.md) | Original hackathon submission checklist and deadline (not submitted) | When reviewing project history |
 | [VISION.md](VISION.md) | Post-competition company direction | Only after the couch works |
 
 ## Dated evidence

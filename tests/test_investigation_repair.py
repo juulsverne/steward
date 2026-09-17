@@ -47,7 +47,7 @@ def photo(store, path, name="one", body=b"stored-jpeg", provenance="synthetic"):
     image = NormalizedImage(body, hashlib.sha256(body).hexdigest(), "2" * 16)
     actor = ACTOR.model_copy(update={"actor_type": "resident", "actor_id": name})
     item = resident_signal(actor=actor, idempotency_key=name, description="couch",
-        location="1530 S Michigan Ave", received_at=AT, observed_at=AT,
+        location="State St & Madison St (demo)", received_at=AT, observed_at=AT,
         image=image, provenance=provenance)
     persist_signal(store, signal=item, context=c.MutationContext(actor=actor,
         operation="submit_signal", idempotency_key=name), image=image,
@@ -472,7 +472,7 @@ def test_replay_never_runs_a_changed_adapter(tmp_path):
 def test_current_negative_geocode_revokes_precision_and_negative_lookup_revokes_match(tmp_path, outcome):
     with linked_store(tmp_path)[0] as store:
         inv.record_geocode(store, issue_id="issue", signal_id="first",
-            result=GeocodeResult("MATCH", c.LocationRecord(lat=41.86102, lon=-87.62406, accuracy_m=10, provenance="seeded")),
+            result=GeocodeResult("MATCH", c.LocationRecord(lat=41.88206, lon=-87.62780, accuracy_m=10, provenance="seeded")),
             context=context("geo", "first"))
         inv.record_service_lookup(store, issue_id="issue", signal_id="first", result=ServiceResult("MATCH", "r", "OPEN"),
             context=context("lookup", "first"))

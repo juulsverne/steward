@@ -202,7 +202,7 @@ def test_resident_intake_cannot_supply_service_invocation_header(tmp_path):
         select_crew(client, "resident-1")
         result = client.post("/api/signals", headers={**crew_headers("human-invocation", 0),
             "X-Steward-Invocation-Id": "invented-service-invocation"}, files={
-                "description": (None, "A couch blocks the sidewalk"), "location": (None, "1530 S Michigan Ave")})
+                "description": (None, "A couch blocks the sidewalk"), "location": (None, "State St & Madison St (demo)")})
     assert result.status_code == 403, result.text
 
 

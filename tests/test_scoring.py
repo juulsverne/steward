@@ -20,7 +20,7 @@ def signal(signal_id="s1", author="resident-1", text="A couch blocks the sidewal
         source="demo_feed",
         source_author_id=author,
         raw_text=text,
-        reported_location="1530 S Michigan Ave",
+        reported_location="State St & Madison St (demo)",
         received_at=observed + timedelta(hours=1),
         observed_at=observed,
         provenance="seeded",

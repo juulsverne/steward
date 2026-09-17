@@ -1,5 +1,7 @@
 # Hosted acceptance, September 14, 2026
 
+> Historical evidence before the public-demo relocation. The prior location is redacted here; this report does not establish later Loop coordinates or a rerun.
+
 Status: **the public HTTPS URL passed the sixteen-step couch acceptance driver (criteria 1–15 in one run; criterion 16 needs a second independently seeded run and was not attempted) and retained the resolved case, the PAID job, exactly one 7,200-cent simulated payment and every image byte across a `systemctl restart steward` and a full instance reboot.** Instance replacement was not exercised.
 
 - URL: **https://d1uke66gfefpu4.cloudfront.net** (CloudFront `E35BM8K25UCHPV` → EC2 `i-0b3030bce260538ea`, Elastic IP `35.80.131.214`, `us-west-2a`)
@@ -76,7 +78,7 @@ Judge-style fingerprint (no service token): select the `operator` persona over H
 
 Exactly one payment row existed before and after both events; no invocation was re-run and no new event was written by the restart or the reboot (event count stayed 37).
 
-A real browser (Chromium, 375 × 812 viewport) opened the URL at 16:20 CDT after the reboot: the persona page listed the six seeded personas, selecting "District operator (seeded)" sent `POST /api/demo/persona` → 200 and `GET /api/board?limit=50` → 200 through CloudFront, and the Operations Board rendered "Policy south-loop-v3", Resolved 1, Active 0, Attention 0, Watching 0, "$428.00 Budget available, $0.00 reserved, $72.00 spent of $500.00", and the 1530 S Michigan Ave marker "Paid, simulated".
+A real browser (Chromium, 375 × 812 viewport) opened the URL at 16:20 CDT after the reboot: the persona page listed the six seeded personas, selecting "District operator (seeded)" sent `POST /api/demo/persona` → 200 and `GET /api/board?limit=50` → 200 through CloudFront, and the Operations Board rendered "Policy south-loop-v3", Resolved 1, Active 0, Attention 0, Watching 0, "$428.00 Budget available, $0.00 reserved, $72.00 spent of $500.00", and the [original demo location redacted] marker "Paid, simulated".
 
 ## Defect found and fixed
 

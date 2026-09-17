@@ -27,7 +27,7 @@ def report(signal_id="s1", author="resident-1", text="Couch blocks sidewalk"):
         "source": "demo_feed",
         "source_author_id": author,
         "raw_text": text,
-        "reported_location": "1530 S Michigan Ave",
+        "reported_location": "State St & Madison St (demo)",
         "received_at": "2026-09-12T15:00:00Z",
         "observed_at": "2026-09-12T14:00:00Z",
         "provenance": "seeded",
@@ -37,7 +37,7 @@ def report(signal_id="s1", author="resident-1", text="Couch blocks sidewalk"):
 
 def setup_store(path):
     store = Store(path)
-    store.create_issue("couch", "bulky_waste", "1530 S Michigan Ave")
+    store.create_issue("couch", "bulky_waste", "State St & Madison St (demo)")
     store.record_geocode("couch", accuracy_m=10, provenance="seeded")
     return store
 

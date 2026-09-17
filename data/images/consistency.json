@@ -1,8 +1,8 @@
 {
   "provenance": "seeded",
   "label": "Demo consistency inputs; no GPS or capture-time attestation",
-  "job_location": [41.8615, -87.6238],
-  "checkin_location": [41.86158, -87.6238],
+  "job_location": [41.88206, -87.62780],
+  "checkin_location": [41.88214, -87.62780],
   "observed_at": {
     "before": "2026-09-12T14:00:00Z",
     "middle": "2026-09-12T15:00:00Z",

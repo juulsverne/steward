@@ -38,7 +38,7 @@ def main() -> int:
     print("OFFLINE FOUNDATION CHECK — seeded metadata; no Strands, vision, or agent decisions")
     issue_id = "demo-couch"
     with Store(args.db) as store:
-        store.create_issue(issue_id, "bulky_waste", "1530 S Michigan Ave")
+        store.create_issue(issue_id, "bulky_waste", "State St & Madison St (demo)")
         store.record_geocode(issue_id, accuracy_m=10, provenance="seeded")
         first = store.add_signal(issue_id, signals[0])
         print(json.dumps({"phase": "first_signal", "score": first["score"]}))

@@ -1,5 +1,7 @@
 # Clean-install proof, September 14, 2026
 
+> Historical evidence before the public-demo relocation. The prior district display name and location are redacted here; this report does not establish later Loop coordinates or a rerun.
+
 Status: run against two fresh local clones of `D:/dev/agents-for-humans`, made with no copied `.env`, `.venv`, `node_modules` or `.steward`. At clone time, `main` (`dc541a7263de75dd0aec92f25eb1a659f04c1aa9`) did **not** contain the frontend or the P1-and-later backend work — it sat 48 commits behind `codex/steward-build`, which itself had 0 commits `main` lacked, so the two branches diverged only because `main` had not been fast-forwarded yet; that gap is exactly why the literal-`main` proof below has no frontend/UI/seed/start results. The candidate actually walked here is `codex/steward-build` at `57e7e27991c3cb1abea0367cbf6fd858f63659be` ("Merge main into codex/steward-build") — the same commit the `codex/r1-freeze` worktree branched from. **The lead fast-forwarded `main` to `57e7e27991c3cb1abea0367cbf6fd858f63659be` and pushed it to origin at 15:58 CDT**, so `main` now equals the candidate; the two result sets below stay labeled by the commit each was actually run against (`57e7e27` vs the then-stale `dc541a7`) rather than by branch name.
 
 Acceptance walk (16/16 criteria, `agent.demo` driver): see [docs/evaluations/2026-09-14-ui-walk.md](2026-09-14-ui-walk.md).
@@ -60,7 +62,7 @@ moving to port 8090, which bound cleanly. The server was stopped after the check
 | Seed | `uv run --no-sync python -m agent.seed --db .steward/r1-clean-install.sqlite3 --reset` → `baseline` scenario, `seed_version south-loop-demo-b3`, fixture manifest `86b7f711a397c8404b3fa11e7a9ba47d3a3972f46e27b02d22746b8df4d59bed`, one seeded signal at score 65 |
 | Start + `/health` | `uv run --no-sync uvicorn agent.server:app --host 127.0.0.1 --port 8090` → `GET /health` → `{"outcome":"OK","reason_code":null,"data":{"ok":true},...}` |
 | `/` (built SPA) | Serves the built `frontend/dist/index.html` (`<title>Steward</title>`) |
-| Board renders seeded data | Confirmed interactively: persona gate → "District operator (seeded)" → Operations Board shows "South Loop Demo District", policy `south-loop-v3`, Watching 1 / Active 0 / Resolved 0, Budget available $500.00 ($0 reserved/spent), and a Leaflet map marker near the seeded address |
+| Board renders seeded data | Confirmed interactively: persona gate → "District operator (seeded)" → Operations Board shows "[original demo district redacted]", policy `south-loop-v3`, Watching 1 / Active 0 / Resolved 0, Budget available $500.00 ($0 reserved/spent), and a Leaflet map marker near the seeded address |
 | Bedrock preflight (fresh, live) | `uv run --no-sync python -m agent.bedrock_check --out .steward/r1-bedrock-check.json` → `mode: live`, `model_id global.anthropic.claude-sonnet-4-6`, region `us-west-2`, `passed: true`, tool `current_time` called, `stop_reason end_turn`, latency 2.68s, 1885 total tokens |
 
 `main` (`dc541a7`, its state at clone time — `main` now equals `57e7e27` after the lead's

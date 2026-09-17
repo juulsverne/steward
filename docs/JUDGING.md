@@ -1,5 +1,7 @@
 # Testing and submission audit — September 14, 2026
 
+> September 16 update: the repository uses the Loop demo anchor; the previously hosted case has not yet been migrated. The instructions below describe the updated local case and apply to hosting only after that rollout. See the [relocation notes](evaluations/2026-09-16-loop-relocation.md).
+
 Checked beginning around 5:30 PM Chicago time. **Submission is not complete.** This is an evidence checklist, not a legal eligibility certification.
 
 ## URLs and current versions
@@ -13,7 +15,7 @@ Checked beginning around 5:30 PM Chicago time. **Submission is not complete.** T
 
 1. Open the public URL, or the local preview for the restored design.
 2. Select **District operator (seeded)**. These are demo personas, not real accounts.
-3. On Board, open **1530 S Michigan Ave**. Inspect official completion versus newer observations, original photo, failed middle proof, accepted after proof, policy points, and the simulated settlement. Expand **Open audit history and event references** for the full timeline.
+3. On Board, open **State St & Madison St (demo)**. Inspect official completion versus newer observations, original photo, failed middle proof, accepted after proof, policy points, and the simulated settlement. Expand **Open audit history and event references** for the full timeline.
 4. Open Inbox, expand **Decided and handled**, and open the completion exception. The completed case has no pending completion action.
 5. Select **South Loop Services crew (seeded)**, open Crew and its job. Inspect acceptance, check-in, proof and simulated payment. Switching to another vendor should not expose this crew's job.
 
@@ -24,7 +26,7 @@ The saved couch is already resolved. Sending another observation is not a reliab
 Use the README setup and authenticated Bedrock profile. Start a separate named test store with runtime enabled; do not reset the public judging store. Run only one live model workload at a time. The existing API driver has passed; this exact browser sequence still needs a recorded complete run and repeat.
 
 1. Seed the fresh store and start its API. Wait for the initial investigation to finish. Operator Board should show one watching case, 65 evidence points and no dispatch.
-2. Select **Resident 2 (seeded)**. In Report, enter `A sofa and dumped bags still obstruct the walkway at 1530 South Michigan Avenue.` Location: `1530 S Michigan Ave`. Observation time: September 12, 2026 at **9:18 AM Chicago time** (`2026-09-12T14:18:00Z`). This is explicitly a supplied demo timestamp, not a new real observation. No extra resident photo is needed for this fixture. Submit and wait for the receipt's processing result.
+2. Select **Resident 2 (seeded)**. In Report, enter `A sofa and dumped bags still obstruct the walkway at State St & Madison St (demo).` Location: `State St & Madison St (demo)`. Observation time: September 12, 2026 at **9:18 AM Chicago time** (`2026-09-12T14:18:00Z`). This is explicitly a supplied demo timestamp, not a new real observation. No extra resident photo is needed for this fixture. Submit and wait for the receipt's processing result.
 3. Select Operator. Wait for the agent's investigation and dispatch. Inspect the dispute and the $72 simulated work order. Use the vendor actually assigned by the agent.
 4. Select that vendor's crew. Open the job, accept it, select **Use dispatch coordinates, demo**, then check in. Do not use your actual location for the seeded Chicago scenario.
 5. Submit the first proof: `data/images/before.jpg` as Before and `data/images/middle.jpg` as After. Fixture times are September 12 at **8:55 AM** and **7:00 PM Chicago time**, respectively (`13:55Z` and next-day `00:00Z`). These are supplied synthetic-fixture times. Wait for processing; inspect the failed area-clear requirement and blocked payment. The recorded API run scored this 90 against a 95 payment threshold; a differing live model result must be investigated, not edited to match.
@@ -33,7 +35,7 @@ Use the README setup and authenticated Bedrock profile. Start a separate named t
 8. Confirm accepted verification, exactly one $72 simulated settlement, resolved issue, and Board budget $428 available / $0 reserved / $72 spent. Check the rejected proof and operator decision remain in history.
 9. Repeat from another fresh local store and compare outcomes. Do not claim a full browser repeat from automated driver evidence.
 
-For the automated developer check, see [README](../README.md#4-run-the-couch-journey) and [DEMO](DEMO.md). A clone running live inference needs the tester's AWS credentials and incurs their costs, so it is a developer fallback, not the primary free judging route. Judges should use the owner-funded hosted app without receiving AWS keys or service tokens.
+For the automated developer check, see [README](RUNNING.md#4-run-the-couch-journey) and [DEMO](DEMO.md). A clone running live inference needs the tester's AWS credentials and incurs their costs, so it is a developer fallback, not the primary free judging route. Judges should use the owner-funded hosted app without receiving AWS keys or service tokens.
 
 ## Official submission cross-check
 

@@ -1,5 +1,7 @@
 # Steward frontend design: frame plus five surfaces
 
+> Historical design artifact before the public-demo relocation. The prior district display name below is redacted; this specification does not document a later relocated run.
+
 Status: proposed, September 14, 2026, 10:45 AM Chicago. Written after the B13 live API gate passed on the `codex/steward-build` branch. Nothing under `frontend/` exists yet.
 
 This document builds on the [P1 frame spec](2026-09-14-frontend-frame-design.md) and resolves its open choices. It adds the visual system and the content of all five surfaces so that P1 through P6 can be built today. Product behavior, actors, authority and the sixteen acceptance criteria come from [PRD](../../PRD.md) sections 4.3 and 7, [DEMO](../../DEMO.md) and the task cards in [BUILD_PLAN](../../BUILD_PLAN.md) section 8. Tone and principles come from `.impeccable.md`. Nothing here adds API authority, changes actors, or lets model prose set status.
@@ -157,7 +159,7 @@ All lead-owned, in `components/`. Each has an accessible name, works without col
 
 Header, 56 px tall, canvas background with a hairline bottom rule:
 
-- Left: wordmark "Steward" in Newsreader, then "South Loop Demo District" in Public Sans, then a `Sandbox demo` chip in the neutral pair. On mobile the district name collapses into the chip's title.
+- Left: wordmark "Steward" in Newsreader, then "[original demo district redacted]" in Public Sans, then a `Sandbox demo` chip in the neutral pair. On mobile the district name collapses into the chip's title.
 - Center: navigation as text links. Entries depend on the session actor: Board and Issue links for operator; Inbox for operator; Crew for crew; Report for resident. With no actor, only Report and the switcher show, with a one-line notice that a persona must be selected before anything can be read or submitted.
 - Right: `PersonaSwitcher`, `ThemeToggle`. On mobile a labeled menu button opens a sheet containing navigation, the switcher and the toggle. The page title and the switcher remain reachable on every width.
 

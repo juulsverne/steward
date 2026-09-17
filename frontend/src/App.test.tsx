@@ -26,7 +26,7 @@ describe("App frame", () => {
     render(<App />);
     const header = within(screen.getByRole("banner"));
     await waitFor(() => expect(header.getByLabelText("Persona")).toBeEnabled());
-    expect(screen.getByText("South Loop Demo District")).toBeInTheDocument();
+    expect(screen.getByText("Loop Demo District")).toBeInTheDocument();
     expect(screen.getByText("Sandbox demo")).toBeInTheDocument();
     expect(header.getByLabelText("Theme")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Inbox" })).toBeNull();

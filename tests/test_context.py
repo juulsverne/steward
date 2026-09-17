@@ -245,13 +245,13 @@ def test_unlinked_signal_issue_candidates_carry_current_revision(tmp_path):
     from agent.models import Signal
     at = datetime.now(UTC)
     with Store(tmp_path / "context.sqlite3") as store:
-        trigger = Signal("trigger", "resident", "author", "sofa on the walk", "1530 S Michigan Ave", at, "live")
+        trigger = Signal("trigger", "resident", "author", "sofa on the walk", "State St & Madison St (demo)", at, "live")
         receipt = store.receive_signal(trigger, context=context("submit_signal", "trigger"),
             invocation=c.PendingInvocationSpec(id="inv-trigger", trigger_type="SIGNAL_RECEIVED",
                                                 policy_version="south-loop-v3"))
         invocation = store.get_invocation(receipt.invocation_id)
-        store.create_issue("existing", "bulky_waste", "1530 S Michigan Ave")
-        store.store_signal(Signal("earlier", "resident", "other", "couch dumped", "1530 S Michigan Ave", at, "live"))
+        store.create_issue("existing", "bulky_waste", "State St & Madison St (demo)")
+        store.store_signal(Signal("earlier", "resident", "other", "couch dumped", "State St & Madison St (demo)", at, "live"))
         store.link_signal("existing", "earlier")
         current = store.get_issue_record("existing").state_revision
         packet = read_packet(store, invocation)

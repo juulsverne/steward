@@ -1,6 +1,7 @@
 {
   "kind": "component_screen_not_workflow_acceptance",
   "date_utc": "2026-09-13",
+  "relocation_note": "Historical evidence before public-demo relocation; prior anchor coordinates are redacted and this is not evidence of a later Loop run.",
   "source_commit_at_export": "161948247ddc76969ddeae32bf6fc53f3de99435",
   "source_sha256": {
     "uv.lock": "8891b24acd9124b305bb21e6c93d43237013ccd4388b736b28a1cec05f72f89f",
@@ -213,12 +214,12 @@
           "provenance": "seeded",
           "label": "Demo consistency inputs; no GPS or capture-time attestation",
           "job_location": [
-            41.8615,
-            -87.6238
+            null,
+            null
           ],
           "checkin_location": [
-            41.86158,
-            -87.6238
+            null,
+            null
           ],
           "observed_at": {
             "before": "2026-09-12T14:00:00Z",
@@ -875,12 +876,12 @@
           "provenance": "seeded",
           "label": "Demo consistency inputs; no GPS or capture-time attestation",
           "job_location": [
-            41.8615,
-            -87.6238
+            null,
+            null
           ],
           "checkin_location": [
-            41.86158,
-            -87.6238
+            null,
+            null
           ],
           "observed_at": {
             "before": "2026-09-12T14:00:00Z",
@@ -1380,12 +1381,12 @@
           "provenance": "seeded",
           "label": "Demo consistency inputs; no GPS or capture-time attestation",
           "job_location": [
-            41.8615,
-            -87.6238
+            null,
+            null
           ],
           "checkin_location": [
-            41.86158,
-            -87.6238
+            null,
+            null
           ],
           "observed_at": {
             "before": "2026-09-12T14:00:00Z",
@@ -1876,12 +1877,12 @@
           "provenance": "seeded",
           "label": "Demo consistency inputs; no GPS or capture-time attestation",
           "job_location": [
-            41.8615,
-            -87.6238
+            null,
+            null
           ],
           "checkin_location": [
-            41.86158,
-            -87.6238
+            null,
+            null
           ],
           "observed_at": {
             "before": "2026-09-12T14:00:00Z",
@@ -2452,12 +2453,12 @@
           "provenance": "seeded",
           "label": "Demo consistency inputs; no GPS or capture-time attestation",
           "job_location": [
-            41.8615,
-            -87.6238
+            null,
+            null
           ],
           "checkin_location": [
-            41.86158,
-            -87.6238
+            null,
+            null
           ],
           "observed_at": {
             "before": "2026-09-12T14:00:00Z",

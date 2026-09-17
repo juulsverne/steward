@@ -43,7 +43,7 @@ These are build outcomes. They introduce no adoption targets, new analytics prod
 
 ### 1.3 Hackathon proof
 
-The hackathon proves this with one dumped couch near 1530 S Michigan Ave in the South Loop Demo District, using real agent execution and real vision against seeded district and provider data, with simulated dispatch and settlement. Three judgments must be visible:
+The hackathon proves this with one dumped couch near State St & Madison St (demo) in the Loop Demo District, using real agent execution and real vision against seeded district and provider data, with simulated dispatch and settlement. Three judgments must be visible:
 
 1. **Wait.** The first signal scores 65 evidence points against an actionable threshold of 70. The 311 lookup finds a COMPLETED city record, which does not count as corroboration. Steward records the conflict and waits.
 2. **Dispute.** A second independent report raises the score to 85. Two observations newer than the official completion confirm the dispute; the record is credited and the score is 100. The issue stays open despite the city's closed record.
@@ -89,7 +89,7 @@ Independent observations link to one canonical Issue. Reposts, same-author messa
 
 ### 4.2 Authorized work and policy numbers
 
-The South Loop Demo District supplies a service boundary, an operating policy, a seeded budget, ten seeded addresses with coordinates, and three approved vendors: South Loop Services, Windy City Maintenance, and Lakefront Clean Team. Provider eligibility is a fixture: approved category, service area, equipment, availability, verified-insurance flag. The agent selects among eligible providers using distance, availability, workload, and performance facts. It cannot invent a provider, a rate, an insurance status, or authority.
+The Loop Demo District supplies a service boundary, an operating policy, a seeded budget, ten seeded addresses with coordinates, and three approved vendors: South Loop Services, Windy City Maintenance, and Lakefront Clean Team. Provider eligibility is a fixture: approved category, service area, equipment, availability, verified-insurance flag. The agent selects among eligible providers using distance, availability, workload, and performance facts. It cannot invent a provider, a rate, an insurance status, or authority.
 
 Autonomous categories: litter, bulky waste, approved graffiti removal. Route to the city: potholes, streetlights, traffic signals. Never dispatch: electrical, structural, hazardous material. Unknown responsibility goes to review. A mixed couch-plus-hazard observation keeps the hazard and blocks autonomous cleanup. A demo district claims no real municipal authority.
 
@@ -200,8 +200,8 @@ A second resident submits the same couch through the web form under a distinct s
 | Plan field | Couch |
 |---|---|
 | Condition | Couch and dumped bags obstructing the sidewalk |
-| Location | 1530 S Michigan Ave, seeded coordinates |
-| Authority | South Loop Demo District supplemental-cleanup policy (seeded) |
+| Location | State St & Madison St (demo), seeded coordinates |
+| Authority | Loop Demo District supplemental-cleanup policy (seeded) |
 | Service | Bulky waste cleanup |
 | Crew and equipment | Truck, two crew |
 | Scope | Remove the couch and visible bags; leave the marked work area clear |

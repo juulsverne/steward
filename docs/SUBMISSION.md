@@ -22,7 +22,7 @@ A neighborhood operator hears about the same dumped couch three times: a communi
 
 **Primary: the hosted system.** Hosted for judging on EC2 + CloudFront (deployed September 14; acceptance evidence: docs/evaluations/2026-09-14-hosted-acceptance.md). Public URL: `https://d1uke66gfefpu4.cloudfront.net` — one EC2 `t3.small` in `us-west-2` with a retained EBS data volume for SQLite and images, private S3 backups, nginx + uvicorn, the in-process Strands runtime, behind CloudFront. It serves `/health` and the Board; pick a persona in the header (a labeled sandbox, not authentication) and walk the Board, Issue Detail, Inbox, Crew Form and Report screens. The hosted acceptance run and the restart/reboot durability proof are recorded by the hosting worker in `docs/evaluations/2026-09-14-hosted-acceptance.md`, with the decision in [HOSTING_DECISION.md](HOSTING_DECISION.md); this checklist does not claim their result. The rules ask for free, unrestricted access through October 8; the owner keeps the instance up through that date.
 
-**Fallback: clone and run.** The documented path in [README.md](../README.md#run-it-yourself): clone the repository, `uv sync --locked --extra dev --extra web`, build the frontend, put two generated secrets and your own AWS profile in `.env`, seed, start the API with `STEWARD_RUNTIME_ENABLED=true`, and run `python -m agent.demo`. It requires the judge's own AWS account with Bedrock access to `global.anthropic.claude-sonnet-4-6` and costs a few dollars of inference per full run. Everything else (screens, tests, the offline scoring harness, the seeded state) runs without AWS.
+**Fallback: clone and run.** The documented path in [README.md](RUNNING.md#run-it-yourself): clone the repository, `uv sync --locked --extra dev --extra web`, build the frontend, put two generated secrets and your own AWS profile in `.env`, seed, start the API with `STEWARD_RUNTIME_ENABLED=true`, and run `python -m agent.demo`. It requires the judge's own AWS account with Bedrock access to `global.anthropic.claude-sonnet-4-6` and costs a few dollars of inference per full run. Everything else (screens, tests, the offline scoring harness, the seeded state) runs without AWS.
 
 ## What is implemented and what is not
 
@@ -85,7 +85,7 @@ AgentCore Runtime, Observability and Gateway are the remaining tier 3 items (the
 ## Final links — fill when real
 
 - Public repository: `https://github.com/juulsverne/steward` (public visibility verified September 14)
-- Judging access and instructions: `https://d1uke66gfefpu4.cloudfront.net` (hosted, see above); clone-and-run fallback in [README.md](../README.md#run-it-yourself)
+- Judging access and instructions: `https://d1uke66gfefpu4.cloudfront.net` (hosted, see above); clone-and-run fallback in [README.md](RUNNING.md#run-it-yourself)
 - Public video: pending owner recording and upload
 - Devpost submission: pending owner action
 - Clean-install/acceptance run evidence: local acceptance in [DEMO.md](DEMO.md#run-artifacts) and the [UI walk](evaluations/2026-09-14-ui-walk.md); hosted acceptance in `docs/evaluations/2026-09-14-hosted-acceptance.md` (written by the hosting worker); clean install in the [R1 report](evaluations/2026-09-14-clean-install.md)

@@ -55,15 +55,15 @@ export function OperationsBoard() {
 function BoardContent() {
   const { status, data, error, asOf, reload } = useBoard();
   const [selected, setSelected] = useState<string | null>(null);
-  if (status === "pending" && !data) return <div className="page"><PageHeader eyebrow="Operations board" title="South Loop Demo District" /><PendingState /></div>;
-  if (!data) return <div className="page"><PageHeader eyebrow="Operations board" title="South Loop Demo District" /><ErrorNotice error={error} onRetry={() => void reload()} /></div>;
+  if (status === "pending" && !data) return <div className="page"><PageHeader eyebrow="Operations board" title="Loop Demo District" /><PendingState /></div>;
+  if (!data) return <div className="page"><PageHeader eyebrow="Operations board" title="Loop Demo District" /><ErrorNotice error={error} onRetry={() => void reload()} /></div>;
   const markers = Array.isArray(data.markers) ? data.markers : [];
   const located = [...markers].sort((a, b) => ORDER[a.marker_state] - ORDER[b.marker_state]).filter((k) => k.latitude !== null);
   const unlocated = markers.filter((k) => k.latitude === null);
   const b = data.budget; const total = Math.max(b.initial_cents, 1);
   return (
     <div className="page board">
-      <PageHeader eyebrow="Operations board" title="South Loop Demo District"
+      <PageHeader eyebrow="Operations board" title="Loop Demo District"
         meta={<><span>Policy {data.policy_version}</span><Timestamp value={data.as_of} label="as of" /></>}
         actions={<ActionButton variant="secondary" onClick={() => void reload()}>Refresh</ActionButton>} />
       {status === "error" && <ErrorNotice error={error} title={`Refresh failed, showing data ${asOf ? relativeAsOf(asOf) : ""}`} onRetry={() => void reload()} />}

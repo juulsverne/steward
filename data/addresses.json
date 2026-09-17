@@ -1,5 +1,5 @@
 [
-  {"address": "1530 S Michigan Ave", "lat": 41.86102, "lon": -87.62406, "accuracy_m": 10, "provenance": "seeded"},
+  {"address": "State St & Madison St (demo)", "lat": 41.88206, "lon": -87.62780, "accuracy_m": 10, "provenance": "seeded"},
   {"address": "1300 S Michigan Ave", "lat": 41.86540, "lon": -87.62410, "accuracy_m": 10, "provenance": "seeded"},
   {"address": "1225 S Michigan Ave", "lat": 41.86650, "lon": -87.62410, "accuracy_m": 10, "provenance": "seeded"},
   {"address": "1800 S Michigan Ave", "lat": 41.85700, "lon": -87.62410, "accuracy_m": 10, "provenance": "seeded"},

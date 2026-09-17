@@ -59,7 +59,7 @@ def client(config):
 
 
 def submit(client, *, key="intake-1", image=True, description="Couch blocks sidewalk",
-           location="1530 S Michigan Ave", observed_at=None):
+           location="State St & Madison St (demo)", observed_at=None):
     fields = {"description": (None, description), "location": (None, location)}
     if observed_at is not None:
         fields["observed_at"] = (None, observed_at)
@@ -160,7 +160,7 @@ def test_official_never_scores_and_persistence_requires_same_author_fresh_lineag
 def test_official_adapter_persists_a_source_record_without_agent_or_pending_work(config):
     with Store(config.store_path) as store:
         receipt = persist_official_record(store, source_id="official-1", text="311 completed",
-            location="1530 S Michigan Ave", received_at=datetime(2026, 1, 1, tzinfo=UTC))
+            location="State St & Madison St (demo)", received_at=datetime(2026, 1, 1, tzinfo=UTC))
         assert store.get_signal(receipt.signal_id).source_role == "official_record"
         assert store.pending_invocations() == []
 
@@ -168,14 +168,14 @@ def test_official_adapter_persists_a_source_record_without_agent_or_pending_work
 def test_known_original_and_normalized_fixture_uploads_remain_synthetic(client, config):
     original = Path("data/images/before.jpg").read_bytes()
     first = client.post("/api/signals", files={"description": (None, "fixture"),
-        "location": (None, "1530 S Michigan Ave"), "image": ("before.jpg", original, "image/jpeg")},
+        "location": (None, "State St & Madison St (demo)"), "image": ("before.jpg", original, "image/jpeg")},
         headers={**INTENT, "Idempotency-Key": "fixture-original"})
     normalized = decode_upload(original, "image/jpeg").bytes
     second = client.post("/api/signals", files={"description": (None, "fixture normalized"),
-        "location": (None, "1530 S Michigan Ave"), "image": ("before.jpg", normalized, "image/jpeg")},
+        "location": (None, "State St & Madison St (demo)"), "image": ("before.jpg", normalized, "image/jpeg")},
         headers={**INTENT, "Idempotency-Key": "fixture-normalized"})
     ordinary = client.post("/api/signals", files={"description": (None, "ordinary"),
-        "location": (None, "1530 S Michigan Ave"), "image": ("ordinary.jpg", jpeg_bytes(), "image/jpeg")},
+        "location": (None, "State St & Madison St (demo)"), "image": ("ordinary.jpg", jpeg_bytes(), "image/jpeg")},
         headers={**INTENT, "Idempotency-Key": "ordinary"})
     assert first.status_code == second.status_code == ordinary.status_code == 202
     with Store(config.store_path) as store:
@@ -189,7 +189,7 @@ def test_known_original_and_normalized_fixture_uploads_remain_synthetic(client, 
 def test_supplemental_fixture_keeps_synthetic_signal_evidence_and_event(client, config):
     raw = Path("data/images/supplemental/persistence-later.jpg").read_bytes()
     response = client.post("/api/signals", files={"description": (None, "fixture report"),
-        "location": (None, "1530 S Michigan Ave"),
+        "location": (None, "State St & Madison St (demo)"),
         "image": ("photo.jpg", raw, "image/jpeg")},
         headers={**INTENT, "Idempotency-Key": "supplemental-upload"})
     assert response.status_code == 202, response.text
@@ -329,7 +329,7 @@ def test_truncated_http_multipart_is_rejected_without_state_or_open_upload(clien
         f"--{boundary}\r\nContent-Disposition: form-data; name=\"description\"\r\n\r\n"
         "Couch blocks sidewalk\r\n"
         f"--{boundary}\r\nContent-Disposition: form-data; name=\"location\"\r\n\r\n"
-        "1530 S Michigan Ave\r\n"
+        "State St & Madison St (demo)\r\n"
         f"--{boundary}\r\nContent-Disposition: form-data; name=\"image\"; filename=\"normal.jpg\"\r\n"
         "Content-Type: image/jpeg\r\n\r\n"
     ).encode() + jpeg_bytes()

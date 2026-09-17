@@ -40,7 +40,7 @@ export function IssueMap({ markers, selectedId, onSelect }: { markers: BoardMark
     tiles.on("tileerror", () => setTilesFailed(true));
     tiles.addTo(m);
     layer.current = L.layerGroup().addTo(m);
-    m.setView([41.867, -87.625], 15);
+    m.setView([41.88206, -87.62780], 15);
     map.current = m;
     return () => { m.remove(); map.current = null; };
   }, []);

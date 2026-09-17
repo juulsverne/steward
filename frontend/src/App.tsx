@@ -12,7 +12,7 @@ import { CrewJobs } from "./pages/CrewJobs";
 import { CrewJob } from "./pages/CrewJob";
 import { ResidentIntake } from "./pages/ResidentIntake";
 
-const DISTRICT = "South Loop Demo District";
+const DISTRICT = "Loop Demo District";
 
 function NotFound() { return <div className="page"><h1>Page not found</h1><p><NavLink to="/">Back to the board</NavLink></p></div>; }
 

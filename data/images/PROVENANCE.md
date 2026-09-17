@@ -1,6 +1,6 @@
 # Synthetic demo images
 
-Generated September 13, 2026 with the built-in OpenAI image-generation tool. The tool did not report its underlying model version. These are invented scenes, not photographs of a real incident or the actual facade at 1530 S Michigan Ave. That address is only a seeded demo anchor. No third-party source photograph was supplied.
+Generated September 13, 2026 with the built-in OpenAI image-generation tool. The tool did not report its underlying model version. These are invented scenes, not photographs of a real incident or the actual facade at State St & Madison St (demo). That intersection is only a seeded demo anchor. No third-party source photograph was supplied.
 
 The four generated PNGs were inspected visually, then normalized to metadata-free RGB JPEG with a longest side of 1024 pixels at quality 85. `reused.jpg` is a quality-60 re-encode of `after.jpg`, intentionally representing recycled completion evidence. Synthetic provenance remains explicit here and in the manifest even though embedded image metadata is removed. No claim of production fraud detection or real GPS/capture-time attestation is made.
 

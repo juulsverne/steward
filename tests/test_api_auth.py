@@ -205,7 +205,7 @@ def seed_boundary_records(path):
         for issue, vendor, district in (("one", "south_loop_services", "south_loop_demo"),
             ("two", "windy_city_maintenance", "south_loop_demo"),
             ("foreign", "lakefront_clean_team", "other-district")):
-            store.create_issue(issue, "bulky_waste", "1530 S Michigan Ave")
+            store.create_issue(issue, "bulky_waste", "State St & Madison St (demo)")
             with store.transaction() as tx:
                 tx.insert_vendor(c.VendorRecord(id=vendor, name=vendor, insurance_verified=True,
                     service_categories=("bulky_waste",), service_area=(district,),

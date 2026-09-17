@@ -6,8 +6,8 @@
     {
       "id": "demo-couch-feed-1",
       "source_author_id": "demo-resident-1",
-      "raw_text": "There is a couch blocking the sidewalk near 1530 S Michigan.",
-      "reported_location": "1530 S Michigan Ave",
+      "raw_text": "There is a couch blocking the sidewalk near State St & Madison St (demo).",
+      "reported_location": "State St & Madison St (demo)",
       "observed_at": "2026-09-12T13:55:00Z",
       "received_at": "2026-09-12T14:00:00Z",
       "image": "before.jpg"

@@ -1,7 +1,7 @@
 {
   "version": "south-loop-v3",
   "district": "south_loop_demo",
-  "district_label": "South Loop Demo District (seeded)",
+  "district_label": "Loop Demo District (seeded)",
   "provenance": "seeded",
   "actionable_min_score": 70,
   "precise_geocode_max_m": 30,
@@ -24,6 +24,6 @@
     "litter": {"base_cents": 4500, "required_equipment": ["crew_2"]},
     "approved_graffiti_removal": {"base_cents": 8000, "required_equipment": ["pressure_washer", "crew_2"]}
   },
-  "service_area": {"min_lat": 41.85, "max_lat": 41.878, "min_lon": -87.64, "max_lon": -87.612},
+  "service_area": {"min_lat": 41.85, "max_lat": 41.89, "min_lon": -87.64, "max_lon": -87.612},
   "budget_cents": 50000
 }

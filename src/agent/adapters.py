@@ -65,7 +65,7 @@ class SeededAdapters:
 
     def service_record(self, signal: Signal) -> ServiceResult:
         text = signal.raw_text.casefold()
-        if signal.reported_location.casefold() == "1530 s michigan ave" and any(
+        if signal.reported_location.casefold() == "state st & madison st (demo)" and any(
             word in text for word in ("couch", "sofa")
         ):
             record = self._record

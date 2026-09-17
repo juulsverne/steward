@@ -15,7 +15,7 @@ from agent.policy import (
 )
 
 POLICY = load_policy("data/policy.yaml")
-COUCH = {"lat": 41.86102, "lon": -87.62406}
+COUCH = {"lat": 41.88206, "lon": -87.62780}
 TRUCK_VENDOR = {
     "id": "south_loop_services", "name": "South Loop Services", "insurance_verified": True,
     "service_categories": ["bulky_waste", "litter"], "service_area": ["south_loop_demo"],
@@ -69,7 +69,7 @@ def test_quote_is_deterministic_and_rejects_unknown_services():
 
 def test_geometry_helpers():
     assert distance_m(COUCH["lat"], COUCH["lon"], COUCH["lat"], COUCH["lon"]) == 0
-    assert 20 < distance_m(41.86102, -87.62406, 41.86122, -87.62406) < 25
+    assert 20 < distance_m(41.88206, -87.62780, 41.88226, -87.62780) < 25
     assert in_district(POLICY, COUCH["lat"], COUCH["lon"])
     assert not in_district(POLICY, 41.90, -87.62)
 

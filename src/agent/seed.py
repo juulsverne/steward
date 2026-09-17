@@ -56,7 +56,7 @@ def _seed(path: Path, data: Path, scenario: str = "baseline") -> dict:
         context = c.MutationContext(actor=actor, operation="ingest_source", idempotency_key="seed-feed-1")
         persist_signal(store, signal=first, context=context, image=image,
                        image_root=path.parent / "images", provenance="synthetic")
-        store.create_issue("demo-couch", "bulky_waste", "1530 S Michigan Ave")
+        store.create_issue("demo-couch", "bulky_waste", "State St & Madison St (demo)")
         # The original intake event remains issue-less. Linking and trusted cause
         # binding form one transaction, exactly as the real intake transition does.
         from .investigation import _bind_unlinked_signal_invocation
